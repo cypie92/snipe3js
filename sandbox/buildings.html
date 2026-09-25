@@ -6,53 +6,129 @@
 </head>
 <body>
 <script type="module">
+// Buildings kit preview. ?set=village (default: everything laid out as a little town)
+//   | houses | shops | civic | small | ground | backdrop
+// Standard stage params also work: cam=close|scope|wide|top, focus=<index>, dist, zoom, yaw, quality.
+// Item indices per set are printed to the console and exposed as window.__info.
 import '@fontsource/fredoka/600.css';
 import '@fontsource/fredoka/700.css';
 import * as THREE from 'three';
 import { createStage } from './stage.js';
 import * as B from '../src/world/kit/buildings/index.js';
 
-// ?set=houses|civic|small|ground|backdrop|village (default village = everything as a little town)
 const params = new URLSearchParams(location.search);
 const set = params.get('set') || 'village';
 try { await document.fonts.load('700 48px Fredoka'); } catch (e) { /* fallback font */ }
 
-const stage = await createStage({ ground: set !== 'backdrop' });
+const stage = await createStage({ ground: true });
 const info = [];
 const put = (obj, x, z, ry = 0, label) => {
   stage.add(obj, x, z, ry, label);
-  const s = B.stats(obj);
-  info.push({ label: label || obj.name, ...s });
+  info.push({ i: info.length, label: label || obj.name, ...B.stats(obj) });
   return obj;
 };
 
-if (set === 'houses') {
+function village() {
+  // hero pieces first so focus indices stay stable
+  put(B.fountain({ flowing: params.get('flow') === '1' }), 0, 0, 0, 'fountain');                           // 0
+  put(B.church({ graves: 6 }), -36, -26, 0.12, 'church');                                               // 1
+  put(B.pub({ crooked: params.get('crooked') !== '0' }), 33, -14, -0.18, 'The Wonky Pint');             // 2
+  put(B.terrace(4, { seed: 12, startNumber: 2 }), -5, -27, 0, 'terrace(4)');                              // 3
+  put(B.shop({ kind: 'bakery', seed: 3, floors: 2 }), 13, -26, 0, 'shop: bakery');                        // 4
+  put(B.shop({ kind: 'fishchips', seed: 4, floors: 3, roofStyle: 'mansard' }), 21.5, -25.5, 0, 'shop: fish & chips'); // 5
+  put(B.house({ seed: 11, floors: 1, roofStyle: 'gable', gableFront: false }), -20, 30, Math.PI, 'house: cottage'); // 6
+  put(B.house({ seed: 33, floors: 2, gableFront: true, windowStyle: 'roundtop' }), -44, -2, Math.PI / 2, 'house: front gable'); // 7
+  put(B.house({ seed: 44, roofStyle: 'hip', windowStyle: 'shuttered' }), 48, 8, -Math.PI / 2, 'house: hip');      // 8
+  put(B.bandstand({}), -24, 6, 0.3, 'bandstand');                                                        // 9
+  put(B.wellHouse({}), 20, 6, -0.4, 'wishing well');                                                     // 10
+  put(B.phoneBox({}), -9, 17.2, 0, 'phone box');                                                         // 11
+  put(B.postBox({}), -5.5, 17.4, 0, 'post box');                                                         // 12
+  put(B.busStop({}), 8, 17.2, 0, 'bus stop');                                                            // 13
+  put(B.shop({ kind: 'post', seed: 9, floors: 2, roofStyle: 'hip' }), 45, -32, -0.25, 'shop: post office'); // 14
+  put(B.house({ seed: 55, roofStyle: 'mansard', floors: 2 }), -60, -30, 0.3, 'house: mansard');           // 15
+  put(B.house({ seed: 66, style: 'tudor' }), 60, -8, -0.9, 'house: tudor');                              // 16
+  // ground
+  put(B.cobbleSquare({ width: 36, depth: 24, radius: 6 }), 0, 0, 0);                                      // 17
+  put(B.road({ points: [[-90, 23], [-40, 22], [0, 24], [40, 22.5], [90, 25]], width: 7 }), 0, 0, 0);       // 18
+  put(B.pavement({ points: [[-90, 17.6], [-40, 16.6], [0, 18.6], [40, 17.1], [90, 19.6]], width: 3, kerbSide: 1 }), 0, 0, 0); // 19
+  put(B.lowWall([[-49, -12], [-49, -40], [-22, -40]], { seed: 2 }), 0, 0, 0);                             // 20
+  put(B.picketFence([[-28, 28], [-12, 28], [-12, 34]], { seed: 3 }), 0, 0, 0);                           // 21
+  put(B.hedgeRow([[24, -3], [45, -3]], { seed: 4, flowers: 0.6 }), 0, 0, 0);                              // 22
+  put(B.backdrop({ seed: 7 }), 0, 0, 0);                                                                 // 23
+  stage.extent = 80;
+}
+
+function houses() {
   const specs = [
     { seed: 11, label: 'cottage (gable, dormers)', floors: 1, roofStyle: 'gable', gableFront: false },
     { seed: 22, label: 'townhouse (sash)', floors: 2, roofStyle: 'gable', windowStyle: 'sash' },
     { seed: 33, label: 'front gable (round-top)', floors: 2, roofStyle: 'gable', gableFront: true, windowStyle: 'roundtop' },
     { seed: 44, label: 'hip (shuttered)', floors: 2, roofStyle: 'hip', windowStyle: 'shuttered' },
     { seed: 55, label: 'mansard', floors: 2, roofStyle: 'mansard' },
-    { seed: 66, label: 'tudor', floors: 2, style: 'tudor', roofStyle: 'gable' },
+    { seed: 66, label: 'tudor + birdhouse', floors: 2, style: 'tudor', roofStyle: 'gable', gag: 'birdhouse' },
     { seed: 77, label: 'brick 3-floor', floors: 3, style: 'brick' },
-    { seed: 88, label: 'random seed 88' },
+    { seed: 88, label: 'seed 88 + gnome', gag: 'gnome' },
   ];
-  specs.forEach((s, i) => {
-    const h = B.house(s);
-    put(h, (i % 4 - 1.5) * 16, Math.floor(i / 4) * -20, 0, s.label);
-  });
+  specs.forEach((s, i) => put(B.house(s), (i % 4 - 1.5) * 16, Math.floor(i / 4) * -20, 0, s.label));
   put(B.terrace(5, { seed: 5 }), 0, -42, 0, 'terrace(5)');
   stage.extent = 60;
-} else {
-  const h = B.house({ seed: 1 });
-  put(h, 0, 0, 0, 'house');
-  stage.extent = 14;
 }
+
+function shops() {
+  Object.keys(B.SHOP_KINDS).forEach((k, i) => put(B.shop({ kind: k, seed: i + 3 }), (i % 3 - 1) * 16, Math.floor(i / 3) * -22, 0, k));
+  stage.extent = 50;
+}
+
+function civic() {
+  put(B.church({}), -16, -6, 0, 'church');
+  put(B.pub({ crooked: false }), 12, 0, 0, 'pub');
+  put(B.pub({ crooked: true, seed: 'b' }), 12, -22, 0, 'pub (crooked)');
+  put(B.fountain({ flowing: true }), -16, 20, 0, 'fountain (flowing)');
+  put(B.fountain({ flowing: false }), 2, 20, 0, 'fountain (dry)');
+  put(B.pub({ crooked: true, signMount: 'wall', seed: 'c', tables: 1 }), 36, -11, 0, 'pub (wall bracket, crooked)');
+  stage.extent = 48;
+}
+
+function small() {
+  const list = [
+    [B.phoneBox({}), 'phoneBox'], [B.postBox({}), 'postBox'], [B.busStop({}), 'busStop'],
+    [B.wellHouse({}), 'wellHouse'], [B.bandstand({}), 'bandstand'], [B.fountain({ flowing: true }), 'fountain'],
+  ];
+  const xs = [-9, -6, 0, 7, -6, 8];
+  const zs = [4, 4, 4, 4, -8, -8];
+  list.forEach(([o, l], i) => put(o, xs[i], zs[i], 0, l));
+  stage.extent = 22;
+}
+
+function ground() {
+  put(B.cobbleSquare({ width: 20, depth: 14, radius: 4 }), 0, 0, 0, 'cobbleSquare');
+  put(B.road({ points: [[-24, 12], [0, 14], [24, 11]], width: 7, edgeLines: true }), 0, 0, 0, 'road');
+  put(B.pavement({ points: [[-24, 7], [0, 9], [24, 6]], width: 2.6, kerbSide: 1 }), 0, 0, 0, 'pavement');
+  put(B.lowWall([[-20, -10], [-20, -2], [-12, -2]], { seed: 1 }), 0, 0, 0, 'lowWall');
+  put(B.lowWall([[12, -10], [20, -10]], { seed: 1, style: 'brick' }), 0, 0, 0, 'lowWall brick');
+  put(B.picketFence([[-8, -12], [8, -12]], { seed: 1 }), 0, 0, 0, 'picketFence');
+  put(B.hedgeRow([[-20, 3], [-14, 3], [-12, -1]], { seed: 1, flowers: 0.7 }), 0, 0, 0, 'hedgeRow');
+  put(B.pavement({ width: 6, depth: 3 }), 15, -3, 0, 'pavement (rect)');
+  stage.extent = 36;
+}
+
+function backdropSet() {
+  put(B.cobbleSquare({ width: 40, depth: 30, radius: 8 }), 0, 0, 0, 'square');
+  put(B.church({}), 0, -20, 0, 'church');
+  put(B.terrace(5, { seed: 2 }), -26, 0, 0.4, 'terrace');
+  put(B.backdrop({ seed: 7 }), 0, 0, 0);
+  stage.extent = 90;
+}
+
+({ village, houses, shops, civic, small, ground, backdrop: backdropSet })[set]?.();
 
 stage.onUpdate(() => { window.__frames = (window.__frames || 0) + 1; });
 stage.frame();
 window.__info = info;
-console.log('[game] stats', JSON.stringify(info));
+window.__B = B;
+const total = info.reduce((a, r) => ({ draws: a.draws + r.draws, tris: a.tris + r.tris }), { draws: 0, tris: 0 });
+console.log('[game] items', JSON.stringify(info.map((r) => `${r.i}:${r.label}`)));
+console.log('[game] total', JSON.stringify(total));
 </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 // Painted canvas textures: shop signs, house-number digits, clock faces, small labels.
 // Every texture is redrawn once the web font (Fredoka) finishes loading, so signs never get
 // stuck with a fallback font. Works without a DOM (Node stats): textures are simply null.
-import { THREE, materials, cbox } from './common.js';
+import { THREE, cbox } from './common.js';
 import { P } from '../../../gfx/palette.js';
 
 export const FONT = 'Fredoka, "Arial Rounded MT Bold", "Varela Round", "Nunito", sans-serif';
@@ -230,7 +230,7 @@ export function numberPlate(kit, n, t = {}, rim = P.cobalt, height = 0.34) {
         const u = uv.getX(k);
         uv.setX(k, (d + inset + u * (1 - 2 * inset)) / 10);
       }
-      kit.raw(g, mat, { x: -tw / 2 + dw * (i + 0.5), z: 0.075 });
+      kit.raw(g, mat, { x: -tw / 2 + dw * (i + 0.5), z: 0.092 });
     }
   });
 }
@@ -306,5 +306,66 @@ export function clockFaceMaterial({ face = '#fff6e0', ink = P.ink, rim = P.gold 
   }, { anisotropy: 4 });
   const m = decalMaterial(tex, face, 'clockface');
   labelCache.set(key, m);
+  return m;
+}
+
+/**
+ * Stained glass atlas (512x512): left half = lancet panel pattern (u 0-0.5, full v),
+ * right-top quarter = rose window (u 0.5-1, v 0.5-1). Slightly emissive so it glows like toy candy.
+ */
+export function stainedGlassMaterial() {
+  if (labelCache.has('stained')) return labelCache.get('stained');
+  const jewels = ['#e8413c', '#2f6fe0', '#ffc93c', '#2ec4b6', '#9b6cf0', '#ff7eb6', '#7cc653'];
+  const tex = paintedTexture(512, 512, (ctx) => {
+    ctx.fillStyle = '#2b2b3a';
+    ctx.fillRect(0, 0, 512, 512);
+    // lancet panel: diamond lattice + a central flower medallion
+    const cell = 42;
+    let k = 0;
+    for (let y = -cell; y < 512 + cell; y += cell / 2) {
+      for (let x = (Math.round(y / (cell / 2)) % 2) * (cell / 2); x < 256 + cell; x += cell) {
+        ctx.fillStyle = jewels[(k++ * 5 + Math.floor(y / 17)) % jewels.length];
+        ctx.beginPath();
+        ctx.moveTo(x, y - cell / 2 + 4); ctx.lineTo(x + cell / 2 - 4, y); ctx.lineTo(x, y + cell / 2 - 4); ctx.lineTo(x - cell / 2 + 4, y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, 256, 512); ctx.clip();
+    const cx = 128, cy = 300;
+    ctx.fillStyle = '#2b2b3a';
+    ctx.beginPath(); ctx.arc(cx, cy, 86, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      ctx.fillStyle = i % 2 ? '#ff7eb6' : '#e8413c';
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * 46, cy + Math.sin(a) * 46, 30, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = '#ffc93c';
+    ctx.beginPath(); ctx.arc(cx, cy, 30, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // rose window
+    const rx = 384, ry = 128, R = 124;
+    ctx.fillStyle = '#2b2b3a';
+    ctx.fillRect(256, 0, 256, 256);
+    for (let ring = 0; ring < 3; ring++) {
+      const n = [16, 12, 8][ring];
+      const r0 = [R, R * 0.66, R * 0.36][ring], r1 = [R * 0.68, R * 0.38, R * 0.12][ring];
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * Math.PI * 2 + 0.03, a1 = ((i + 1) / n) * Math.PI * 2 - 0.03;
+        ctx.fillStyle = jewels[(i * 3 + ring * 2) % jewels.length];
+        ctx.beginPath();
+        ctx.arc(rx, ry, r0 - 5, a0, a1);
+        ctx.arc(rx, ry, r1 + 4, a1, a0, true);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.fillStyle = '#ffc93c';
+    ctx.beginPath(); ctx.arc(rx, ry, R * 0.1, 0, Math.PI * 2); ctx.fill();
+  }, { anisotropy: 4 });
+  const m = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: tex ? '#ffffff' : '#000000', emissiveIntensity: 0.35, roughness: 0.25, metalness: 0, color: tex ? '#ffffff' : '#6f7fd0' });
+  m.name = 'stainedGlass';
+  labelCache.set('stained', m);
   return m;
 }

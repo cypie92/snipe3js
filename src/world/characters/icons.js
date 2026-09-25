@@ -94,21 +94,42 @@ function heart(x, y, s) {
   };
 }
 
-function anger(x, y, s) {
-  // four bulging "vein" arcs around a centre (comic anger mark)
+function grump(x, y, s) {
+  // little storm cloud with a lightning bolt (grumpy mood, family friendly)
   return (ctx, col, grow) => {
-    ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.lineWidth = s * 0.13 + grow;
-    for (let i = 0; i < 4; i++) {
-      const a = i * Math.PI / 2 + Math.PI / 4;
-      const cx = x + Math.cos(a) * s * 0.36, cy = y + Math.sin(a) * s * 0.36;
-      ctx.beginPath();
-      ctx.arc(cx, cy, s * 0.24, a + Math.PI * 0.62, a + Math.PI * 1.38);
-      ctx.stroke();
+    ctx.fillStyle = col; ctx.strokeStyle = col; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    const g = grow / 2;
+    for (const [cx, cy, r] of [[-0.28, 0.02, 0.2], [0, -0.12, 0.27], [0.3, 0.0, 0.21], [0.08, 0.1, 0.22], [-0.12, 0.12, 0.18]]) {
+      ctx.beginPath(); ctx.arc(x + cx * s, y + cy * s, r * s + g, 0, Math.PI * 2); ctx.fill();
     }
+    if (col !== INK) { ctx.fillStyle = P.sunflower; }
+    ctx.beginPath();
+    const b = [[0.02, 0.2], [-0.1, 0.46], [0.02, 0.44], [-0.06, 0.7], [0.16, 0.36], [0.04, 0.38], [0.12, 0.2]];
+    b.forEach(([bx, by], i) => (i ? ctx.lineTo(x + bx * s, y + by * s) : ctx.moveTo(x + bx * s, y + by * s)));
+    ctx.closePath();
+    ctx.lineWidth = grow || 1;
+    ctx.fill(); if (grow) ctx.stroke();
   };
 }
 
+function flashDraw(ctx) {
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.18, 'rgba(255,250,220,0.95)');
+  g.addColorStop(0.45, 'rgba(255,240,180,0.3)');
+  g.addColorStop(1, 'rgba(255,240,180,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  for (let i = 0; i < 4; i++) { // star spikes
+    ctx.save(); ctx.translate(128, 128); ctx.rotate(i * Math.PI / 4);
+    ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(0, -124); ctx.lineTo(6, 0); ctx.lineTo(0, 124); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+
 const DRAW = {
+  flash: flashDraw,
   surprise(ctx) { // "!?"
     sticker(ctx, bang(84, 30, 190), P.tomato);
     sticker(ctx, question(170, 30, 190), P.sunflower);
@@ -118,7 +139,7 @@ const DRAW = {
   z(ctx) { sticker(ctx, zed(60, 64, 136, 124), '#dff3ff', { outline: 12, shadow: 7 }); },
   note(ctx) { sticker(ctx, note(104, 36, 176), P.violet); },
   heart(ctx) { sticker(ctx, heart(128, 40, 200), P.bubblegum); },
-  anger(ctx) { sticker(ctx, anger(128, 120, 200), P.tomato, { outline: 12, shadow: 7 }); },
+  anger(ctx) { sticker(ctx, grump(128, 100, 200), '#9aa8c4', { outline: 12, shadow: 7 }); },
 };
 
 export function iconMaterial(type) {
@@ -136,6 +157,22 @@ export function iconMaterial(type) {
   return cache.get(key);
 }
 
+/** Camera flash burst sprite (additive). */
+export function makeFlash() {
+  if (!cache.has('flashMat')) {
+    const m = iconMaterial('flash').clone();
+    m.blending = THREE.AdditiveBlending;
+    m.map = iconMaterial('flash').map;
+    cache.set('flashMat', m);
+  }
+  const s = new THREE.Sprite(cache.get('flashMat'));
+  s.position.set(-0.05, 0.06, 0.05);
+  s.raycast = () => {};
+  s.visible = false;
+  s.renderOrder = 11;
+  return s;
+}
+
 /** Shared soft contact-shadow blob (unit size, lies on the ground). */
 export function blobShadow(size = 1) {
   if (!cache.has('blob')) {
@@ -150,7 +187,7 @@ export function blobShadow(size = 1) {
     ctx.fillRect(0, 0, 64, 64);
     const tex = new THREE.CanvasTexture(c);
     const mat = new THREE.MeshBasicMaterial({
-      color: '#2c2f5a', alphaMap: tex, transparent: true, opacity: 0.42, depthWrite: false,
+      color: '#2c2f5a', alphaMap: tex, transparent: true, opacity: 0.3, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
     mat.name = 'blobShadow';
@@ -167,6 +204,52 @@ export function blobShadow(size = 1) {
   m.name = 'blob';
   return m;
 }
+
+/**
+ * Many blob shadows in ONE draw call (used by Crowd / PigeonFlock). Characters created with
+ * { shadow: false } get a slot via attach(character); positions update every frame in update().
+ */
+export class BlobShadows {
+  constructor(capacity = 64) {
+    blobShadow(1); // make sure the shared geo/material exist
+    const { geo, mat } = cache.get('blob');
+    this.mesh = new THREE.InstancedMesh(geo, mat, capacity);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = -1;
+    this.mesh.raycast = () => {};
+    this.mesh.name = 'blob-shadows';
+    this.list = [];
+    this._m = new THREE.Matrix4();
+    this._q = new THREE.Quaternion();
+    this._p = new THREE.Vector3();
+    this._s = new THREE.Vector3();
+  }
+
+  attach(ch) {
+    if (this.list.length >= this.mesh.instanceMatrix.count) return;
+    this.list.push(ch);
+    this.mesh.count = this.list.length;
+  }
+
+  /** Call after the characters updated. Characters must share this mesh's parent space. */
+  update() {
+    const m = this._m;
+    this.list.forEach((ch, i) => {
+      const st = ch.shadowState;
+      if (!st || !st.visible) { m.makeScale(0, 0, 0); this.mesh.setMatrixAt(i, m); return; }
+      const r = ch.root;
+      this._p.set(st.x, 0, st.z).applyAxisAngle(Y, r.rotation.y).add(r.position);
+      this._p.y += 0.013;
+      this._s.set(st.size, 1, st.size * (st.sz || 1));
+      this._q.setFromAxisAngle(Y, r.rotation.y);
+      m.compose(this._p, this._q, this._s);
+      this.mesh.setMatrixAt(i, m);
+    });
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+const Y = new THREE.Vector3(0, 1, 0);
 
 /**
  * A pop-up sticker above a character's head. Created lazily: no draw call until shown.

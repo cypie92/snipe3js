@@ -3,6 +3,8 @@
 // mirrored (same number = same pose on both sides). Angles in radians.
 //   aF* arm swing forward   aO* arm raise outward   aT* arm yaw inward   eB* elbow bend   eS* elbow bend inward
 //   wB* wrist bend          wW* wrist wiggle        lF* leg forward      lO* leg outward  lT* toe-out  k* knee
+// Arms use Euler 'YZX': aF > ~1.6 flips the meaning of aO, and for raised arms (aO > ~1.4) a NEGATIVE eS
+// bends the forearm up/over the head. Stubby arms cannot reach above the head: keep hands beside it.
 import { createPoseType, TAU, clamp, noise, hop, smooth, bump, win } from './anim.js';
 
 export const PersonPose = createPoseType([
@@ -18,6 +20,8 @@ export const PersonPose = createPoseType([
 ]);
 
 const both = (o, k, v) => { o[k + 'L'] = v; o[k + 'R'] = v; };
+const ARM_KEYS = ['aFL', 'aOL', 'aTL', 'eBL', 'eSL', 'wBL', 'wWL', 'aFR', 'aOR', 'aTR', 'eBR', 'eSR', 'wBR', 'wWR'];
+const _listen = Object.fromEntries(ARM_KEYS.map((k) => [k, 0]));
 
 // ---- shared building blocks -----------------------------------------------------------------
 function breathe(o, T, s, amt = 1) {
@@ -112,13 +116,15 @@ export const ACTIONS = {
   wave(o, t, s, opt) {
     const T = t * s.tempo;
     breathe(o, T + s.phase, s);
+    armsIdle(o, T, s, 'relaxed');
     const up = smooth(t / 0.3);
-    o.aOR = 2.5 * up; o.aFR = 0.15; o.eBR = 0.25;
-    o.eSR = 0.55 * Math.sin(T * 9.5) * up; o.wWR = 0.4 * Math.sin(T * 9.5 - 0.6) * up;
-    armsIdle(o, T, s, 'relaxed'); o.aOR = 2.5 * up; o.aFR = 0.2; o.eBR = 0.25;
-    o.srz = -0.07 * up; o.hrz = 0.03 * Math.sin(T * 4.75);
-    o.nrz = 0.12 * up + 0.04 * Math.sin(T * 4.75); o.nry = 0.08;
-    o.by = 0.025 * s.energy * Math.abs(Math.sin(T * 4.75));
+    const w = Math.sin(T * 8.5);
+    // straight arm up-and-out sweeping side to side (stubby arms can't reach above the head)
+    o.aOR = (2.05 + 0.3 * w) * up; o.aFR = 0.3 * up; o.eBR = 0.1 * up; o.eSR = -0.15 * up;
+    o.wWR = -0.5 * w * up;
+    o.srz = -0.1 * up; o.hrz = 0.03 * Math.sin(T * 4.25);
+    o.nrz = 0.14 * up + 0.04 * Math.sin(T * 4.25); o.nry = 0.08;
+    o.by = 0.025 * s.energy * Math.abs(Math.sin(T * 4.25));
     o.smile = 0.35; o.mouth = 0.35 + 0.15 * Math.sin(T * 3); o.browY = 0.5; o.lid = 0.12;
     o.lTL = 0.12; o.lTR = 0.12;
   },
@@ -144,11 +150,10 @@ export const ACTIONS = {
     o.srx = speak * 0.05;
     // listener: hands behind/front, slow nods, bigger smile, occasional chuckle
     if (listen > 0) {
-      const tmp = {};
-      for (const k of ['aF', 'aO', 'aT', 'eB', 'eS', 'wB']) { tmp[k + 'L'] = o[k + 'L']; tmp[k + 'R'] = o[k + 'R']; }
-      const q = { aFL: 0, aOL: 0, aTL: 0, eBL: 0, eSL: 0, wBL: 0, wWL: 0, aFR: 0, aOR: 0, aTR: 0, eBR: 0, eSR: 0, wBR: 0, wWR: 0 };
+      const q = _listen;
+      for (const k of ARM_KEYS) q[k] = 0;
       armsIdle(q, T, s, s.idle === 'hips' || s.idle === 'behind' ? s.idle : 'front');
-      for (const k of Object.keys(tmp)) o[k] = tmp[k] * speak + q[k] * listen;
+      for (const k of ARM_KEYS) o[k] = o[k] * speak + q[k] * listen;
       const nod = Math.max(0, Math.sin(T * 2.6)) * win(T % 4.5, 0.4, 2.4);
       o.nrx += listen * (0.13 * nod + 0.04);
       o.smile += listen * 0.35;
@@ -166,10 +171,10 @@ export const ACTIONS = {
     const h = hop(T, per);
     o.by = 0.2 * s.energy * h;
     o.bsq = 0.12 * (h - 0.35) * s.energy;
-    both(o, 'kR', 0); o.kL = o.kR = 0.35 * h; o.lFL = o.lFR = 0.18 * h;
+    o.kL = o.kR = 0.35 * h; o.lFL = o.lFR = 0.18 * h;
     const pump = Math.sin((T / per) * TAU);
-    o.aOL = 2.55 + 0.15 * pump; o.aOR = 2.55 + 0.15 * pump; o.aFL = o.aFR = 0.3;
-    o.eBL = o.eBR = 0.3 + 0.25 * pump; o.wWL = o.wWR = 0.3 * pump;
+    o.aOL = 2.05 + 0.15 * pump; o.aOR = 2.05 + 0.15 * pump; o.aFL = o.aFR = 0.45;
+    o.eBL = o.eBR = 0.25 + 0.25 * pump; o.wWL = o.wWR = 0.3 * pump;
     o.nrx = -0.18; o.nrz = 0.06 * Math.sin(T * 5);
     o.mouth = 0.85; o.smile = 0.6; o.lid = 0.4; o.browY = 0.8;
   },
@@ -248,32 +253,37 @@ export const ACTIONS = {
     const T = t * s.tempo;
     const b = T * TAU * 1.9;
     const style = s.seed % 3;
-    o.hy = -0.035 * (1 + Math.sin(2 * b)) * 0.5;
-    both(o, 'lF', 0.12 * (1 + Math.sin(2 * b)) * 0.5); both(o, 'k', 0.28 * (1 + Math.sin(2 * b)) * 0.5);
-    o.hrz = 0.12 * Math.sin(b); o.hx = 0.03 * Math.sin(b); o.srz = -0.08 * Math.sin(b);
-    o.nrx = 0.09 * Math.sin(2 * b); o.nrz = 0.12 * Math.sin(b);
-    o.bsq = 0.03 * Math.sin(2 * b);
-    if (style === 0) { // disco point
+    const bob = (1 + Math.sin(2 * b)) * 0.5; // knees dip twice per bar
+    o.by = 0.05 * s.energy * Math.abs(Math.sin(b));
+    o.hy = -0.04 * bob;
+    both(o, 'lF', 0.2 * bob); both(o, 'k', 0.42 * bob);
+    o.hrz = 0.16 * Math.sin(b); o.hx = 0.035 * Math.sin(b); o.srz = -0.12 * Math.sin(b);
+    o.nrx = 0.1 * Math.sin(2 * b); o.nrz = 0.16 * Math.sin(b);
+    o.bsq = 0.05 * Math.sin(2 * b);
+    if (style === 0) { // disco: point up-diagonal / down-diagonal
       const up = Math.sin(b * 0.5) > 0;
-      o.aOR = up ? 2.3 : 0.7; o.aFR = up ? 0.5 : 0.5; o.eBR = 0.05;
-      o.aOL = 0.62; o.aFL = -0.12; o.eSL = 1.75;
-      o.sry = up ? 0.2 : -0.2;
-    } else if (style === 1) { // arms up swaying
-      o.aOL = o.aOR = 2.4; o.aFL = o.aFR = 0.25 + 0.2 * Math.sin(b);
-      o.eBL = o.eBR = 0.3; o.eSL = 0.5 * Math.sin(b); o.eSR = -0.5 * Math.sin(b);
-    } else { // arm pump / funky chicken
-      o.aOL = o.aOR = 0.9 + 0.35 * Math.sin(2 * b); o.eBL = o.eBR = 1.6; o.aFL = o.aFR = 0.3;
-      o.eSL = o.eSR = 0.3;
+      o.aOR = up ? 2.1 : 0.55; o.aFR = up ? 0.4 : 0.75; o.eBR = 0.05;
+      o.aOL = 0.62; o.aFL = -0.12; o.eSL = 1.75; o.eBL = 0.15;
+      o.sry = up ? 0.25 : -0.2; o.nry = up ? 0.3 : -0.2;
+    } else if (style === 1) { // hands in the air, swaying
+      o.aOL = o.aOR = 2.0; o.aFL = o.aFR = 0.45;
+      o.eBL = o.eBR = 0.3; o.eSL = 0.6 * Math.sin(b); o.eSR = -0.6 * Math.sin(b);
+      o.wWL = o.wWR = 0.5 * Math.sin(b);
+    } else { // the twist
+      o.hry = 0.45 * Math.sin(b); o.sry = -0.55 * Math.sin(b);
+      o.aOL = o.aOR = 0.55; o.aFL = o.aFR = 0.55; o.eBL = o.eBR = 1.45;
+      o.aTL = 0.25 + 0.3 * Math.sin(b); o.aTR = 0.25 - 0.3 * Math.sin(b);
+      both(o, 'lT', -0.35 * Math.sin(b));
     }
-    o.lid = 0.3; o.smile = 0.6; o.mouth = 0.3 + 0.2 * Math.max(0, Math.sin(b)); o.browY = 0.3;
+    o.lid = 0.35; o.smile = 0.6; o.mouth = 0.35 + 0.25 * Math.max(0, Math.sin(b)); o.browY = 0.4;
   },
 
   panic(o, t, s) {
     const T = t * s.tempo * 1.1;
     gait(o, s.gait, s, 1);
     o.srx = -0.05; o.by += 0.02;
-    o.aOL = 2.2 + 0.55 * Math.sin(T * 13); o.aOR = 2.2 + 0.55 * Math.sin(T * 13 + 1.7);
-    o.aFL = 0.35 * Math.sin(T * 11); o.aFR = 0.35 * Math.sin(T * 11 + 2);
+    o.aOL = 1.95 + 0.5 * Math.sin(T * 13); o.aOR = 1.95 + 0.5 * Math.sin(T * 13 + 1.7);
+    o.aFL = 0.35 + 0.35 * Math.sin(T * 11); o.aFR = 0.35 + 0.35 * Math.sin(T * 11 + 2);
     o.eBL = 0.5 + 0.4 * Math.sin(T * 15); o.eBR = 0.5 + 0.4 * Math.sin(T * 15 + 1);
     o.wWL = 0.5 * Math.sin(T * 17); o.wWR = 0.5 * Math.sin(T * 17 + 1);
     o.nry = 0.4 * Math.sin(T * 8.5); o.nrx = -0.12; o.bx = 0.015 * Math.sin(T * 23);
@@ -284,11 +294,13 @@ export const ACTIONS = {
     const T = t * s.tempo + s.phase;
     breathe(o, T, s);
     const up = smooth(t / 0.4);
-    o.nrx = -0.6 * up + 0.04 * noise(T * 0.5, s.seed); o.nry = 0.15 * noise(T * 0.25, s.seed);
-    o.srx = -0.12 * up; o.hy = -0.005;
-    o.aFR = 1.7 * up; o.aOR = 0.45 * up; o.aTR = 0.15; o.eBR = 1.95 * up; o.wBR = 0.4;
-    o.aOL = 0.1; o.aFL = 0.05; o.eBL = 0.2;
-    o.eyeY = 0.85 * up; o.mouth = 0.35; o.browY = 0.7; o.smile = -0.1;
+    o.nrx = -0.62 * up + 0.04 * noise(T * 0.5, s.seed); o.nry = 0.15 * noise(T * 0.25, s.seed);
+    o.srx = -0.14 * up; o.hy = -0.005;
+    // "up there!": right arm points skyward with little jabs, left hand on the tummy
+    const jab = 0.12 * Math.max(0, Math.sin(T * 6)) * win(T % 3.5, 0.5, 1.6);
+    o.aOR = (2.35 + jab) * up; o.aFR = 0.45 * up; o.eBR = 0.05; o.wBR = -0.3;
+    o.aFL = 0.55; o.aTL = 0.45; o.eBL = 0.9; o.aOL = 0.05;
+    o.eyeY = 0.9 * up; o.mouth = 0.4; o.browY = 0.8; o.smile = -0.1;
   },
 
   clap(o, t, s) {
@@ -306,21 +318,25 @@ export const ACTIONS = {
   read(o, t, s) {
     const T = t * s.tempo + s.phase;
     breathe(o, T, s);
-    o.aFL = o.aFR = 0.95; o.aTL = o.aTR = 0.3; o.eBL = o.eBR = 1.25; o.aOL = o.aOR = 0.12; o.wBR = o.wBL = 0.1;
-    o.nrx = 0.2; o.nry = 0.12 * Math.sin(T * 0.6); o.eyeY = -0.4; o.eyeX = 0.5 * Math.sin(T * 0.6);
-    o.lid = 0.25; o.browY = 0.15 * Math.sin(T * 0.4);
+    // newspaper hangs in front of the chest/face (attached to the spine); hands hold its lower corners
+    o.aFL = o.aFR = 1.2; o.aTL = o.aTR = 0.12; o.eBL = o.eBR = 0.9; o.aOL = o.aOR = 0.3; o.eSL = o.eSR = 0.35;
+    o.wBL = o.wBR = -0.3;
+    o.srx = -0.04; o.nrx = 0.16; o.nry = 0.08 * Math.sin(T * 0.6); o.eyeY = -0.45; o.eyeX = 0.6 * Math.sin(T * 0.9);
+    o.lid = 0.3; o.browY = 0.2 * Math.sin(T * 0.4); o.smile = 0.1;
+    const flick = win(T % 7, 5.2, 5.8, 0.1, 0.2); // turning the page
+    o.aOR += 0.4 * flick; o.eSR -= 0.6 * flick;
   },
 
   photo(o, t, s) {
     const T = t * s.tempo + s.phase;
-    breathe(o, T, s);
-    const snap = win(T % 5, 1.2, 2.6, 0.2, 0.3);
-    o.aFL = 1.25 * snap + 0.4 * (1 - snap); o.aFR = 1.25 * snap + 0.35 * (1 - snap);
-    o.aTL = 0.55 * snap + 0.2; o.aTR = 0.5 * snap + 0.1; o.eBL = 1.35 * snap + 0.5; o.eBR = 1.4 * snap + 0.4;
-    o.aOL = 0.2 * snap; o.aOR = 0.2 * snap;
-    o.srx = -0.06 * snap; o.nrx = 0.02; o.nry = 0.3 * noise(T * 0.2, s.seed) * (1 - snap);
-    o.lid = 0.35 * snap; o.smile = 0.5; o.mouth = 0.15 * (1 - snap);
-    o.srz = 0.04 * snap;
+    breathe(o, T, s, 0.6);
+    // camera sits at the right eye (attached to the head); both hands up holding it
+    o.aFR = 1.35; o.aOR = 0.3; o.aTR = 0.45; o.eBR = 1.35; o.eSR = 0.25;
+    o.aFL = 1.3; o.aOL = 0.1; o.aTL = 0.7; o.eBL = 1.3; o.eSL = 0.3;
+    const click = win(T % 3.6, 1.6, 1.8, 0.03, 0.12);
+    o.eBR += 0.12 * click; o.bsq -= 0.03 * click;
+    o.srx = -0.05; o.nrx = -0.06; o.nry = 0.25 * noise(T * 0.18, s.seed); o.sry = 0.2 * noise(T * 0.18, s.seed);
+    o.lid = 0.15; o.smile = 0.6; o.lidT = -0.2;
   },
 
   eat(o, t, s) {
@@ -344,14 +360,14 @@ export const ACTIONS = {
     o.mouth = 0.1 * Math.max(0, Math.sin(T * 0.6));
   },
 
-  scratch(o, t, s) { // puzzled head scratch (a handy "something's wrong" tell)
+  scratch(o, t, s) { // puzzled scratch behind the ear (a handy "something's wrong" tell)
     const T = t * s.tempo + s.phase;
     breathe(o, T, s);
     const up = smooth(t / 0.3);
-    o.aFR = 1.1 * up; o.aOR = 1.2 * up; o.eBR = 2.1 * up; o.eSR = 0.5 * up;
-    o.wWR = 0.35 * Math.sin(T * 16) * up; o.eBR += 0.1 * Math.sin(T * 16) * up;
+    const sc = Math.sin(T * 15);
+    o.aOR = 1.9 * up; o.aFR = 0.25 * up; o.eSR = -(1.5 + 0.12 * sc) * up; o.eBR = 0.2 * up; o.wWR = 0.3 * sc * up;
     o.aOL = 0.62; o.aFL = -0.12; o.eSL = 1.75; o.eBL = 0.15;
-    o.nrz = -0.2 * up; o.nrx = -0.08; o.nry = 0.15 * noise(T * 0.3, s.seed);
+    o.nrz = -0.22 * up; o.nrx = -0.08; o.nry = 0.15 * noise(T * 0.3, s.seed);
     o.eyeY = 0.5; o.eyeX = -0.3; o.browT = -0.5; o.browY = 0.4; o.smile = -0.4; o.mouth = 0.05;
   },
 
@@ -375,7 +391,10 @@ export const ACTIONS = {
 };
 
 // Actions that want a held prop (auto-attached if the person has none).
-export const ACTION_PROPS = { sweep: 'broom', fish: 'rod', read: 'newspaper', photo: 'camera', eat: 'icecream', paint: 'brush' };
+export const ACTION_PROPS = {
+  sweep: { type: 'broom' }, fish: { type: 'rod' }, eat: { type: 'icecream' }, paint: { type: 'brush' },
+  read: { type: 'newspaper', bone: 'spine' }, photo: { type: 'camera', bone: 'head' },
+};
 export const ACTION_NAMES = Object.keys(ACTIONS);
 export const GAIT_ACTIONS = new Set(['walk', 'run', 'panic']);
 
@@ -390,14 +409,15 @@ export function reactPose(o, t, s) {
   o.bsq = -0.28 * anticip + 0.12 * jump * (air < 0.5 ? 1 : 0) - 0.22 * bump(t, 0.6, 0.78);
   o.bry = TAU * smooth(air) * s.reactSpin;
   const flail = win(t, 0.08, 0.72, 0.06, 0.1);
-  o.aOL = 2.3 * flail + 0.3 * anticip; o.aOR = 2.3 * flail + 0.3 * anticip;
-  o.aFL = 0.4 * flail * Math.sin(t * 30); o.aFR = 0.4 * flail * Math.sin(t * 30 + 1);
+  o.aOL = 2.0 * flail + 0.3 * anticip; o.aOR = 2.0 * flail + 0.3 * anticip;
+  o.aFL = (0.35 + 0.35 * Math.sin(t * 30)) * flail; o.aFR = (0.35 + 0.35 * Math.sin(t * 30 + 1)) * flail;
   o.eBL = o.eBR = 0.5 * flail;
   o.kL = o.kR = 1.1 * jump; o.lFL = o.lFR = 0.5 * jump;
   // angry fist shake
   const fist = win(t, 0.78, 2.05, 0.18, 0.3);
   o.bry += s.reactFace * fist;
-  o.aFR += 2.35 * fist; o.aOR += 0.25 * fist; o.eBR += (1.25 + 0.35 * Math.sin(t * 24)) * fist; o.aTR = 0.2 * fist;
+  const shake = Math.sin(t * 24);
+  o.aOR += 1.7 * fist; o.aFR += 0.5 * fist; o.eSR = -(1.25 + 0.35 * shake) * fist; o.eBR += 0.3 * fist; o.wWR = 0.3 * shake * fist;
   o.aOL += 0.62 * fist; o.aFL += -0.12 * fist; o.eSL = 1.75 * fist; o.eBL += 0.15 * fist;
   o.srx = 0.13 * fist; o.nrx = 0.05 * fist - 0.12 * flail; o.nry = 0.12 * Math.sin(t * 7) * fist;
   const stomp = Math.max(0, Math.sin(t * 13)) * fist;
@@ -420,7 +440,7 @@ export function celebratePose(o, t, s) {
   o.by = 0.28 * h * s.energy;
   o.bsq = 0.14 * (h - 0.3);
   o.kL = o.kR = 0.5 * h; o.lFL = o.lFR = 0.25 * h;
-  o.aOL = o.aOR = 2.5; o.aFL = o.aFR = 0.3; o.eBL = o.eBR = 0.3 + 0.3 * Math.sin(t * 12);
+  o.aOL = o.aOR = 2.05; o.aFL = o.aFR = 0.45; o.eBL = o.eBR = 0.3 + 0.3 * Math.sin(t * 12);
   o.wWL = o.wWR = 0.4 * Math.sin(t * 12);
   o.nrx = -0.2; o.lid = 0.45; o.smile = 0.8; o.mouth = 0.8; o.browY = 0.8;
   o.bry = t > per * 2 ? 0 : 0;

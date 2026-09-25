@@ -13,8 +13,8 @@ function build(type, variant = 0) {
   switch (type) {
     case 'broom': return merge([
       part(cyl(0.019, 0.019, 1.2, 8), P.woodLight, { y: 0.15 }),
-      part(cone(0.1, 0.36, 10), [P.sunflower, '#e8b64a'], { y: -0.6, rx: Math.PI, sx: 1.25 }),
-      part(cyl(0.05, 0.06, 0.07, 10), P.tomato, { y: -0.41 }),
+      part(cone(0.11, 0.36, 10), ['#e8b64a', P.sunflower], { y: -0.6, sx: 1.25 }),
+      part(cyl(0.035, 0.045, 0.06, 10), P.tomato, { y: -0.43 }),
       part(sphere(0.028, 8, 6), P.woodDark, { y: 0.76 }),
     ]);
     case 'rod': return merge([

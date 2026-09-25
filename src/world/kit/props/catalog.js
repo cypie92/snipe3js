@@ -2,7 +2,24 @@
 // Each entry: [name, category, () => Object3D]. Order = sandbox index (?focus=<index>).
 import * as N from '../nature/index.js';
 import * as K from './index.js';
+import * as THREE from 'three';
 import { P } from '../../../gfx/palette.js';
+import { materials } from '../../../gfx/materials.js';
+
+/** Demo only: plant two wooden poles under the ends of a line prop so it isn't floating. */
+function onPosts(obj, a, b) {
+  const g = new THREE.Group();
+  for (const p of [a, b]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, p[1] + 0.25, 8), materials.solid('#9a6236'));
+    pole.position.set(p[0], (p[1] + 0.25) / 2, p[2]);
+    pole.castShadow = true;
+    g.add(pole);
+  }
+  g.add(obj);
+  g.name = obj.name;
+  g.userData = obj.userData;
+  return g;
+}
 
 function forestDemo() {
   const pts = [];
@@ -70,8 +87,8 @@ export function catalog() {
   if (has(K.melonStack)) add('melonStack', 'market', () => K.melonStack({ seed: 1 }));
   // festive
   if (has(K.bunting)) {
-    add('bunting', 'festive', () => K.bunting({ from: [-3, 3, 0], to: [3, 3.2, 0], sag: 0.6 }));
-    add('bunting furled', 'festive', () => K.bunting({ from: [-3, 3, 0], to: [3, 3.2, 0], sag: 0.6, furled: true, seed: 2 }));
+    add('bunting', 'festive', () => onPosts(K.bunting({ from: [-3, 3, 0], to: [3, 3.2, 0], sag: 0.6 }), [-3, 3, 0], [3, 3.2, 0]));
+    add('bunting furled', 'festive', () => onPosts(K.bunting({ from: [-3, 3, 0], to: [3, 3.2, 0], sag: 0.6, furled: true, seed: 2 }), [-3, 3, 0], [3, 3.2, 0]));
   }
   if (has(K.balloonBunch)) add('balloonBunch', 'festive', () => K.balloonBunch({ seed: 1 }));
   if (has(K.washingLine)) add('washingLine', 'festive', () => K.washingLine({ from: [-3, 2, 0], to: [3, 2, 0], seed: 1 }));

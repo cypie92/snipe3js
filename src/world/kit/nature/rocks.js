@@ -5,8 +5,8 @@ import { materials } from '../../../gfx/materials.js';
 import { Rng } from '../../../core/rng.js';
 import { paintFaces, noise3, finish, mesh } from '../props/lib.js';
 
-const STONE = ['#9d9486', '#b9b0a2', '#d3cbbd', '#e6dfd2'];
-const MOSS = '#78b84e';
+const STONE = ['#948b7e', '#a39a8c', '#bdb4a5', '#cfc6b8'];
+const MOSS = '#6fb04a';
 const _c = new THREE.Color();
 
 function rockGeo(r, seed, rng, squash) {

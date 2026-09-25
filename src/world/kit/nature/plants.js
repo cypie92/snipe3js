@@ -248,12 +248,12 @@ function tuftProto() {
     const a = (i / n) * Math.PI * 2 + (i % 2) * 0.3;
     const h = 0.36 + (i % 3) * 0.1;
     const lean = 0.4 + (i % 2) * 0.18;
-    blades.push(part(new THREE.ConeGeometry(0.075, h, 3, 1), ['#5aa843', '#c6ec88'], {
+    blades.push(part(new THREE.ConeGeometry(0.075, h, 3, 1), ['#6cb84c', '#d6f29c'], {
       x: Math.cos(a) * 0.07, y: h / 2 - 0.03, z: Math.sin(a) * 0.07,
       rx: Math.sin(a) * lean, rz: -Math.cos(a) * lean, order: 'XYZ',
     }));
   }
-  blades.push(part(new THREE.ConeGeometry(0.085, 0.55, 3, 1), ['#5aa843', '#d0f094'], { y: 0.25 }));
+  blades.push(part(new THREE.ConeGeometry(0.085, 0.55, 3, 1), ['#6cb84c', '#def6a8'], { y: 0.25 }));
   _tuftProto = merge(blades);
   return _tuftProto;
 }

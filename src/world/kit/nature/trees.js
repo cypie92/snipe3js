@@ -14,7 +14,7 @@ const RAMPS = {
   tall: ['#3a8440', '#56a448', '#8acb5c', '#b9e07c'],
   conifer: ['#24704a', '#2f8a52', '#4fa85e', '#86c96e'],
   fruit: ['#3f8f3a', '#5eae46', '#8dcf5c', '#b8e27c'],
-  blossom: ['#d9648f', '#f58cb4', '#ffb6d0', '#ffe3ee'],
+  blossom: ['#dd6f98', '#f491b8', '#ffb3cf', '#ffcfe1'],
   willow: ['#5c9c38', '#7cb94a', '#a6d662', '#d0ea8a'],
 };
 const TRUNK = ['#5e3a20', '#7a4a26', '#9a6236'];
@@ -169,27 +169,27 @@ function designBlossom(rng, seed) {
   const top = tr.top;
   const trunk = [part(tr.geo, '#fff')];
   const cy = top.y + 1.2;
-  const crown = [lump(2.3, 2, 0.075, seed, { x: top.x, y: cy, z: top.z, sy: 0.72 })];
+  const crown = [lump(2.3, 2, 0.06, seed, { x: top.x, y: cy, z: top.z, sy: 0.72 })];
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 + rng.range(-0.3, 0.3);
-    crown.push(lump(rng.range(1.0, 1.35), 1, 0.09, seed + i + 1, {
+    crown.push(lump(rng.range(1.0, 1.35), 1, 0.07, seed + i + 1, {
       x: top.x + Math.cos(a) * 1.9, y: cy + rng.range(-0.4, 0.4), z: top.z + Math.sin(a) * 1.9, sy: 0.8,
     }));
     trunk.push(part(rod([top.x * 0.6, top.y - 0.4, top.z * 0.6], [top.x + Math.cos(a) * 1.3, top.y + 0.3, top.z + Math.sin(a) * 1.3], 0.09, 5, 0.05), '#fff'));
   }
   const t = paintTrunk(merge(trunk), seed);
   // fallen petals: a flat, slightly domed pink carpet
-  const carpet = new THREE.CircleGeometry(2.1, 18).rotateX(-Math.PI / 2);
+  const carpet = new THREE.CircleGeometry(1.75, 14).rotateX(-Math.PI / 2);
   const cp = carpet.attributes.position;
   for (let i = 0; i < cp.count; i++) {
     const r = Math.hypot(cp.getX(i), cp.getZ(i));
-    const w = r > 0.1 ? (i % 2 ? 0.55 : 0.85) + noise3(cp.getX(i), 0, cp.getZ(i) + seed) * 0.4 : 1;
-    cp.setXYZ(i, cp.getX(i) * w + top.x * 0.5, 0.05 + (1 - r / 2.1) * 0.03, cp.getZ(i) * w + top.z * 0.5);
+    const w = r > 0.1 ? 0.7 + noise3(cp.getX(i) * 3, 0, cp.getZ(i) * 3 + seed) * 0.45 : 1;
+    cp.setXYZ(i, cp.getX(i) * w + top.x * 0.5, 0.045 + (1 - r / 1.75) * 0.03, cp.getZ(i) * w + top.z * 0.5);
   }
-  const petals = part(carpet, '#ffd6e6');
+  const petals = part(carpet, '#ffc9dc');
   return {
     trunk: merge([t, petals]),
-    crown: paintCrown(merge(crown), RAMPS.blossom, { speckle: '#fff2f6', speckleRate: 0.1, seed }),
+    crown: paintCrown(merge(crown), RAMPS.blossom, { speckle: '#ffe4ee', speckleRate: 0.06, seed }),
   };
 }
 
@@ -198,7 +198,7 @@ function designWillow(rng, seed) {
   const top = tr.top;
   const cy = top.y + 1.0;
   const crown = [lump(2.3, 2, 0.07, seed, { x: top.x, y: cy + 0.3, z: top.z, sy: 0.7 })];
-  const n = 13;
+  const n = 11;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + rng.range(-0.15, 0.15);
     const R = rng.range(1.9, 2.2);

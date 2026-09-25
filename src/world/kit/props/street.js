@@ -7,7 +7,7 @@ import { P } from '../../../gfx/palette.js';
 import { Rng } from '../../../core/rng.js';
 import {
   bev, lathe, puck, ball, rod, arc, slab, latheBands, lettering, mesh, pivot, finish,
-  boxCollider, ballCollider, Anims, ease, LiveMesh, shade,
+  boxCollider, ballCollider, Anims, ease, LiveMesh, shade, lean,
 } from './lib.js';
 
 const TYRE = '#3b3f4f';
@@ -19,10 +19,10 @@ const LAMP_COLORS = ['#2f6e5c', '#34466e', '#2f5f8a', '#7a3b52'];
 const bulbOff = () => materials.solid('#efe6c8', { roughness: 0.35 });
 
 /**
- * lampPost({ seed, height = 4.4, color, arms: 1|2, lit = true })
+ * lampPost({ seed, height = 4.4, color, arms: 1|2, lit = true, tilt = 0.03 (seeded hand-made lean) })
  * parts: { bulb (emissive mesh, has collider), post }. userData: setLit(bool), setFlicker(bool), lit.
  */
-export function lampPost({ seed = 1, height = 4.4, color, arms = 1, lit = true } = {}) {
+export function lampPost({ seed = 1, height = 4.4, color, arms = 1, lit = true, tilt = 0.03 } = {}) {
   const rng = new Rng(`lamp-${seed}`);
   const c = color || rng.pick(LAMP_COLORS);
   const gold = P.gold;
@@ -38,11 +38,11 @@ export function lampPost({ seed = 1, height = 4.4, color, arms = 1, lit = true }
   const lantern = (x, y) => {
     L.push(part(lathe([[0.04, -0.12], [0.1, -0.04], [0.22, 0.1], [0.23, 0.15], [0.19, 0.17]], 4), c, { x, y, ry: Math.PI / 4 }));
     for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      L.push(part(bev(0.05, 0.56, 0.05, 0.018), c, { x: x + sx * 0.14, y: y + 0.44, z: sz * 0.14 }));
+      L.push(part(new THREE.BoxGeometry(0.055, 0.56, 0.055), c, { x: x + sx * 0.14, y: y + 0.44, z: sz * 0.14 }));
     }
     L.push(part(bev(0.36, 0.06, 0.36, 0.025), gold, { x, y: y + 0.74 }));
     L.push(part(new THREE.ConeGeometry(0.34, 0.32, 4), c, { x, y: y + 0.92, ry: Math.PI / 4 }));
-    L.push(part(ball(0.075, 1), gold, { x, y: y + 1.13 }));
+    L.push(part(ball(0.075, 0), gold, { x, y: y + 1.13 }));
     B.push(part(ball(0.17, 1), '#fff', { x, y: y + 0.42, sy: 1.3 }));
     bulbCentres.push([x, y + 0.42]);
   };
@@ -50,7 +50,7 @@ export function lampPost({ seed = 1, height = 4.4, color, arms = 1, lit = true }
     L.push(part(bev(1.55, 0.1, 0.1, 0.035), c, { y: H - 0.05 }));
     L.push(part(ball(0.1, 1), gold, { y: H + 0.08 }));
     for (const sx of [-1, 1]) {
-      L.push(part(arc(0.2, 0.035, Math.PI / 2, 5, 6), c, { x: sx * 0.08, y: H - 0.3, rz: sx > 0 ? 0 : Math.PI / 2, sx: sx > 0 ? 1 : 1 }));
+      L.push(part(arc(0.2, 0.035, Math.PI / 2, 5, 6), c, { x: sx * 0.28, y: H - 0.3, rz: sx > 0 ? Math.PI / 2 : 0 }));
       L.push(part(ball(0.06, 0), gold, { x: sx * 0.78, y: H - 0.05 }));
       L.push(part(rod([sx * 0.66, H - 0.1, 0], [sx * 0.66, H - 0.3, 0], 0.025, 5), c));
       lantern(sx * 0.66, H - 1.45);
@@ -66,6 +66,7 @@ export function lampPost({ seed = 1, height = 4.4, color, arms = 1, lit = true }
   bulb.castShadow = false;
   for (const [x, y] of bulbCentres) bulb.add(ballCollider(0.34, { x, y }));
   g.add(post, bulb);
+  lean(g, rng, tilt);
   const anims = new Anims();
   let flicker = false;
   let flickT = 0;
@@ -143,7 +144,7 @@ export function bin({ seed = 1, color, overflow = false } = {}) {
   g.add(bodyMesh);
   const lidPivot = pivot('lid', 0, 0.985, -0.41);
   const lidMesh = mesh([
-    part(lathe([[0.43, 0], [0.43, 0.05], [0.37, 0.1], [0.24, 0.18], [0, 0.2]], 14), c, { z: 0.41 }),
+    part(lathe([[0, 0], [0.43, 0], [0.43, 0.05], [0.37, 0.1], [0.24, 0.18], [0, 0.2]], 14), c, { z: 0.41 }),
     part(ball(0.065, 1), light, { y: 0.22, z: 0.41 }),
     part(bev(0.3, 0.09, 0.06, 0.025), '#3b3f4f', { y: 0.1, z: 0.41 + 0.32, rx: -0.75 }),
   ], materials.toy, 'lidMesh');
@@ -180,7 +181,7 @@ export function bin({ seed = 1, color, overflow = false } = {}) {
 // ---------------------------------------------------------------- bollard
 
 /** bollard({ seed, color, band }) — chunky street bollard, 1 draw call. */
-export function bollard({ seed = 1, color, band } = {}) {
+export function bollard({ seed = 1, color, band, tilt = 0.04 } = {}) {
   const rng = new Rng(`bollard-${seed}`);
   const c = color || rng.pick(['#34466e', '#2f6e5c', '#4a5566']);
   const b = band || rng.pick(['#fff4e0', P.gold]);
@@ -189,6 +190,7 @@ export function bollard({ seed = 1, color, band } = {}) {
     [0.15, 0.76], [0.16, 0.8], [0.12, 0.9], [0.06, 0.95], [0, 0.96]], 12,
   (y) => (y > 0.6 && y < 0.72 ? b : y > 0.76 && y < 0.8 ? b : c))], materials.toy, 'bollard');
   g.add(m);
+  lean(g, rng, tilt);
   return finish(g, { name: 'bollard', parts: { bollard: m }, surface: 'metal' });
 }
 
@@ -252,7 +254,7 @@ function arrowShape(len = 0.95, h = 0.26) {
  * Each arrow board is a separate pivot (parts.arrows[i], rotate .rotation.y) drawn in 1 LiveMesh.
  * userData: spinArrow(i|board, turns = 1), pointArrow(i|board, yaw). 2 draw calls.
  */
-export function signpost({ seed = 1, height = 2.7, arrows } = {}) {
+export function signpost({ seed = 1, height = 2.7, arrows, tilt = 0.05 } = {}) {
   const rng = new Rng(`sign-${seed}`);
   const cols = rng.shuffle([P.tomato, P.teal, P.sunflower, P.cobalt, P.bubblegum]);
   arrows = arrows || [0, 1, 2].map((i) => ({ yaw: rng.range(-2.6, 2.6), color: cols[i], len: rng.range(0.85, 1.05) }));
@@ -274,8 +276,8 @@ export function signpost({ seed = 1, height = 2.7, arrows } = {}) {
     const text = a.textColor || (col === P.sunflower ? P.ink : '#fff8ee');
     const geo = merge([
       part(slab(arrowShape(len, 0.27), 0.05, 0.014), col, { x: 0.07 }),
-      part(lettering(len * 0.62, 0.12, 1, text, {}, rng, 0.012), text, { x: 0.07 + len * 0.4, z: 0.04 }),
-      part(lettering(len * 0.62, 0.12, 1, text, {}, rng, 0.012), text, { x: 0.07 + len * 0.4, z: -0.04 }),
+      part(lettering(len * 0.62, 0.12, 1, text, {}, rng, 0.014), text, { x: 0.07 + len * 0.4, z: 0.047 }),
+      part(lettering(len * 0.62, 0.12, 1, text, {}, rng, 0.014), text, { x: 0.07 + len * 0.4, z: -0.047 }),
     ]);
     live.addPiece(piv, geo);
     piv.add(boxCollider(len + 0.1, 0.36, 0.16, { x: 0.07 + len / 2 }));
@@ -283,6 +285,7 @@ export function signpost({ seed = 1, height = 2.7, arrows } = {}) {
     boards.push(piv);
   });
   g.add(live);
+  lean(g, rng, tilt);
   live.build();
   const anims = new Anims();
   finish(g, { name: 'signpost', parts: { arrows: boards }, surface: 'wood', anims, tick: (dt, t) => live.sync(t) });
@@ -305,7 +308,7 @@ export function signpost({ seed = 1, height = 2.7, arrows } = {}) {
 const PAPER = ['#fff4d6', '#ffe590', '#c2e4ff', '#ffc8d6', '#c9f0d6', '#f4e8ff'];
 
 /** noticeBoard({ seed }) — roofed village notice board with pinned notes and a LOST CAT poster. */
-export function noticeBoard({ seed = 1 } = {}) {
+export function noticeBoard({ seed = 1, tilt = 0.025 } = {}) {
   const rng = new Rng(`notice-${seed}`);
   const frame = rng.pick([P.woodDark, '#2f6e5c', '#34466e']);
   const L = [];
@@ -322,20 +325,21 @@ export function noticeBoard({ seed = 1 } = {}) {
   ];
   notes.forEach(([x, y, w, h], i) => {
     const rz = rng.range(-0.14, 0.14);
-    L.push(part(bev(w, h, 0.014, 0.004), PAPER[i % PAPER.length], { x, y, z: 0.082, rz }));
-    L.push(part(lettering(w * 0.7, h * 0.55, 3, '#6b6f86', {}, rng, 0.006), '#6b6f86', { x, y: y - h * 0.08, z: 0.092, rz }));
-    L.push(part(ball(0.022, 0), [P.tomato, P.cobalt, P.sunflower][i % 3], { x: x - Math.sin(rz) * h * 0.42, y: y + h * 0.42, z: 0.095 }));
+    L.push(part(bev(w, h, 0.016, 0.004), PAPER[i % PAPER.length], { x, y, z: 0.09, rz }));
+    L.push(part(lettering(w * 0.7, h * 0.55, 3, '#6b6f86', {}, rng, 0.008), '#6b6f86', { x, y: y - h * 0.08, z: 0.1, rz }));
+    L.push(part(ball(0.022, 0), [P.tomato, P.cobalt, P.sunflower][i % 3], { x: x - Math.sin(rz) * h * 0.42, y: y + h * 0.42, z: 0.104 }));
   });
   // LOST CAT poster: orange cat face on white
   const cx = 0.56, cy = 1.28;
-  L.push(part(bev(0.34, 0.3, 0.014, 0.004), '#fff8ee', { x: cx, y: cy, z: 0.082, rz: 0.06 }));
-  L.push(part(ball(0.085, 1), P.tangerine, { x: cx, y: cy + 0.03, z: 0.1, sz: 0.4 }));
-  L.push(part(new THREE.ConeGeometry(0.035, 0.07, 3), P.tangerine, { x: cx - 0.055, y: cy + 0.11, z: 0.1, rz: 0.4 }));
-  L.push(part(new THREE.ConeGeometry(0.035, 0.07, 3), P.tangerine, { x: cx + 0.055, y: cy + 0.11, z: 0.1, rz: -0.4 }));
-  L.push(part(lettering(0.24, 0.05, 1, P.tomato, {}, rng, 0.006), P.tomato, { x: cx, y: cy - 0.1, z: 0.092 }));
+  L.push(part(bev(0.34, 0.3, 0.016, 0.004), '#fff8ee', { x: cx, y: cy, z: 0.09, rz: 0.06 }));
+  L.push(part(ball(0.085, 1), P.tangerine, { x: cx, y: cy + 0.03, z: 0.108, sz: 0.4 }));
+  L.push(part(new THREE.ConeGeometry(0.035, 0.07, 3), P.tangerine, { x: cx - 0.055, y: cy + 0.11, z: 0.108, rz: 0.4 }));
+  L.push(part(new THREE.ConeGeometry(0.035, 0.07, 3), P.tangerine, { x: cx + 0.055, y: cy + 0.11, z: 0.108, rz: -0.4 }));
+  L.push(part(lettering(0.24, 0.05, 1, P.tomato, {}, rng, 0.008), P.tomato, { x: cx, y: cy - 0.1, z: 0.1 }));
   const g = new THREE.Group();
   const m = mesh(L, materials.toy, 'board');
   g.add(m);
+  lean(g, rng, tilt);
   return finish(g, { name: 'noticeBoard', parts: { board: m }, surface: 'wood' });
 }
 
@@ -456,39 +460,69 @@ export function gardenTap({ seed = 1, mount = 'post', under = 'bucket', dripping
   g.add(handle);
   const spout = pivot('spout', 0, y0 - 0.19, zb + 0.3);
   g.add(spout);
-  const drop = mesh([part(lathe([[0, -0.04], [0.025, -0.03], [0.03, 0], [0.018, 0.03], [0, 0.06]], 8), P.water)], materials.glossy, 'drop');
-  drop.castShadow = false;
+  // droplet (+ puddle when nothing is under the tap) share one LiveMesh
+  const water = new LiveMesh(materials.glossy);
+  water.castShadow = false;
+  const drop = pivot('drop');
   drop.visible = false;
   drop.position.copy(spout.position);
   g.add(drop);
+  water.addPiece(drop, part(lathe([[0, -0.04], [0.025, -0.03], [0.03, 0], [0.018, 0.03], [0, 0.06]], 8), P.water));
+  let puddle = null;
+  if (under === 'none') {
+    puddle = pivot('puddle', 0, 0.02, spout.position.z + 0.06);
+    puddle.visible = false;
+    puddle.scale.setScalar(0.001);
+    const pg = new THREE.CircleGeometry(0.36, 14).rotateX(-Math.PI / 2);
+    const pp = pg.attributes.position;
+    for (let i = 1; i < pp.count; i++) {
+      const k = 0.75 + (i % 3) * 0.12 + (i % 5 === 0 ? 0.15 : 0);
+      pp.setXYZ(i, pp.getX(i) * k, 0, pp.getZ(i) * k * 0.8);
+    }
+    pp.setY(0, 0.012);
+    pg.computeVertexNormals();
+    water.addPiece(puddle, part(pg, '#6fd6ff'));
+    g.add(puddle);
+  }
+  g.add(water);
+  water.build();
   const anims = new Anims();
   let drip = false;
   let dt0 = 0;
   const fall = spout.position.y - waterY;
   finish(g, {
-    name: 'gardenTap', parts: { handle, spout, drop }, surface: 'metal', anims,
-    tick: (dt) => {
-      if (!drip) return;
-      dt0 = (dt0 + dt) % 1.1;
-      const grow = 0.45;
-      if (dt0 < grow) {
-        const k = dt0 / grow;
-        drop.visible = true;
-        drop.scale.set(k, k * (0.8 + k * 0.5), k);
-        drop.position.y = spout.position.y - 0.02 - k * 0.03;
-      } else {
-        const tt = dt0 - grow;
-        const y = spout.position.y - 0.05 - 4.9 * tt * tt;
-        drop.visible = y > waterY;
-        drop.scale.set(0.85, 1.35, 0.85);
-        drop.position.y = Math.max(y, waterY);
+    name: 'gardenTap', parts: { handle, spout, drop, puddle }, surface: 'metal', anims,
+    tick: (dt, t) => {
+      if (drip) {
+        dt0 = (dt0 + dt) % 1.1;
+        const grow = 0.45;
+        if (dt0 < grow) {
+          const k = dt0 / grow;
+          drop.visible = true;
+          drop.scale.set(Math.max(0.001, k), Math.max(0.001, k * (0.8 + k * 0.5)), Math.max(0.001, k));
+          drop.position.y = spout.position.y - 0.02 - k * 0.03;
+        } else {
+          const tt = dt0 - grow;
+          const y = spout.position.y - 0.05 - 4.9 * tt * tt;
+          drop.visible = y > waterY;
+          drop.scale.set(0.85, 1.35, 0.85);
+          drop.position.y = Math.max(y, waterY);
+        }
       }
+      if (puddle) {
+        const target = drip ? 1 : 0;
+        const s = puddle.scale.x + (target - puddle.scale.x) * Math.min(1, dt * (drip ? 0.6 : 0.35));
+        puddle.scale.setScalar(Math.max(0.001, s));
+        puddle.visible = s > 0.02;
+      }
+      water.sync(t);
     },
   });
   g.userData.setDripping = (on) => {
     drip = !!on;
     g.userData.dripping = drip;
     if (!drip) drop.visible = false;
+    else if (puddle && puddle.scale.x < 0.3) puddle.scale.setScalar(0.3);
   };
   g.userData.turnHandle = (turns = 1) => {
     const from = handle.rotation.y;

@@ -122,6 +122,22 @@ export function latheBands(pts, seg, colorFn, t) {
   return merge(list);
 }
 
+/** Reverse triangle winding + normals of a non-indexed geometry (undersides / insides). */
+export function inside(geo) {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  for (const name of ['position', 'normal', 'color']) {
+    const a = g.attributes[name];
+    if (!a) continue;
+    const arr = a.array;
+    for (let f = 0; f < arr.length; f += 9) {
+      for (let k = 0; k < 3; k++) { const t = arr[f + 3 + k]; arr[f + 3 + k] = arr[f + 6 + k]; arr[f + 6 + k] = t; }
+    }
+    if (name === 'normal') for (let i = 0; i < arr.length; i++) arr[i] = -arr[i];
+    a.needsUpdate = true;
+  }
+  return g;
+}
+
 /**
  * Fake lettering: `lines` rows of thin bars (reads as text at a distance) on a plane facing +Z.
  * Centred at t; w/h = text block size.
@@ -129,15 +145,17 @@ export function latheBands(pts, seg, colorFn, t) {
 export function lettering(w, h, lines, color, t = {}, rng = null, depth = 0.012) {
   const list = [];
   const lh = h / lines;
+  let k = 0;
   for (let i = 0; i < lines; i++) {
     let x = -w / 2;
     const y = h / 2 - lh * (i + 0.5);
-    const rowW = w * (i === lines - 1 ? 0.6 : 1);
+    const rowW = w * (i === lines - 1 && lines > 1 ? 0.62 : 1);
     while (x < -w / 2 + rowW - 0.02) {
-      const ww = Math.min(rowW - (x + w / 2), (rng ? rng.range(0.25, 0.6) : 0.4) * w * 0.5);
+      const f = rng ? rng.range(0.12, 0.3) : [0.22, 0.14, 0.3, 0.18][k++ % 4];
+      const ww = Math.min(rowW - (x + w / 2), f * w);
       if (ww < 0.015) break;
-      list.push(part(new THREE.BoxGeometry(ww, lh * 0.5, depth), color, { x: x + ww / 2, y }));
-      x += ww + lh * 0.45;
+      list.push(part(new THREE.BoxGeometry(ww, lh * 0.34, depth), color, { x: x + ww / 2, y }));
+      x += ww + Math.max(0.02, lh * 0.3);
     }
   }
   const g = merge(list);
@@ -146,7 +164,7 @@ export function lettering(w, h, lines, color, t = {}, rng = null, depth = 0.012)
 
 /** Shiny gold (trophies, collectible). Metal with a warm self-glow so it never goes muddy. */
 export const goldMaterial = new THREE.MeshStandardMaterial({
-  vertexColors: true, metalness: 0.65, roughness: 0.24, emissive: '#7a4a00', emissiveIntensity: 0.32,
+  vertexColors: true, metalness: 0.55, roughness: 0.2, emissive: '#c07a10', emissiveIntensity: 0.5, envMapIntensity: 2.2,
 });
 goldMaterial.name = 'kit-gold';
 
@@ -235,6 +253,12 @@ export function collider(geo, t) {
   m.visible = false;
   m.name = 'collider';
   m.userData.collider = true;
+  // Colliders are always invisible; they only switch off when an ancestor is hidden
+  // (popped balloon, stowed coil...), so hidden pieces never steal shots.
+  m.raycast = function (raycaster, intersects) {
+    for (let o = this.parent; o; o = o.parent) if (!o.visible) return;
+    THREE.Mesh.prototype.raycast.call(this, raycaster, intersects);
+  };
   return m;
 }
 export const boxCollider = (w, h, d, t) => collider(new THREE.BoxGeometry(w, h, d), t);
@@ -332,6 +356,20 @@ export function finish(g, { name, parts = {}, surface = 'wood', anims = new Anim
   return g;
 }
 
+/**
+ * Hand-made irregularity (ART_BIBLE): wrap the group's children in an inner 'lean' node tilted by a
+ * few degrees (seeded). Parts keep working (relative transforms are unchanged).
+ */
+export function lean(g, rng, amount = 0.035) {
+  if (!amount) return g;
+  const inner = new THREE.Group();
+  inner.name = 'lean';
+  for (const c of [...g.children]) inner.add(c);
+  inner.rotation.set(rng.range(-amount, amount), 0, rng.range(-amount, amount));
+  g.add(inner);
+  return g;
+}
+
 // ---------------------------------------------------------------- live pieces
 
 const _m = new THREE.Matrix4();
@@ -406,7 +444,7 @@ export class LiveMesh extends THREE.Mesh {
         if (!p.hidden || force) { pa.fill(0, o, o + p.count * 3); p.hidden = true; dirty = true; }
         continue;
       }
-      if (!p.deform && !force && !p.hidden && !p.fresh && _m.equals(p.last)) continue;
+      if (!force && !p.hidden && !p.fresh && (p.frozen || !p.deform) && _m.equals(p.last)) continue;
       p.hidden = false;
       p.fresh = false;
       p.last.copy(_m);

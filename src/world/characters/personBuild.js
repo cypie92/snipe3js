@@ -9,6 +9,9 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const M = (base, t) => base.clone().multiply(tf(t));
 const smooth01 = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 
+// Segment budget (tuned so a typical villager is ~2.3-3k triangles in one draw call).
+const Q = { body: 12, head: 14, headRows: 9, eye: [10, 7], pupil: [7, 5], lid: [10, 3], limb: [1, 7, 3], hand: [7, 5], shoe: [7, 5], hair: [11, 8], puff: [7, 5], small: [6, 4] };
+
 export const FACE = { white: '#fbfaf4', pupil: '#262634', mouth: '#5b2333', tongue: '#ff8a95', lash: '#2b2b3a' };
 
 /** Body dimensions derived from build factors. */
@@ -44,8 +47,7 @@ export function dims(cfg) {
 
 // Body profile (normalised): r at height t (0 bottom .. 1 top).
 const BODY = [
-  [0, 0], [0.5, 0.012], [0.78, 0.046], [0.93, 0.1], [0.99, 0.18], [1, 0.28], [0.985, 0.38],
-  [0.955, 0.5], [0.9, 0.61], [0.81, 0.72], [0.67, 0.83], [0.47, 0.92], [0.23, 0.98], [0, 1],
+  [0, 0], [0.62, 0.022], [0.9, 0.085], [0.995, 0.2], [0.995, 0.36], [0.95, 0.52], [0.85, 0.68], [0.66, 0.83], [0.36, 0.95], [0, 1],
 ];
 function profR(t, belly = 0) {
   for (let i = 0; i < BODY.length - 1; i++) {
@@ -140,19 +142,19 @@ function buildLegs(rb, b, d, cfg, C) {
   for (const s of [1, -1]) {
     const S = s > 0 ? 'L' : 'R';
     const cy = (top + d.ankleY) / 2;
-    rb.add(G.capsule(d.legR, len, 3, 8, 4), (x, y, z, c) => {
+    rb.add(G.capsule(d.legR, len, ...Q.limb), (x, y, z, c) => {
       const my = y + cy;
       if (bootTop > 0 && my < bootTop) return c.set(cfg.boots);
       if (sock && my < d.ankleY + 0.07) return c.set(sock);
       c.set(my > hemY ? C.bottom : legCol);
     }, { x: s * d.legX, y: cy }, blendY(b['leg' + S], b['shin' + S], d.kneeY + 0.035, d.kneeY - 0.035));
     if (bootTop > 0) { // welly rim
-      rb.add(G.cyl(d.legR * 1.2, d.legR * 1.12, 0.035, 10), cfg.boots, { x: s * d.legX, y: bootTop - 0.01 }, b['shin' + S]);
+      rb.add(G.cyl(d.legR * 1.2, d.legR * 1.12, 0.035, 8, true), cfg.boots, { x: s * d.legX, y: bootTop - 0.01 }, b['shin' + S]);
     }
     const sh = cfg.shoeSize || 1;
     const shoeCol = cfg.boots || C.shoes;
     const sole = cfg.boots ? shade(cfg.boots, 0.6) : C.sole;
-    rb.add(G.sphere(10, 8), (x, y, z, c) => c.set(y < -0.42 ? sole : shoeCol),
+    rb.add(G.sphere(...Q.shoe), (x, y, z, c) => c.set(y < -0.42 ? sole : shoeCol),
       { x: s * (d.legX + 0.004), y: 0.052 * sh, z: 0.03, sx: 0.076 * sh, sy: 0.058 * sh, sz: 0.112 * sh }, b['shin' + S]);
   }
 }
@@ -170,8 +172,8 @@ function buildBody(rb, b, d, cfg, C) {
   // top pattern bands
   const bands = [];
   if (t === 'stripes' || t === 'sport') {
-    const n = t === 'stripes' ? 6 : 0;
-    for (let i = 0; i < n; i++) bands.push([0.36 + i * 0.1, 0.36 + i * 0.1 + 0.05]);
+    const n = t === 'stripes' ? 4 : 0;
+    for (let i = 0; i < n; i++) bands.push([0.38 + i * 0.13, 0.38 + i * 0.13 + 0.065]);
   }
   if (t === 'hivis') bands.push([0.44, 0.49], [0.6, 0.65]);
   if (t === 'jumper') bands.push([0.3, 0.37], [0.58, 0.64]);
@@ -179,7 +181,7 @@ function buildBody(rb, b, d, cfg, C) {
   for (const [a, c] of bands) cuts.push(a * H, c * H);
   const bandCol = t === 'hivis' ? '#d7dde6' : C.top2;
   const lowerCol = (t === 'dress' || t === 'raincoat' || t === 'smock') ? C.top : C.bottom;
-  const g = lathe(bodyProfile(d, belly), 16, cuts);
+  const g = lathe(bodyProfile(d, belly), Q.body, cuts);
   rb.add(g, (x, y, z, c) => {
     const tt = y / H;
     if (tt < waistT) return c.set(lowerCol);
@@ -198,11 +200,11 @@ function buildBody(rb, b, d, cfg, C) {
   };
   const button = (tt, ang, col, r = 0.016) => {
     const p = atBody(tt, ang, 0.002);
-    rb.add(G.sphere(6, 4), col, { x: p.x, y: p.y, z: p.z, sx: r, sy: r, sz: r * 0.6 }, bw);
+    rb.add(G.sphere(5, 3), col, { x: p.x, y: p.y, z: p.z, sx: r, sy: r, sz: r * 0.6 }, bw);
   };
   const collar = (col, tt = 0.93, r = 0.03) => {
     const rr = profR(tt, belly) * d.bodyR;
-    rb.add(G.torus(rr * 0.98, r, 5, 16), col, { y: d.bodyBottom + tt * H, rx: Math.PI / 2, sz: d.bodyD }, b.spine);
+    rb.add(G.torus(rr * 0.98, r, 3, 11), col, { y: d.bodyBottom + tt * H, rx: Math.PI / 2, sz: d.bodyD }, b.spine);
   };
 
   // skirts / coats hanging below the body (front verts follow the thighs when sitting)
@@ -217,7 +219,7 @@ function buildBody(rb, b, d, cfg, C) {
       pts.push([r0 + (r1 - r0) * Math.pow(k, 0.8), topY - (topY - hemY) * k]);
     }
     pts.reverse();
-    const g2 = lathe(pts.map(([r, y]) => [r, y - hemY]), 18);
+    const g2 = lathe(pts.map(([r, y]) => [r, y - hemY]), 14);
     rb.add(g2, colFn || col, { y: hemY, sz: 0.92 }, (x, y, z) => {
       const depth = smooth01((d.hipY - y) / (d.hipY - hemY + 1e-3));
       const fr = smooth01((z / (Math.hypot(x, z) + 1e-5) - 0.1) / 0.8);
@@ -294,21 +296,21 @@ function buildBody(rb, b, d, cfg, C) {
         const dots = [P.tomato, P.cobalt, P.sunflower, P.lime, P.bubblegum];
         [[0.55, 0.3], [0.7, -0.4], [0.45, -0.2], [0.8, 0.5], [0.38, 0.55], [0.62, -0.75]].forEach(([tt, a], i) => {
           const p = atBody(tt, a, 0.0);
-          rb.add(G.sphere(6, 4), dots[i % dots.length], { x: p.x, y: p.y, z: p.z, sx: 0.035, sy: 0.03, sz: 0.012, ry: a }, bw);
+          rb.add(G.sphere(5, 3), dots[i % dots.length], { x: p.x, y: p.y, z: p.z, sx: 0.035, sy: 0.03, sz: 0.012, ry: a }, bw);
         });
       }
       break;
     }
     case 'chef': {
       collar(C.top, 0.935, 0.03);
-      rb.add(G.torus(profR(0.92, belly) * d.bodyR * 1.0, 0.03, 5, 16), cfg.top.scarf || P.tomato, { y: d.bodyBottom + 0.915 * H, rx: Math.PI / 2, sz: d.bodyD }, b.spine);
+      rb.add(G.torus(profR(0.92, belly) * d.bodyR * 1.0, 0.03, 4, 12), cfg.top.scarf || P.tomato, { y: d.bodyBottom + 0.915 * H, rx: Math.PI / 2, sz: d.bodyD }, b.spine);
       const k = atBody(0.87, 0.15, 0.02);
       rb.add(G.sphere(6, 5), cfg.top.scarf || P.tomato, { x: k.x, y: k.y, z: k.z, s: 0.03 }, bw);
       for (let i = 0; i < 3; i++) for (const s of [1, -1]) button(0.5 + i * 0.11, s * 0.28, '#d9d4c8', 0.014);
       break;
     }
     case 'vicar': {
-      rb.add(G.torus(profR(0.925, belly) * d.bodyR * 1.0, 0.026, 5, 16), '#fbfaf4', { y: d.bodyBottom + 0.925 * H, rx: Math.PI / 2, sz: d.bodyD }, b.spine);
+      rb.add(G.torus(profR(0.925, belly) * d.bodyR * 1.0, 0.026, 4, 12), '#fbfaf4', { y: d.bodyBottom + 0.925 * H, rx: Math.PI / 2, sz: d.bodyD }, b.spine);
       const p = atBody(0.89, 0, 0.012);
       rb.add(G.box(0.05, 0.045, 0.02), '#fbfaf4', { x: p.x, y: p.y, z: p.z }, b.spine);
       break;
@@ -338,7 +340,7 @@ function buildBody(rb, b, d, cfg, C) {
       const cols = [cfg.top.color2 || P.bubblegum, P.sunflower, '#fff8ee'];
       [[0.4, 0.4], [0.55, -0.3], [0.7, 0.8], [0.8, -0.9], [0.5, 1.3], [0.62, 0.05], [0.4, -1.1], [0.75, 2.2], [0.5, 2.8], [0.65, -2.3]].forEach(([tt, a], i) => {
         const p = atBody(tt, a, -0.004);
-        rb.add(G.sphere(6, 4), cols[i % 3], { x: p.x, y: p.y, z: p.z, sx: 0.04, sy: 0.04, sz: 0.012, ry: a }, bw);
+        rb.add(G.sphere(5, 3), cols[i % 3], { x: p.x, y: p.y, z: p.z, sx: 0.04, sy: 0.04, sz: 0.012, ry: a }, bw);
       });
       break;
     }
@@ -373,15 +375,15 @@ function buildArms(rb, b, d, cfg, C) {
     const S = s > 0 ? 'L' : 'R';
     const cy = d.shY - len / 2 + 0.015;
     const elbow = d.shY - d.armLen * 0.5;
-    rb.add(G.capsule(d.armR, len - d.armR * 2 + 0.02, 3, 8, 4), (x, y, z, c) => {
+    rb.add(G.capsule(d.armR, len - d.armR * 2 + 0.02, ...Q.limb), (x, y, z, c) => {
       const my = y + cy;
       if (sl === 'long') return c.set(my < d.shY - d.armLen + 0.04 && cfg.top.cuff ? cfg.top.cuff : C.sleeve);
       if (sl === 'short') return c.set(my > d.shY - 0.1 ? C.sleeve : C.skin);
       c.set(C.skin);
     }, { x: s * d.shX, y: cy }, blendY(b['arm' + S], b['fore' + S], elbow + 0.04, elbow - 0.04));
     const hy = d.shY - d.armLen - d.handR * 0.62;
-    rb.add(G.sphere(10, 8), C.hand, { x: s * (d.shX + 0.004), y: hy, sx: d.handR * 0.86, sy: d.handR * 1.05, sz: d.handR * 0.92 }, b['hand' + S]);
-    rb.add(G.sphere(6, 5), C.hand, { x: s * (d.shX - d.handR * 0.62), y: hy + 0.012, z: d.handR * 0.45, sx: 0.028, sy: 0.034, sz: 0.028 }, b['hand' + S]);
+    rb.add(G.sphere(...Q.hand), C.hand, { x: s * (d.shX + 0.004), y: hy, sx: d.handR * 0.86, sy: d.handR * 1.05, sz: d.handR * 0.92 }, b['hand' + S]);
+    rb.add(G.sphere(5, 4), C.hand, { x: s * (d.shX - d.handR * 0.62), y: hy + 0.012, z: d.handR * 0.45, sx: 0.028, sy: 0.034, sz: 0.028 }, b['hand' + S]);
   }
 }
 
@@ -393,18 +395,18 @@ function buildHead(rb, b, d, cfg, C, meta) {
   const { R, Rx, Rz, HS } = d;
   // skull: lathe egg with fuller cheeks
   const prof = [];
-  const N = 12;
+  const N = Q.headRows;
   for (let i = 0; i <= N; i++) {
     const th = (i / N) * Math.PI;
     const y0 = -Math.cos(th), r0 = Math.sin(th);
     const cheek = 1 + (f.cheeks ?? 0.05) * Math.exp(-(((y0 + 0.35) / 0.42) ** 2));
     prof.push([r0 * cheek, y0]);
   }
-  rb.add(lathe(prof, 18), C.skin, M(hm, { sx: Rx, sy: R, sz: Rz }), b.head);
+  rb.add(lathe(prof, Q.head), C.skin, M(hm, { sx: Rx, sy: R, sz: Rz }), b.head);
 
   // ears
   if (!cfg.hair.hidesEars) {
-    for (const s of [1, -1]) rb.add(G.sphere(8, 6), C.skin, M(hm, { x: s * Rx * 0.97, y: -0.05 * R, z: -0.04 * R, sx: 0.034 * HS, sy: 0.07 * HS, sz: 0.055 * HS, ry: s * 0.35 }), b.head);
+    for (const s of [1, -1]) rb.add(G.sphere(6, 5), C.skin, M(hm, { x: s * Rx * 0.97, y: -0.05 * R, z: -0.04 * R, sx: 0.034 * HS, sy: 0.07 * HS, sz: 0.055 * HS, ry: s * 0.35 }), b.head);
   }
 
   // eyes (white + pupil + catchlight + eyelid); eye bones are scaled to the eye ellipsoid so lids &
@@ -423,7 +425,7 @@ function buildHead(rb, b, d, cfg, C, meta) {
     const eyeW = new THREE.Matrix4().compose(pos, q, V(ew, eh, ed));
     const eyeEuler = new THREE.Euler().setFromQuaternion(q);
     b['eye' + S] = rb.bone('eye' + S, b.head, pos.toArray(), [eyeEuler.x, eyeEuler.y, eyeEuler.z], [ew, eh, ed]);
-    rb.add(G.sphere(12, 10), FACE.white, eyeW, b['eye' + S]);
+    rb.add(G.sphere(...Q.eye), FACE.white, eyeW, b['eye' + S]);
     // pupil looks at a point ~2.5 m ahead (slight inward convergence)
     const focus = V(0, d.headC + ey, 2.5);
     const dirW = focus.clone().sub(pos).normalize();
@@ -432,38 +434,34 @@ function buildHead(rb, b, d, cfg, C, meta) {
     dirU.multiply(V(ew, eh, ed)).normalize();
     const qp = new THREE.Quaternion().setFromUnitVectors(V(0, 0, 1), dirU);
     const pupilW = eyeW.clone().multiply(new THREE.Matrix4().makeRotationFromQuaternion(qp));
-    const pe = new THREE.Euler().setFromQuaternion(qp);
-    const pupilBoneW = pupilW; // bone lives inside the scaled eye frame
     const pupilIdx = rb.bone('pupil' + S, b['eye' + S], [0, 0, 0]);
-    rb.bones[pupilIdx].world = pupilBoneW.clone();
+    rb.bones[pupilIdx].world = pupilW.clone(); // bone lives inside the scaled eye frame
     b['pupil' + S] = pupilIdx;
     const ps = f.pupil || 1;
-    rb.add(G.sphere(10, 8), FACE.pupil, M(pupilW, { z: 0.8, sx: 0.6 * ps, sy: 0.64 * ps, sz: 0.3 }), pupilIdx);
-    rb.add(G.sphere(6, 4), '#ffffff', M(pupilW, { x: 0.2, y: 0.26, z: 1.06, sx: 0.2, sy: 0.2, sz: 0.1 }), pupilIdx);
-    rb.add(G.sphere(4, 3), '#ffffff', M(pupilW, { x: -0.16, y: -0.2, z: 1.04, sx: 0.09, sy: 0.09, sz: 0.06 }), pupilIdx);
+    rb.add(G.sphere(...Q.pupil), FACE.pupil, M(pupilW, { z: 0.8, sx: 0.6 * ps, sy: 0.64 * ps, sz: 0.3 }), pupilIdx);
+    rb.add(G.sphere(5, 3), '#ffffff', M(pupilW, { x: 0.2, y: 0.26, z: 1.06, sx: 0.21, sy: 0.21, sz: 0.1 }), pupilIdx);
     // eyelid: upper hemisphere shell, skin coloured with a dark lash rim
     const lidIdx = rb.bone('lid' + S, b['eye' + S], [0, 0, 0]);
     rb.bones[lidIdx].world = eyeW.clone();
     b['lid' + S] = lidIdx;
-    rb.add(G.hemi(14, 5), (px, py, pz, c) => c.set(py < 0.16 ? FACE.lash : C.lid), M(eyeW, { s: 1.12 }), lidIdx);
-    void pe;
+    rb.add(G.hemi(...Q.lid), (px, py, pz, c) => c.set(py < 0.16 ? FACE.lash : C.lid), M(eyeW, { s: 1.12 }), lidIdx);
   }
   meta.eye = { ex, ey, ew, eh };
 
   // brows
   const bst = f.brows || 'normal';
   if (bst !== 'none') {
-    const bt = bst === 'thick' ? 0.019 : bst === 'bushy' ? 0.024 : bst === 'thin' ? 0.011 : 0.015;
-    const bl = (bst === 'bushy' ? 0.075 : 0.062) * HS;
+    const bt = bst === 'thick' ? 0.017 : bst === 'bushy' ? 0.021 : bst === 'thin' ? 0.01 : 0.013;
+    const bl = (bst === 'bushy' ? 0.066 : 0.052) * HS;
     for (const s of [1, -1]) {
       const S = s > 0 ? 'L' : 'R';
-      const x = s * ex * 1.04, y = ey + eh + 0.034 * HS;
+      const x = s * ex * 1.06, y = ey + eh + 0.048 * HS;
       const n = surf.normal(x, y);
       const p = V(x, y, surf.z(x, y)).addScaledVector(n, 0.004).applyMatrix4(hm);
       b['brow' + S] = rb.bone('brow' + S, b.head, p.toArray());
       const q = qFromNormal(n, 0.8);
-      const m = new THREE.Matrix4().compose(p, q, V(1, 1, 1)).multiply(tf({ rz: Math.PI / 2 + s * 0.12, sz: 0.7 }));
-      rb.add(G.capsule(bt, bl, 2, 6), C.brow, m, b['brow' + S]);
+      const m = new THREE.Matrix4().compose(p, q, V(1, 1, 1)).multiply(tf({ rz: Math.PI / 2 - s * 0.16, sz: 0.7 }));
+      rb.add(G.capsule(bt, bl, 1, 5), C.brow, m, b['brow' + S]);
     }
   }
 
@@ -473,7 +471,7 @@ function buildHead(rb, b, d, cfg, C, meta) {
   const nz = surf.z(0, ny);
   const nshape = f.noseShape || 'button';
   const nsc = nshape === 'long' ? [0.036, 0.034, 0.06] : nshape === 'big' ? [0.052, 0.046, 0.05] : [0.04, 0.034, 0.038];
-  rb.add(G.sphere(10, 8), C.nose, M(hm, { y: ny, z: nz + 0.004, sx: nsc[0] * ns * HS, sy: nsc[1] * ns * HS, sz: nsc[2] * ns * HS }), b.head);
+  rb.add(G.sphere(7, 5), C.nose, M(hm, { y: ny, z: nz + 0.004, sx: nsc[0] * ns * HS, sy: nsc[1] * ns * HS, sz: nsc[2] * ns * HS }), b.head);
 
   // mouth: smile arc (scaled by 'mouth' bone) + open mouth (scaled by 'jaw' bone)
   const my = ey - 0.15 * HS;
@@ -485,12 +483,12 @@ function buildHead(rb, b, d, cfg, C, meta) {
   const mw = new THREE.Matrix4().compose(mp, mq, V(1, 1, 1));
   b.mouth = rb.bone('mouth', b.head, [0, 0, 0]);
   rb.bones[b.mouth].world = mw.clone();
-  const mwid = (f.mouthW || 1) * 0.04 * HS;
-  rb.add(G.torus(mwid, 0.0105 * HS, 4, 10, Math.PI), FACE.mouth, M(mw, { y: mwid * 0.5, rz: Math.PI, sy: 0.75 }), b.mouth);
+  const mwid = (f.mouthW || 1) * 0.047 * HS;
+  rb.add(G.torus(mwid, 0.0125 * HS, 4, 8, Math.PI), FACE.mouth, M(mw, { y: mwid * 0.5, rz: Math.PI, sy: 0.75 }), b.mouth);
   b.jaw = rb.bone('jaw', b.head, [0, 0, 0]);
   rb.bones[b.jaw].world = mw.clone();
-  rb.add(G.sphere(10, 8), FACE.mouth, M(mw, { y: -0.028 * HS, z: -0.004, sx: mwid * 1.12, sy: 0.05 * HS, sz: 0.022 * HS }), b.jaw);
-  rb.add(G.sphere(6, 4), FACE.tongue, M(mw, { y: -0.052 * HS, z: 0.006, sx: mwid * 0.7, sy: 0.018 * HS, sz: 0.014 * HS }), b.jaw);
+  rb.add(G.sphere(8, 5), FACE.mouth, M(mw, { y: -0.028 * HS, z: -0.004, sx: mwid * 1.12, sy: 0.05 * HS, sz: 0.022 * HS }), b.jaw);
+  rb.add(G.sphere(5, 3), FACE.tongue, M(mw, { y: -0.052 * HS, z: 0.006, sx: mwid * 0.7, sy: 0.018 * HS, sz: 0.014 * HS }), b.jaw);
   meta.mouthY = my;
 
   // cheeks blush
@@ -500,7 +498,7 @@ function buildHead(rb, b, d, cfg, C, meta) {
       const n = surf.normal(x, y);
       const p = V(x, y, surf.z(x, y)).addScaledVector(n, -0.004).applyMatrix4(hm);
       const m = new THREE.Matrix4().compose(p, qFromNormal(n, 1), V(0.042 * HS, 0.028 * HS, 0.012));
-      rb.add(G.sphere(8, 6), C.blush, m, b.head);
+      rb.add(G.sphere(6, 4), C.blush, m, b.head);
     }
   }
 
@@ -516,73 +514,82 @@ function buildHair(rb, b, d, cfg, C, hm) {
   const { R, Rx, Rz } = d;
   let st = cfg.hair.style;
   const hat = cfg.hat?.type;
-  if (hat && ['spiky', 'quiff', 'mohawk', 'parted'].includes(st)) st = 'short';
-  if (hat && st === 'afro') st = 'curly';
+  const covers = hat && !['headband', 'veil'].includes(hat);
+  if (covers && ['spiky', 'quiff', 'mohawk', 'parted'].includes(st)) st = 'short';
+  if (covers && st === 'afro') st = 'curly';
   const col = C.hair;
   const add = (g, t) => rb.add(g, col, M(hm, t), b.head);
-  const cap = (lift = 0.12, k = 1.04, back = 0.1) => add(G.sphere(16, 12), { y: lift * R, z: -back * R, sx: Rx * k, sy: R * 0.93, sz: Rz * (k + 0.03) });
-  const fringe = (y = 0.56, w = 0.8, z = 0.5) => add(G.sphere(12, 8), { y: y * R, z: z * R, sx: w * R, sy: 0.3 * R, sz: 0.4 * R, rx: -0.35 });
+  // Toy "helmet" hair: a cap 7% larger than the skull, cut by a tilted plane (high at the forehead,
+  // low at the nape) with a rounded rim filling the gap -> crisp hairline, no z-fighting.
+  const helmet = ({ k = 1.07, tilt = 0.45, low = 0.1, lift = 0.0, fwd = 0 } = {}) => {
+    const th = Math.acos(Math.max(-0.9, Math.min(0.95, low)));
+    const m = M(hm, { y: lift * R, z: fwd * R, rx: -tilt, sx: Rx * k, sy: R * k, sz: Rz * k });
+    rb.add(new THREE.SphereGeometry(1, Q.hair[0], 6, 0, Math.PI * 2, 0, th), col, m, b.head);
+    const rr = Math.sin(th) * 0.965, ry = Math.cos(th) * 0.965;
+    rb.add(G.torus(rr, 0.055, 4, Q.hair[0] + 2), col, m.clone().multiply(tf({ y: ry, rx: Math.PI / 2 })), b.head);
+  };
+  const fringe = (y = 0.56, w = 0.8, z = 0.52) => add(G.sphere(...Q.puff), { y: y * R, z: z * R, sx: w * R, sy: 0.28 * R, sz: 0.4 * R, rx: -0.4 });
   switch (st) {
     case 'bald': break;
     case 'balding':
-      for (const s of [1, -1]) add(G.sphere(8, 6), { x: s * Rx * 0.86, y: 0.12 * R, z: -0.2 * R, sx: 0.22 * R, sy: 0.3 * R, sz: 0.5 * R });
-      add(G.sphere(10, 6), { y: -0.05 * R, z: -0.72 * R, sx: 0.75 * R, sy: 0.4 * R, sz: 0.35 * R });
+      for (const s of [1, -1]) add(G.sphere(...Q.small), { x: s * Rx * 0.9, y: 0.1 * R, z: -0.25 * R, sx: 0.2 * R, sy: 0.3 * R, sz: 0.48 * R });
+      add(G.sphere(...Q.puff), { y: -0.02 * R, z: -0.74 * R, sx: 0.78 * R, sy: 0.38 * R, sz: 0.32 * R });
       break;
-    case 'short': cap(); break;
+    case 'short': helmet({ tilt: 0.5, low: 0.14 }); break;
     case 'parted':
-      cap(0.14, 1.05);
-      add(G.sphere(10, 8), { x: 0.3 * R, y: 0.72 * R, z: 0.3 * R, sx: 0.55 * R, sy: 0.3 * R, sz: 0.5 * R, rz: -0.35, rx: -0.3 });
+      helmet({ tilt: 0.5, low: 0.14 });
+      add(G.sphere(...Q.puff), { x: 0.3 * R, y: 0.8 * R, z: 0.34 * R, sx: 0.56 * R, sy: 0.3 * R, sz: 0.5 * R, rz: -0.35, rx: -0.3 });
       break;
     case 'bob':
-      cap(0.1, 1.07);
-      for (const s of [1, -1]) add(G.sphere(10, 8), { x: s * Rx * 0.84, y: -0.26 * R, z: -0.12 * R, sx: 0.3 * R, sy: 0.62 * R, sz: 0.72 * R, rz: s * 0.08 });
-      add(G.sphere(12, 8), { y: -0.22 * R, z: -0.46 * R, sx: 0.92 * R, sy: 0.64 * R, sz: 0.55 * R });
+      helmet({ tilt: 0.36, low: 0.06, k: 1.08 });
+      for (const s of [1, -1]) add(G.sphere(...Q.puff), { x: s * Rx * 0.86, y: -0.22 * R, z: -0.1 * R, sx: 0.3 * R, sy: 0.62 * R, sz: 0.72 * R, rz: s * 0.08 });
+      add(G.sphere(...Q.puff), { y: -0.2 * R, z: -0.5 * R, sx: 0.94 * R, sy: 0.64 * R, sz: 0.55 * R });
       fringe();
       break;
     case 'long':
-      cap(0.1, 1.07);
-      for (const s of [1, -1]) add(G.sphere(10, 8), { x: s * Rx * 0.84, y: -0.5 * R, z: -0.14 * R, sx: 0.3 * R, sy: 0.85 * R, sz: 0.7 * R, rz: s * 0.1 });
-      add(G.sphere(12, 8), { y: -0.55 * R, z: -0.5 * R, sx: 0.95 * R, sy: 0.95 * R, sz: 0.55 * R });
+      helmet({ tilt: 0.36, low: 0.06, k: 1.08 });
+      for (const s of [1, -1]) add(G.sphere(...Q.puff), { x: s * Rx * 0.86, y: -0.45 * R, z: -0.12 * R, sx: 0.3 * R, sy: 0.85 * R, sz: 0.7 * R, rz: s * 0.1 });
+      add(G.sphere(...Q.puff), { y: -0.55 * R, z: -0.52 * R, sx: 0.96 * R, sy: 0.95 * R, sz: 0.55 * R });
       if (cfg.hair.fringe !== false) fringe(0.55, 0.78);
       break;
     case 'bun':
-      cap(0.1, 1.05);
-      if (hat) add(G.sphere(10, 8), { y: -0.05 * R, z: -1.0 * R, s: 0.34 * R });
+      helmet({ tilt: 0.42, low: 0.1 });
+      if (covers) add(G.sphere(...Q.puff), { y: -0.1 * R, z: -1.02 * R, s: 0.34 * R });
       else {
-        add(G.sphere(12, 8), { y: 0.95 * R, z: -0.3 * R, s: 0.4 * R });
-        rb.add(G.torus(0.3 * R, 0.05 * R, 4, 12), cfg.hair.tie || shade(col, 0.7), M(hm, { y: 0.78 * R, z: -0.26 * R, rx: Math.PI / 2 - 0.3 }), b.head);
+        add(G.sphere(...Q.puff), { y: 1.0 * R, z: -0.32 * R, s: 0.4 * R });
+        rb.add(G.torus(0.3 * R, 0.05 * R, 4, 12), cfg.hair.tie || shade(col, 0.7), M(hm, { y: 0.83 * R, z: -0.28 * R, rx: Math.PI / 2 - 0.3 }), b.head);
       }
       break;
     case 'spiky': {
-      cap(0.08, 1.03);
+      helmet({ tilt: 0.5, low: 0.14 });
       const n = 7;
       for (let i = 0; i < n; i++) {
         const a = (i / (n - 1) - 0.5) * 2.2;
-        add(G.cone(0.17 * R, 0.55 * R, 6), { x: Math.sin(a) * 0.55 * R, y: 0.9 * R + Math.cos(a) * 0.1 * R, z: -0.05 * R + (i % 2) * -0.25 * R, rz: -a * 0.7, rx: -0.25 - (i % 2) * 0.4 });
+        add(G.cone(0.17 * R, 0.55 * R, 5), { x: Math.sin(a) * 0.55 * R, y: 0.95 * R + Math.cos(a) * 0.1 * R, z: -0.05 * R + (i % 2) * -0.25 * R, rz: -a * 0.7, rx: -0.25 - (i % 2) * 0.4 });
       }
       break;
     }
     case 'quiff':
-      cap(0.08, 1.03);
-      add(G.sphere(12, 8), { y: 0.9 * R, z: 0.32 * R, sx: 0.55 * R, sy: 0.38 * R, sz: 0.62 * R, rx: -0.45 });
-      add(G.sphere(10, 8), { y: 1.02 * R, z: 0.62 * R, sx: 0.4 * R, sy: 0.24 * R, sz: 0.34 * R, rx: 0.4 });
+      helmet({ tilt: 0.5, low: 0.14 });
+      add(G.sphere(...Q.puff), { y: 0.95 * R, z: 0.34 * R, sx: 0.55 * R, sy: 0.38 * R, sz: 0.62 * R, rx: -0.45 });
+      add(G.sphere(...Q.puff), { y: 1.08 * R, z: 0.64 * R, sx: 0.4 * R, sy: 0.24 * R, sz: 0.34 * R, rx: 0.4 });
       break;
     case 'pigtails':
-      cap(0.1, 1.05);
+      helmet({ tilt: 0.4, low: 0.1 });
       fringe(0.56, 0.72);
       for (const s of [1, -1]) {
-        add(G.sphere(10, 8), { x: s * Rx * 1.12, y: -0.05 * R, z: -0.2 * R, sx: 0.28 * R, sy: 0.44 * R, sz: 0.3 * R, rz: s * 0.5 });
-        rb.add(G.sphere(8, 6), cfg.hair.tie || P.bubblegum, M(hm, { x: s * Rx * 0.97, y: 0.14 * R, z: -0.2 * R, s: 0.1 * R }), b.head);
+        add(G.sphere(...Q.puff), { x: s * Rx * 1.14, y: -0.05 * R, z: -0.2 * R, sx: 0.28 * R, sy: 0.44 * R, sz: 0.3 * R, rz: s * 0.5 });
+        rb.add(G.sphere(...Q.small), cfg.hair.tie || P.bubblegum, M(hm, { x: s * Rx * 1.0, y: 0.14 * R, z: -0.2 * R, s: 0.1 * R }), b.head);
       }
       break;
     case 'ponytail':
-      cap(0.1, 1.05);
-      add(G.sphere(10, 8), { y: 0.02 * R, z: -1.1 * R, sx: 0.3 * R, sy: 0.62 * R, sz: 0.3 * R, rx: 0.4 });
-      rb.add(G.torus(0.16 * R, 0.05 * R, 4, 10), cfg.hair.tie || P.tomato, M(hm, { y: 0.34 * R, z: -0.98 * R, rx: Math.PI / 2 + 0.6 }), b.head);
+      helmet({ tilt: 0.42, low: 0.1 });
+      add(G.sphere(...Q.puff), { y: 0.0 * R, z: -1.14 * R, sx: 0.3 * R, sy: 0.62 * R, sz: 0.3 * R, rx: 0.4 });
+      rb.add(G.torus(0.16 * R, 0.05 * R, 4, 10), cfg.hair.tie || P.tomato, M(hm, { y: 0.34 * R, z: -1.02 * R, rx: Math.PI / 2 + 0.6 }), b.head);
       break;
     case 'curly': case 'afro': {
       const big = st === 'afro';
-      cap(0.14, big ? 1.12 : 1.06);
+      helmet({ tilt: 0.38, low: 0.08, k: big ? 1.1 : 1.07 });
       const n = big ? 18 : 14;
       for (let i = 0; i < n; i++) {
         const u = (i + 0.5) / n;
@@ -590,18 +597,17 @@ function buildHair(rb, b, d, cfg, C, hm) {
         const yy = 1 - u * (big ? 1.45 : 1.25);
         const r = Math.sqrt(Math.max(0, 1 - yy * yy));
         const px = Math.cos(phi) * r, pz = Math.sin(phi) * r;
-        if (pz > 0.35 && yy < 0.5) continue; // keep face clear
-        if (hat && yy > 0.35) continue;
-        const k = big ? 1.22 : 1.08;
-        add(G.ico(1), { x: px * Rx * k, y: (yy * 0.95 + 0.14) * R, z: (pz * k - 0.08) * Rz, s: (big ? 0.34 : 0.27) * R });
+        if (pz > 0.35 && yy < 0.55) continue; // keep the face clear
+        if (covers && yy > 0.3) continue;
+        const k = big ? 1.2 : 1.1;
+        add(G.sphere(6, 4), { x: px * Rx * k, y: (yy * 0.97 + 0.08) * R, z: (pz * k - 0.06) * Rz, s: (big ? 0.34 : 0.26) * R });
       }
       break;
     }
     case 'mohawk':
-      cap(0.02, 0.99);
-      for (let i = 0; i < 5; i++) add(G.cone(0.15 * R, 0.6 * R, 6), { y: (0.95 - Math.abs(i - 1.5) * 0.08) * R, z: (0.45 - i * 0.28) * R, rx: -0.3 + i * 0.25, sx: 0.5 });
+      for (let i = 0; i < 5; i++) add(G.cone(0.15 * R, 0.6 * R, 5), { y: (1.02 - Math.abs(i - 1.5) * 0.1) * R, z: (0.45 - i * 0.28) * R, rx: -0.3 + i * 0.25, sx: 0.5 });
       break;
-    default: cap();
+    default: helmet();
   }
 }
 
@@ -618,9 +624,9 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
       const q = qFromNormal(n, 0.5);
       const m = new THREE.Matrix4().compose(p, q, V(1, 1, 1));
       const rr = Math.max(ew, eh) * 1.12;
-      if (cfg.glasses === 'square') rb.add(G.torus(rr, 0.011, 4, 4), gcol, M(m, { rz: Math.PI / 4, sx: 1.1 }), b.head);
-      else rb.add(G.torus(rr, 0.011, 4, 14), gcol, m, b.head);
-      if (shades) rb.add(G.sphere(10, 6), '#1f2a3d', M(m, { sx: rr * 0.98, sy: rr * 0.92, sz: 0.012 }), b.head);
+      if (cfg.glasses === 'square') rb.add(G.torus(rr, 0.011, 3, 4), gcol, M(m, { rz: Math.PI / 4, sx: 1.1 }), b.head);
+      else rb.add(G.torus(rr, 0.011, 3, 12), gcol, m, b.head);
+      if (shades) rb.add(G.sphere(8, 5), '#1f2a3d', M(m, { sx: rr * 0.98, sy: rr * 0.92, sz: 0.012 }), b.head);
       // arm to the ear
       const ear = V(s * d.Rx * 0.98, ey + 0.01, -0.02).applyMatrix4(hm);
       const edge = V(s * (ex + rr), ey, surf.z(s * (ex + rr * 0.9), ey) + 0.012).applyMatrix4(hm);
@@ -646,8 +652,8 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
     }
   } else if (fh === 'beard' || fh === 'bigbeard') {
     const big = fh === 'bigbeard';
-    add3(rb, G.sphere(14, 10), hc, M(hm, { y: -0.42 * R, z: 0.3 * R, sx: 0.78 * R, sy: (big ? 0.62 : 0.46) * R, sz: 0.62 * R }), b.head);
-    for (const s of [1, -1]) add3(rb, G.sphere(8, 6), hc, M(hm, { x: s * 0.72 * R, y: -0.25 * R, z: 0.05 * R, sx: 0.22 * R, sy: 0.42 * R, sz: 0.4 * R }), b.head);
+    rb.add(G.sphere(14, 10), hc, M(hm, { y: -0.42 * R, z: 0.3 * R, sx: 0.78 * R, sy: (big ? 0.62 : 0.46) * R, sz: 0.62 * R }), b.head);
+    for (const s of [1, -1]) rb.add(G.sphere(8, 6), hc, M(hm, { x: s * 0.72 * R, y: -0.25 * R, z: 0.05 * R, sx: 0.22 * R, sy: 0.42 * R, sz: 0.4 * R }), b.head);
     const y = meta.mouthY + 0.038 * HS;
     for (const s of [1, -1]) {
       const x = s * 0.036 * HS, n = surf.normal(x, y);
@@ -655,14 +661,13 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
       rb.add(G.sphere(8, 6), hc, new THREE.Matrix4().compose(p, qFromNormal(n, 0.9), V(1, 1, 1)).multiply(tf({ rz: s * -0.25, sx: 0.05 * HS, sy: 0.022 * HS, sz: 0.022 })), b.head);
     }
   } else if (fh === 'stubble') {
-    add3(rb, G.sphere(12, 8), shade(C.skin, 0.8, -0.1), M(hm, { y: -0.36 * R, z: 0.08 * R, sx: 0.9 * R, sy: 0.55 * R, sz: 0.86 * R }), b.head);
+    rb.add(G.sphere(12, 8), shade(C.skin, 0.8, -0.1), M(hm, { y: -0.36 * R, z: 0.08 * R, sx: 0.9 * R, sy: 0.55 * R, sz: 0.86 * R }), b.head);
   }
   if (cfg.straw) {
     const p = V(0.04 * HS, meta.mouthY, surf.z(0.04, meta.mouthY)).applyMatrix4(hm);
     rb.add(G.cyl(0.007, 0.007, 0.2, 4), '#f2d27a', { x: p.x + 0.07, y: p.y + 0.03, z: p.z + 0.04, rz: -1.2, ry: -0.5, order: 'YXZ' }, b.head);
   }
 }
-const add3 = (rb, g, c, m, bone) => rb.add(g, c, m, bone);
 
 // ---------------------------------------------------------------- hats
 export const HATS = ['flatcap', 'bowler', 'tophat', 'beanie', 'hardhat', 'chef', 'sunhat', 'fisherman', 'police', 'postman', 'cap', 'beret', 'straw', 'bucket', 'party', 'veil', 'headband'];
@@ -672,7 +677,9 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
   if (!h) { meta.hatTop = d.R * 1.05; return; }
   const { R, Rx } = d;
   const col = h.color, col2 = h.color2 || shade(col, 0.72);
-  const baseY = h.type === 'headband' ? 0.35 * R : 0.52 * R;
+  // seat height (head space, x R) so every crown clears the hair helmet (~1.08R)
+  const SEAT = { headband: 0.35, flatcap: 0.55, beret: 0.64, party: 0.9, tophat: 0.7, veil: 0.5 };
+  const baseY = (SEAT[h.type] ?? 0.52) * R;
   const pivot = V(0, baseY, -0.04 * R).applyMatrix4(hm);
   b.hat = rb.bone('hat', b.head, pivot.toArray());
   const hb = new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z).multiply(new THREE.Matrix4().makeRotationX(-0.08));
@@ -680,97 +687,97 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
   let top = 0.6 * R;
   switch (h.type) {
     case 'flatcap':
-      add(G.sphere(14, 8), col, { y: 0.14 * R, z: 0.1 * R, sx: 1.06 * R, sy: 0.42 * R, sz: 1.16 * R, rx: 0.12 });
+      add(G.sphere(12, 8), col, { y: 0.14 * R, z: 0.1 * R, sx: 1.06 * R, sy: 0.42 * R, sz: 1.16 * R, rx: 0.12 });
       add(G.sphere(12, 6), col2, { y: 0.02 * R, z: 0.9 * R, sx: 0.78 * R, sy: 0.08 * R, sz: 0.36 * R, rx: 0.2 });
       add(G.sphere(6, 4), col2, { y: 0.54 * R, z: 0.2 * R, s: 0.07 * R });
       top = 0.55 * R;
       break;
     case 'bowler':
-      add(G.hemi(16, 6), col, { y: -0.06 * R, sx: 0.96 * R, sy: 0.82 * R, sz: 1.0 * R });
-      add(G.cyl(0.97 * R, 0.97 * R, 0.1 * R, 16), col2, { y: 0.02 * R, sz: 1.04 });
-      add(G.cyl(1.32 * R, 1.36 * R, 0.05 * R, 18), col, { y: -0.04 * R, sz: 1.08 });
+      add(G.hemi(12, 4), col, { y: -0.06 * R, sx: 1.02 * R, sy: 0.84 * R, sz: 1.06 * R });
+      add(G.cyl(1.03 * R, 1.03 * R, 0.1 * R, 12), col2, { y: 0.02 * R, sz: 1.04 });
+      add(G.cyl(1.32 * R, 1.36 * R, 0.05 * R, 12), col, { y: -0.04 * R, sz: 1.08 });
       top = 0.78 * R;
       break;
     case 'tophat':
-      add(G.cyl(0.74 * R, 0.7 * R, 1.25 * R, 16), col, { y: 0.6 * R, sz: 1.05 });
-      add(G.cyl(0.72 * R, 0.72 * R, 0.2 * R, 16), h.band || P.tomato, { y: 0.12 * R, sz: 1.06 });
-      add(G.cyl(1.25 * R, 1.3 * R, 0.06 * R, 18), col, { y: -0.03 * R, sz: 1.08 });
-      top = 1.25 * R;
+      add(G.cyl(0.9 * R, 0.85 * R, 1.15 * R, 12), col, { y: 0.56 * R, sz: 1.05 });
+      add(G.cyl(0.87 * R, 0.87 * R, 0.2 * R, 12), h.band || P.tomato, { y: 0.12 * R, sz: 1.06 });
+      add(G.cyl(1.3 * R, 1.34 * R, 0.06 * R, 12), col, { y: -0.03 * R, sz: 1.08 });
+      top = 1.15 * R;
       break;
     case 'beanie':
-      add(G.hemi(16, 6), col, { y: -0.28 * R, sx: 1.1 * R, sy: 1.14 * R, sz: 1.14 * R });
-      add(G.cyl(1.12 * R, 1.14 * R, 0.24 * R, 16), col2, { y: -0.2 * R, sz: 1.04 });
-      add(G.ico(1), h.pom || '#fff8ee', { y: 0.92 * R, s: 0.2 * R });
+      add(G.hemi(12, 4), col, { y: -0.28 * R, sx: 1.1 * R, sy: 1.14 * R, sz: 1.14 * R });
+      add(G.cyl(1.12 * R, 1.14 * R, 0.24 * R, 12), col2, { y: -0.2 * R, sz: 1.04 });
+      add(G.sphere(8, 6), h.pom || '#fff8ee', { y: 0.92 * R, s: 0.2 * R });
       top = 1.05 * R;
       break;
     case 'hardhat':
-      add(G.hemi(16, 6), col, { y: -0.12 * R, sx: 1.06 * R, sy: 0.9 * R, sz: 1.1 * R });
-      add(lathe([[1.42 * R, 0], [1.3 * R, 0.03 * R], [1.0 * R, 0.07 * R], [0.9 * R, 0.06 * R]], 18), col, { y: -0.14 * R, sz: 1.06 });
+      add(G.hemi(12, 4), col, { y: -0.12 * R, sx: 1.06 * R, sy: 0.9 * R, sz: 1.1 * R });
+      add(lathe([[1.42 * R, 0], [1.3 * R, 0.03 * R], [1.0 * R, 0.07 * R], [0.9 * R, 0.06 * R]], 14), col, { y: -0.14 * R, sz: 1.06 });
       add(G.capsule(0.08 * R, 1.0 * R, 2, 6), shade(col, 0.9), { y: 0.66 * R, rx: Math.PI / 2, sy: 1, sx: 1, sz: 1 });
       top = 0.8 * R;
       break;
     case 'chef':
-      add(G.cyl(0.95 * R, 0.9 * R, 0.55 * R, 16), col, { y: 0.14 * R, sz: 1.05 });
+      add(G.cyl(1.06 * R, 1.04 * R, 0.55 * R, 12), col, { y: 0.14 * R, sz: 1.05 });
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2;
-        add(G.sphere(10, 8), col, { x: Math.sin(a) * 0.52 * R, y: 0.95 * R, z: Math.cos(a) * 0.52 * R, s: 0.62 * R });
+        add(G.sphere(7, 5), col, { x: Math.sin(a) * 0.55 * R, y: 0.95 * R, z: Math.cos(a) * 0.55 * R, s: 0.64 * R });
       }
-      add(G.sphere(12, 8), col, { y: 1.2 * R, sx: 0.8 * R, sy: 0.55 * R, sz: 0.8 * R });
+      add(G.sphere(10, 6), col, { y: 1.2 * R, sx: 0.8 * R, sy: 0.55 * R, sz: 0.8 * R });
       top = 1.6 * R;
       break;
     case 'sunhat': case 'straw':
-      add(G.hemi(14, 6), col, { y: -0.05 * R, sx: 0.92 * R, sy: 0.8 * R, sz: 0.96 * R });
-      add(lathe([[2.0 * R, -0.16 * R], [1.6 * R, -0.03 * R], [1.0 * R, 0.02 * R], [0.9 * R, 0.03 * R]], 22), (x, y, z, c) => c.set(Math.hypot(x, z) > 1.93 * R && h.type === 'straw' ? shade(col, 0.85) : col), { y: -0.02 * R });
-      add(G.cyl(0.94 * R, 0.95 * R, 0.16 * R, 16), h.band || P.bubblegum, { y: 0.06 * R, sz: 1.04 });
+      add(G.hemi(12, 4), col, { y: -0.05 * R, sx: 1.01 * R, sy: 0.84 * R, sz: 1.05 * R });
+      add(lathe([[2.0 * R, -0.16 * R], [1.6 * R, -0.03 * R], [1.0 * R, 0.02 * R], [0.9 * R, 0.03 * R]], 14), (x, y, z, c) => c.set(Math.hypot(x, z) > 1.93 * R && h.type === 'straw' ? shade(col, 0.85) : col), { y: -0.02 * R });
+      add(G.cyl(1.02 * R, 1.03 * R, 0.16 * R, 12), h.band || P.bubblegum, { y: 0.06 * R, sz: 1.04 });
       if (h.type === 'sunhat') add(G.sphere(8, 6), h.flower || P.sunflower, { x: 0.6 * R, y: 0.1 * R, z: 0.72 * R, s: 0.16 * R });
       top = 0.75 * R;
       break;
     case 'fisherman':
-      add(G.hemi(16, 6), col, { y: -0.18 * R, sx: 1.08 * R, sy: 0.95 * R, sz: 1.1 * R });
-      add(lathe([[1.5 * R, -0.3 * R], [1.3 * R, -0.12 * R], [1.02 * R, 0.0], [0.98 * R, 0.01 * R]], 18), col, { y: -0.14 * R, z: -0.12 * R, rx: -0.18, sz: 1.08 });
+      add(G.hemi(12, 4), col, { y: -0.18 * R, sx: 1.08 * R, sy: 0.95 * R, sz: 1.1 * R });
+      add(lathe([[1.5 * R, -0.3 * R], [1.3 * R, -0.12 * R], [1.02 * R, 0.0], [0.98 * R, 0.01 * R]], 14), col, { y: -0.14 * R, z: -0.12 * R, rx: -0.18, sz: 1.08 });
       top = 0.78 * R;
       break;
     case 'bucket':
-      add(G.cyl(0.8 * R, 0.98 * R, 0.62 * R, 16), col, { y: 0.24 * R, sz: 1.04 });
-      add(lathe([[1.46 * R, -0.22 * R], [1.2 * R, -0.08 * R], [0.98 * R, 0]], 18), col2, { y: -0.04 * R, sz: 1.04 });
-      top = 0.56 * R;
+      add(G.cyl(0.86 * R, 1.03 * R, 0.72 * R, 12), col, { y: 0.3 * R, sz: 1.04 });
+      add(lathe([[1.46 * R, -0.22 * R], [1.2 * R, -0.08 * R], [0.98 * R, 0]], 14), col2, { y: -0.04 * R, sz: 1.04 });
+      top = 0.66 * R;
       break;
     case 'police':
-      add(lathe([[1.0 * R, 0], [1.02 * R, 0.3 * R], [0.92 * R, 0.7 * R], [0.7 * R, 1.05 * R], [0.4 * R, 1.26 * R], [0, 1.32 * R]], 16), col, { y: -0.25 * R, sz: 1.05 });
-      add(G.cyl(1.12 * R, 1.16 * R, 0.07 * R, 18), col, { y: -0.24 * R, sz: 1.06 });
+      add(lathe([[1.0 * R, 0], [1.02 * R, 0.3 * R], [0.92 * R, 0.7 * R], [0.7 * R, 1.05 * R], [0.4 * R, 1.26 * R], [0, 1.32 * R]], 14), col, { y: -0.25 * R, s: 1.08, sz: 1.12 });
+      add(G.cyl(1.12 * R, 1.16 * R, 0.07 * R, 12), col, { y: -0.24 * R, sz: 1.06 });
       add(G.sphere(8, 6), '#dfe5ee', { y: 1.1 * R, s: 0.11 * R });
       add(G.cyl(0.2 * R, 0.2 * R, 0.05 * R, 8), '#e8edf4', { y: 0.28 * R, z: 1.0 * R, rx: Math.PI / 2 - 0.2 });
       add(G.cone(0.22 * R, 0.1 * R, 8), '#ffd76a', { y: 0.28 * R, z: 1.04 * R, rx: Math.PI / 2 - 0.2 });
       top = 1.1 * R;
       break;
     case 'postman': case 'peaked':
-      add(G.cyl(1.12 * R, 0.96 * R, 0.4 * R, 16), col, { y: 0.14 * R, sz: 1.05 });
-      add(G.cyl(1.0 * R, 0.97 * R, 0.12 * R, 16), h.band || P.tomato, { y: -0.01 * R, sz: 1.05 });
+      add(G.cyl(1.16 * R, 1.0 * R, 0.66 * R, 12), col, { y: 0.28 * R, sz: 1.05 });
+      add(G.cyl(1.03 * R, 1.01 * R, 0.14 * R, 12), h.band || P.tomato, { y: 0.01 * R, sz: 1.06 });
       add(G.sphere(12, 6), P.ink, { y: -0.06 * R, z: 0.86 * R, sx: 0.72 * R, sy: 0.07 * R, sz: 0.42 * R, rx: 0.3 });
-      add(G.sphere(6, 4), '#ffd76a', { y: 0.2 * R, z: 1.04 * R, sx: 0.14 * R, sy: 0.12 * R, sz: 0.05 * R });
-      top = 0.52 * R;
+      add(G.sphere(6, 4), '#ffd76a', { y: 0.3 * R, z: 1.1 * R, sx: 0.14 * R, sy: 0.12 * R, sz: 0.05 * R });
+      top = 0.62 * R;
       break;
     case 'cap':
-      add(G.hemi(16, 6), col, { y: -0.16 * R, sx: 1.04 * R, sy: 0.92 * R, sz: 1.08 * R });
+      add(G.hemi(12, 4), col, { y: -0.16 * R, sx: 1.06 * R, sy: 0.94 * R, sz: 1.1 * R });
       add(G.sphere(12, 6), col2, { y: -0.14 * R, z: 0.98 * R, sx: 0.7 * R, sy: 0.06 * R, sz: 0.58 * R, rx: 0.1 });
       add(G.sphere(6, 4), col2, { y: 0.74 * R, s: 0.08 * R });
       top = 0.76 * R;
       break;
     case 'beret':
-      add(G.sphere(16, 8), col, { x: 0.2 * R, y: 0.12 * R, z: 0.05 * R, sx: 1.18 * R, sy: 0.34 * R, sz: 1.14 * R, rz: -0.22, rx: 0.1 });
+      add(G.sphere(12, 8), col, { x: 0.2 * R, y: 0.12 * R, z: 0.05 * R, sx: 1.18 * R, sy: 0.34 * R, sz: 1.14 * R, rz: -0.22, rx: 0.1 });
       add(G.cyl(0.04 * R, 0.05 * R, 0.16 * R, 6), col2, { x: 0.12 * R, y: 0.48 * R, rz: -0.22 });
       top = 0.5 * R;
       break;
     case 'party':
       add(G.cone(0.62 * R, 1.3 * R, 12), (x, y, z, c) => c.set(Math.floor((y + 0.65 * R) / (0.22 * R)) % 2 ? col : col2), { y: 0.55 * R, rz: 0.15 });
-      add(G.ico(1), h.pom || P.sunflower, { x: -0.19 * R, y: 1.22 * R, s: 0.17 * R });
+      add(G.sphere(8, 6), h.pom || P.sunflower, { x: -0.19 * R, y: 1.22 * R, s: 0.17 * R });
       top = 1.3 * R;
       break;
     case 'veil': {
       const fl = [P.bubblegum, '#fff8ee', P.sunflower];
       for (let i = 0; i < 9; i++) {
         const a = -1.5 + (i / 8) * 3.0;
-        add(G.sphere(6, 5), fl[i % 3], { x: Math.sin(a) * 0.92 * Rx, y: 0.16 * R + Math.cos(a) * 0.1 * R, z: Math.cos(a) * 0.72 * R - 0.12 * R, s: 0.13 * R });
+        add(G.sphere(5, 3), fl[i % 3], { x: Math.sin(a) * 0.92 * Rx, y: 0.16 * R + Math.cos(a) * 0.1 * R, z: Math.cos(a) * 0.72 * R - 0.12 * R, s: 0.13 * R });
       }
       add(lathe([[0.9 * R, 0], [1.0 * R, -0.5 * R], [1.15 * R, -1.3 * R], [1.3 * R, -2.1 * R]], 12, [], Math.PI - 1.35, 2.7), '#fbf7f0', { y: 0.12 * R, z: -0.08 * R });
       top = 0.35 * R;
@@ -781,7 +788,7 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       top = 0.2 * R;
       break;
     default:
-      add(G.hemi(12, 6), col, { sx: R, sy: 0.7 * R, sz: R });
+      add(G.hemi(12, 4), col, { sx: R, sy: 0.7 * R, sz: R });
   }
   meta.hatTop = baseY + top;
 }
@@ -825,7 +832,7 @@ function buildWorn(rb, b, d, cfg, C) {
       });
     } else if (a === 'scarf') {
       const col = cfg.scarfColor || P.tomato;
-      rb.add(G.torus(profR(0.93, cfg.build.belly) * d.bodyR * 1.02, 0.042, 5, 16), col, { y: d.bodyBottom + 0.93 * d.bodyH, rx: Math.PI / 2, sz: d.bodyD }, b.spine);
+      rb.add(G.torus(profR(0.93, cfg.build.belly) * d.bodyR * 1.02, 0.042, 4, 12), col, { y: d.bodyBottom + 0.93 * d.bodyH, rx: Math.PI / 2, sz: d.bodyD }, b.spine);
       rb.add(G.capsule(0.035, 0.18, 2, 5), col, { x: 0.08, y: d.bodyBottom + 0.8 * d.bodyH, z: d.bodyR * 0.9, rz: 0.1 }, b.spine);
     }
   }

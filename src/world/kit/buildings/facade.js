@@ -1,7 +1,7 @@
 // Facade parts shared by houses, shops, the pub and the church. Every function works in the
 // kit's current frame: wall surface = plane z=0, +Z points out of the wall, origin at the
 // bottom-centre of the element.
-import { THREE, materials, cbox, prism, extrude, archPath, lancetPath, cylBetween, shade, hsl, mix, wobbleColor, DEG } from './common.js';
+import { THREE, materials, cbox, prism, extrude, archPath, lancetPath, cylBetween, shade, wobbleColor, DEG } from './common.js';
 import { box, cyl, sphere, ico, torus } from '../../geo.js';
 import { P } from '../../../gfx/palette.js';
 import { numberPlate } from './signs.js';
@@ -30,10 +30,9 @@ export function addWindow(kit, o = {}) {
 
   if (style === 'simple') {
     // cheap window for sides/backs: surround slab + raised pane + one bar
-    kit.add(cbox(w + 0.26, h + 0.26, 0.1, 0.05), trim, { y: h / 2, z: 0.03 });
+    kit.add(box(w + 0.26, h + 0.26, 0.1), trim, { y: h / 2, z: 0.03 });
     kit.add(box(w, h, 0.06), glass, { y: h / 2, z: 0.1 }, glossy);
-    kit.add(box(0.07, h, 0.04), trim, { y: h / 2, z: 0.14 });
-    kit.add(cbox(w + 0.4, 0.13, 0.26, 0.04), sillColor, { y: -0.12, z: 0.1 });
+    kit.add(box(w + 0.4, 0.13, 0.22), sillColor, { y: -0.12, z: 0.1 });
     return h / 2;
   }
 
@@ -41,7 +40,7 @@ export function addWindow(kit, o = {}) {
   const hs = arched ? h - w / 2 : h; // spring line
   // pane (recessed behind the frame)
   if (arched) {
-    const shape = style === 'lancet' ? lancetPath(w + 0.04, h + 0.02) : archPath(w + 0.04, h + 0.02);
+    const shape = style === 'lancet' ? lancetPath(w + 0.04, h + 0.02) : archPath(w + 0.04, h + 0.02, undefined, 6);
     kit.add(extrude(shape, 0.06, { curveSegments: 1 }), glass, { z: -0.01 }, glossy);
   } else {
     kit.add(box(w + 0.04, h + 0.04, 0.06), glass, { y: h / 2, z: -0.01 }, glossy);
@@ -69,7 +68,7 @@ export function addWindow(kit, o = {}) {
   }
   // frame: jambs + head (or arch)
   const fd = 0.2;
-  for (const s of [-1, 1]) kit.add(cbox(fw, hs + 0.04, fd, 0.05), trim, { x: s * (w / 2 + fw / 2), y: hs / 2, z: 0.05 });
+  if (style !== 'lancet') for (const s of [-1, 1]) kit.add(box(fw, hs + 0.04, fd), trim, { x: s * (w / 2 + fw / 2), y: hs / 2, z: 0.05 });
   if (arched) {
     if (style === 'lancet') {
       const outer = lancetPath(w + fw * 2, h + fw * 1.2);
@@ -77,22 +76,22 @@ export function addWindow(kit, o = {}) {
       outer.holes.push(new THREE.Path(inner.getPoints().reverse()));
       kit.add(extrude(outer, fd * 0.9, { curveSegments: 1 }), trim, { z: 0.05 });
     } else {
-      kit.add(torus(w / 2 + fw / 2, fw * 0.62, 6, 12, Math.PI), headColor, { y: hs, z: 0.05 });
-      if (o.keystone !== false) kit.add(cbox(0.22, 0.3, 0.26, 0.05), headColor, { y: h + fw * 0.35, z: 0.07 });
+      kit.add(torus(w / 2 + fw / 2, fw * 0.66, 3, 8, Math.PI), headColor, { y: hs, z: 0.05, rz: 0 });
+      if (o.keystone !== false) kit.add(box(0.22, 0.3, 0.26), headColor, { y: h + fw * 0.35, z: 0.07 });
     }
   } else {
-    kit.add(cbox(w + 2 * fw + 0.14, 0.2, 0.24, 0.06), headColor, { y: h + 0.09, z: 0.06 });
-    if (o.keystone) kit.add(cbox(0.24, 0.3, 0.27, 0.05), trim, { y: h + 0.13, z: 0.08 });
+    kit.add(box(w + 2 * fw + 0.14, 0.2, 0.24), headColor, { y: h + 0.09, z: 0.06 });
+    if (o.keystone) kit.add(box(0.24, 0.3, 0.27), trim, { y: h + 0.13, z: 0.08 });
   }
   // sill
-  kit.add(cbox(w + 2 * fw + 0.22, 0.14, 0.32, 0.05), sillColor, { y: -0.06, z: 0.11 });
+  kit.add(box(w + 2 * fw + 0.22, 0.14, 0.32), sillColor, { y: -0.06, z: 0.11 });
   // shutters
   if (style === 'shuttered' || o.shutter) {
     const sc = o.shutter ?? P.teal;
     const sw = w * 0.5;
     for (const s of [-1, 1]) {
       const x = s * (w / 2 + fw + sw / 2 + 0.02);
-      kit.add(cbox(sw, h + 0.04, 0.09, 0.03), sc, { x, y: h / 2, z: 0.05 });
+      kit.add(box(sw, h + 0.04, 0.09), sc, { x, y: h / 2, z: 0.05 });
       for (const fy of [0.3, 0.7]) kit.add(box(sw * 0.72, 0.06, 0.04), shade(sc, -0.1), { x, y: h * fy, z: 0.1 });
     }
   }
@@ -106,19 +105,14 @@ export function addWindowBox(kit, o = {}) {
   const boxColor = o.color ?? P.woodDark;
   const flowers = o.flowers ?? [P.tomato, P.bubblegum];
   kit.add(cbox(w, 0.3, 0.34, 0.06), boxColor, { y: -0.3, z: 0.24 });
-  const n = Math.max(3, Math.round(w / 0.3));
+  // one long leafy mound + a row of fat flower heads (reads as a colour stripe from afar)
+  kit.add(ico(0.5, 0), rng.pick(LEAF), { y: -0.14, z: 0.25, sx: w * 0.95, sy: 0.3, sz: 0.36, ry: rng.range(-0.2, 0.2) });
+  const n = Math.max(3, Math.round(w / 0.36));
   for (let i = 0; i < n; i++) {
-    const x = -w / 2 + 0.12 + (i / (n - 1)) * (w - 0.24);
-    const leaf = rng.pick(LEAF);
-    kit.add(ico(0.16, 0), leaf, { x: x + rng.range(-0.04, 0.04), y: -0.13, z: 0.24 + rng.range(-0.05, 0.05), ry: rng.range(0, 3) });
-    if (i % 2 === 0 || rng.chance(0.4)) {
-      kit.add(ico(rng.range(0.1, 0.13), 0), rng.pick(flowers), { x: x + rng.range(-0.05, 0.05), y: rng.range(-0.02, 0.06), z: 0.26 + rng.range(-0.06, 0.08), ry: rng.range(0, 3) });
-    }
+    const x = -w / 2 + 0.16 + (i / (n - 1)) * (w - 0.32);
+    kit.add(ico(rng.range(0.12, 0.15), 0), rng.pick(flowers), { x: x + rng.range(-0.04, 0.04), y: rng.range(-0.02, 0.05), z: 0.27 + rng.range(-0.05, 0.07), ry: rng.range(0, 3) });
   }
-  // trailing leaves down the front
-  for (let i = 0; i < 2; i++) {
-    kit.add(ico(0.12, 0), LEAF[0], { x: rng.range(-w / 2 + 0.2, w / 2 - 0.2), y: -0.44, z: 0.43, ry: rng.range(0, 3) });
-  }
+  kit.add(ico(0.13, 0), LEAF[0], { x: rng.range(-w / 2 + 0.2, w / 2 - 0.2), y: -0.44, z: 0.43, ry: rng.range(0, 3), sy: 1.4 });
 }
 
 /**
@@ -169,7 +163,7 @@ export function addDoor(kit, o = {}) {
     top += 0.21;
   }
   // knob + letterbox
-  kit.add(sphere(0.07, 8, 6), gold, { x: w * 0.33, y: h * 0.47, z: 0.1 }, materials.glossy);
+  kit.add(ico(0.075, 0), gold, { x: w * 0.33, y: h * 0.47, z: 0.1 }, materials.glossy);
   kit.add(box(0.3, 0.08, 0.05), gold, { y: h * 0.47, z: 0.07 }, materials.glossy);
 
   // step(s)
@@ -236,8 +230,8 @@ export function addChimney(kit, o) {
       const px = pots === 1 ? 0 : (i / (pots - 1) - 0.5) * (w - 0.36);
       const ph = rng ? rng.range(0.42, 0.62) : 0.5;
       const pc = rng && rng.chance(0.3) ? shade(potColor, -0.08) : potColor;
-      kit.add(cyl(0.13, 0.17, ph, 10), pc, { x: px, y: hgt + ph / 2, z: 0 });
-      kit.add(cyl(0.18, 0.18, 0.09, 10), shade(pc, 0.05), { x: px, y: hgt + ph - 0.02, z: 0 });
+      kit.add(cyl(0.14, 0.18, ph, 8), pc, { x: px, y: hgt + ph / 2, z: 0 });
+      kit.add(cyl(0.19, 0.19, 0.1, 8), shade(pc, 0.06), { x: px, y: hgt + ph - 0.02, z: 0 });
       tops.push(kit.anchor('chimneyTop', { x: px, y: hgt + ph + 0.05, z: 0 }));
     }
   });
@@ -263,7 +257,7 @@ export function addDrainpipe(kit, o) {
 
 /** Alternating corner quoin blocks up a vertical corner (sx, sz = which corner, +-1). */
 export function addQuoins(kit, { W, D, height, color, sx, sz, y0 = 0.4 }) {
-  const bh = 0.3, gap = 0.08;
+  const bh = 0.4, gap = 0.1;
   let i = 0;
   for (let y = y0; y + bh < height - 0.1; y += bh + gap, i++) {
     const a = i % 2 ? 0.34 : 0.52;
@@ -287,14 +281,14 @@ export function addBrickPatch(kit, { x, y, z = 0, rng, color = P.brick, wall }) 
 
 /** Climbing rose / ivy cluster up a wall (origin at ground, wall plane). */
 export function addClimber(kit, { x, height = 2.6, rng, flower = P.bubblegum, spread = 0.7 }) {
-  const n = Math.round(height * 3.2);
+  const n = Math.max(3, Math.round(height * 2.1));
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1);
-    const y = 0.3 + t * height;
-    const bx = x + Math.sin(t * 7 + x) * spread * (0.35 + t * 0.6) + rng.range(-0.15, 0.15);
-    const r = 0.28 - t * 0.08 + rng.range(-0.04, 0.04);
-    kit.add(ico(r, 0), wobbleColor(rng, t > 0.5 ? LEAF[1] : LEAF[0], 0.04), { x: bx, y, z: 0.12, ry: rng.range(0, 3), sz: 0.6 });
-    if (rng.chance(0.55)) kit.add(ico(0.1, 0), rng.chance(0.8) ? flower : '#fff8ee', { x: bx + rng.range(-0.2, 0.2), y: y + rng.range(-0.15, 0.15), z: 0.25, ry: rng.range(0, 3) });
+    const y = 0.35 + t * height;
+    const bx = x + Math.sin(t * 7 + x) * spread * (0.35 + t * 0.6) + rng.range(-0.12, 0.12);
+    const r = 0.36 - t * 0.1 + rng.range(-0.04, 0.04);
+    kit.add(ico(r, 0), wobbleColor(rng, t > 0.5 ? LEAF[1] : LEAF[0], 0.04), { x: bx, y, z: 0.14, ry: rng.range(0, 3), sz: 0.55 });
+    if (rng.chance(0.7)) kit.add(ico(0.12, 0), rng.chance(0.8) ? flower : '#fff8ee', { x: bx + rng.range(-0.22, 0.22), y: y + rng.range(-0.15, 0.15), z: 0.3, ry: rng.range(0, 3) });
   }
 }
 
@@ -305,7 +299,7 @@ export function addClimber(kit, { x, height = 2.6, rng, flower = P.bubblegum, sp
 export function addDormer(kit, o) {
   const { w = 1.5, h = 1.5, depth = 2.2, wall, roof, trim, rng, windowStyle = 'sash' } = o;
   kit.add(cbox(w, h, depth, 0.08), wall, { y: h / 2, z: -depth / 2 });
-  addWindow(kit, { w: w - 0.62, h: h - 0.55, style: windowStyle === 'shuttered' ? 'sash' : windowStyle, trim, rng, curtains: o.curtains });
+  addWindow(kit, { w: w - 0.62, h: h - 0.55, style: o.detail === false ? 'simple' : windowStyle === 'shuttered' ? 'sash' : windowStyle, trim, rng, curtains: o.curtains });
   // gable roof on the dormer (ridge runs back into the main roof)
   const pitch = 40 * DEG;
   const half = w / 2 + 0.22;
@@ -315,7 +309,7 @@ export function addDormer(kit, o) {
     kit.add(cbox(slab, 0.16, depth + 0.25, 0.06), roof, { x: s * half / 2, y: h + rise / 2 + 0.06, z: -depth / 2 + 0.12, rz: -s * pitch });
   }
   kit.add(prism([[-w / 2, 0], [w / 2, 0], [0, rise - 0.06]], depth - 0.02), wall, { y: h - 0.01, z: -depth / 2 });
-  kit.add(cyl(0.1, 0.1, depth + 0.3, 8), shade(roof, -0.1), { y: h + rise + 0.12, z: -depth / 2 + 0.12, rx: Math.PI / 2 });
+  kit.add(cyl(0.1, 0.1, depth + 0.3, 6), shade(roof, -0.1), { y: h + rise + 0.12, z: -depth / 2 + 0.12, rx: Math.PI / 2 });
 }
 
 /** Timber framing (tudor) on a rectangular wall area (origin bottom-centre, width w, height h). */

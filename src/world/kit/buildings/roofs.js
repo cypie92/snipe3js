@@ -1,7 +1,7 @@
 // Chunky toy roofs. Gable roofs are stacks of overlapping rounded tile courses (each course a
 // slightly different shade, like hand-painted tiles); hip / mansard / n-gon roofs are stepped
 // frustum tiers. All builders work in the kit's current frame, centred on x=z=0.
-import { THREE, materials, cbox, frustum, ngonFrustum, prism, cylBetween, shade, wobbleColor, DEG } from './common.js';
+import { THREE, cbox, frustum, ngonFrustum, prism, cylBetween, shade, wobbleColor, DEG } from './common.js';
 import { cyl } from '../../geo.js';
 import { P } from '../../../gfx/palette.js';
 
