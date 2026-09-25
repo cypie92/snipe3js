@@ -1,0 +1,14 @@
+<!doctype html><html><body style="margin:0;overflow:hidden">
+<script type="module">
+import * as THREE from 'three';
+const r = new THREE.WebGLRenderer({antialias:true}); r.setSize(innerWidth, innerHeight); document.body.appendChild(r.domElement);
+r.shadowMap.enabled = true;
+const s = new THREE.Scene(); s.background = new THREE.Color('#bfe3ff');
+const c = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100); c.position.set(3,3,5); c.lookAt(0,0,0);
+const m = new THREE.Mesh(new THREE.TorusKnotGeometry(1,0.3,128,16), new THREE.MeshStandardMaterial({color:'#ff5a4e', roughness:0.6}));
+m.castShadow = true; s.add(m);
+const g = new THREE.Mesh(new THREE.PlaneGeometry(20,20), new THREE.MeshStandardMaterial({color:'#7bc950'})); g.rotation.x=-Math.PI/2; g.position.y=-1.4; g.receiveShadow = true; s.add(g);
+s.add(new THREE.HemisphereLight('#bfe3ff','#7a8f5a',1.2)); const d = new THREE.DirectionalLight('#fff1d6',3); d.position.set(5,8,3); d.castShadow=true; s.add(d);
+r.render(s,c); console.log('[game] rendered', r.capabilities.isWebGL2, r.getContext().getParameter(r.getContext().VERSION));
+window.__ready = true;
+</script></body></html>

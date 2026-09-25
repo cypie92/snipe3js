@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Jack of All Blasts</title>
+    <meta name="description" content="A three.js odd-job sniper hidden-object game. Fix a toy-box village's problems with perfectly aimed shots — nobody gets hurt." />
+    <meta name="theme-color" content="#5fb0ff" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='26' fill='%23ffc93c' stroke='%232b2b3a' stroke-width='6'/%3E%3Cpath d='M32 4v18M32 42v18M4 32h18M42 32h18' stroke='%232b2b3a' stroke-width='5'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23ff5a4e'/%3E%3C/svg%3E" />
+    <style>
+      #loading { position: fixed; inset: 0; display: grid; place-items: center; background: linear-gradient(#5fb0ff, #d9f0ff 60%, #7cc653 60%); font: 700 28px 'Trebuchet MS', sans-serif; color: #2b2b3a; z-index: 50; }
+      #loading span { background: #fffaf0; border: 4px solid #2b2b3a; border-radius: 18px; padding: 10px 26px; box-shadow: 0 6px 0 #2b2b3a; animation: lb 1s ease-in-out infinite; }
+      @keyframes lb { 50% { transform: translateY(-6px) rotate(-2deg); } }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="ui"></div>
+    <div id="loading"><span>Loading the village…</span></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
