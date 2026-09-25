@@ -12,7 +12,8 @@ export async function startServer(port = 0) {
     root: ROOT,
     logLevel: 'error',
     cacheDir: path.join(ROOT, 'node_modules', `.vite-${process.pid}`),
-    server: { port: port || 5100 + Math.floor(Math.random() * 800), strictPort: false, host: '127.0.0.1' },
+    // No HMR / file watching: teammates edit files concurrently and a reload mid-capture breaks runs.
+    server: { port: port || 5100 + Math.floor(Math.random() * 800), strictPort: false, host: '127.0.0.1', hmr: false, watch: null },
   });
   await server.listen();
   const url = server.resolvedUrls.local[0].replace(/\/$/, '');
