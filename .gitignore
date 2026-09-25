@@ -4,3 +4,5 @@ review/shots/
 *.log
 .DS_Store
 .vite/
+review/dbg*.mjs
+review/*.log
