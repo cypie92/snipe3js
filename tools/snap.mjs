@@ -33,7 +33,7 @@ try {
   if (evalJs) await page.evaluate(evalJs);
   await page.waitForTimeout(wait);
   fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
-  await page.screenshot({ path: out });
+  await page.screenshot({ path: out, timeout: 120000 });
   console.log(`saved ${out}${errors.length ? `  (${errors.length} console errors)` : ''}`);
 } finally {
   await browser.close();
