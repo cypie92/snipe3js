@@ -88,8 +88,7 @@ export class Shooting {
     g.fx.burst('muzzle', muzzle, dir);
     g.viewmodel.fire();
     rig.kick(1);
-    sound.sfx('shot');
-    sound.duck(0.45, 0.5);
+    sound.sfx('shot'); // the audio engine ducks music on shots itself
     g.hud.onShot();
     g.events.emit('shot', { origin, dir, hit });
 

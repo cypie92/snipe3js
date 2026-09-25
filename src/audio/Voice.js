@@ -15,6 +15,7 @@ export class Voice {
     this.rand = rand;
     this.nodes = [];
     this.end = t0;
+    this.tailSec = 0;
   }
 
   // ------------------------------------------------------------ randomness
@@ -28,7 +29,8 @@ export class Voice {
   track(n) { this.nodes.push(n); return n; }
   at(t) { return this.t0 + t; }
   until(tAbs) { if (tAbs > this.end) this.end = tAbs; }
-  tail(sec) { this.until(this.end + sec); }
+  tail(sec) { this.tailSec = Math.max(this.tailSec, sec); }
+  get finish() { return this.end + this.tailSec; }
 
   gain(v = 1, dest) {
     const g = this.track(this.ctx.createGain());
@@ -57,6 +59,12 @@ export class Voice {
     s.oversample = '2x';
     if (dest) s.connect(dest);
     return s;
+  }
+  // Route everything built after this call through a tanh drive: lowers the crest factor of
+  // sharp transients (more perceived punch at the same peak level).
+  punch(amount = 2) {
+    this.out = this.shaper(amount, this.out);
+    return this.out;
   }
   pan(value, dest) {
     const p = this.track(this.ctx.createStereoPanner());
@@ -116,7 +124,7 @@ export class Voice {
     if (o.h !== undefined) end = ahr(g.gain, this.at(t), o.peak ?? 0.5, a, o.h, o.r ?? 0.05);
     else end = perc(g.gain, this.at(t), o.peak ?? 0.5, a, o.d ?? 0.3);
     const dur = end - this.at(t) + 0.01;
-    const f0 = (o.f || 440) * (o.raw ? 1 : this.pm);
+    const f0 = (o.f || (o.pts ? o.pts[0][1] : 440)) * (o.raw ? 1 : this.pm);
     const osc = this.osc(o.type || 'sine', f0, t, dur, g);
     if (o.detune) osc.detune.value = o.detune;
     if (o.pts) sweep(osc.frequency, this.at(t), o.pts.map(([dt, f]) => [dt, f * (o.raw ? 1 : this.pm)]));
@@ -146,7 +154,7 @@ export class Voice {
     for (let i = fs.length - 1; i >= 0; i--) {
       const fd = fs[i];
       const s = o.raw ? 1 : this.pm;
-      const fl = this.filter(fd.type || 'bandpass', fd.f * s, fd.q ?? 0.9, head, fd.gain);
+      const fl = this.filter(fd.type || 'bandpass', (fd.f ?? fd.pts[0][1]) * s, fd.q ?? 0.9, head, fd.gain);
       if (fd.pts) sweep(fl.frequency, this.at(t), fd.pts.map(([dt, f]) => [dt, f * s]));
       else if (fd.f1) sweep(fl.frequency, this.at(t), [[0, fd.f * s], [fd.glide ?? dur * 0.7, fd.f1 * s]]);
       head = fl;
@@ -230,7 +238,7 @@ export class Voice {
     d.connect(lpf).connect(hpf);
     hpf.connect(fb).connect(d);
     hpf.connect(w);
-    this.until(this.end + dur);
+    this.tail(dur);
     return input;
   }
 

@@ -107,7 +107,7 @@ export class Viewmodel {
   update(dt, rig, rifle) {
     this.t += dt;
     const s = rig.scopeT;
-    this.root.visible = s < 0.65 && !rig.override;
+    this.root.visible = s < 0.65 && !rig.override && this.enabled !== false;
 
     // recoil + inertia springs
     this.recoilVel += (-160 * this.recoil - 16 * this.recoilVel) * dt;

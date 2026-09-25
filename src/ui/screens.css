@@ -41,7 +41,8 @@
 .office .bar { display: flex; gap: 12px; align-items: center; }
 
 /* ---------- Workshop ---------- */
-.workshop .panel { background: var(--paper); border: 3.5px solid var(--ink); border-radius: 20px; box-shadow: 0 7px 0 var(--ink); padding: 22px 26px; width: min(720px, 94vw); }
+.panel { background: var(--paper); border: 3.5px solid var(--ink); border-radius: 20px; box-shadow: 0 7px 0 var(--ink); padding: 22px 26px; animation: panelin .35s cubic-bezier(.2,1.5,.4,1) both; }
+.workshop .panel { width: min(720px, 94vw); }
 .panel h2 { margin: 0 0 4px; font-size: 32px; }
 .panel .sub { font-family: var(--font-hand); font-size: 20px; opacity: .7; margin-bottom: 12px; }
 .upg { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 14px; align-items: center; padding: 10px 0; border-bottom: 2px dashed rgba(43,43,58,.15); }
@@ -79,13 +80,14 @@
 .inspector svg { width: 180px; height: 180px; }
 .inspector .quote { font-family: var(--font-hand); font-size: 20px; text-align: center; background: #fff; border: 3px solid var(--ink); border-radius: 14px; padding: 6px 10px; margin-top: 6px; opacity: 0; transition: opacity .3s; }
 .inspector .quote.in { opacity: 1; }
-.stamp { position: absolute; top: 40px; left: 50%; width: 150px; height: 150px; margin-left: -75px; border-radius: 50%; border: 7px solid #d63a2e; color: #d63a2e; display: grid; place-items: center; font-size: 104px; font-weight: 700; opacity: 0; transform: scale(3) rotate(-30deg); background: rgba(255,255,255,.35); }
+.stamp { position: absolute; top: 250px; left: -150px; width: 150px; height: 150px; margin-left: -75px; z-index: 3; border-radius: 50%; border: 7px solid #d63a2e; color: #d63a2e; display: grid; place-items: center; font-size: 104px; font-weight: 700; opacity: 0; transform: scale(3) rotate(-30deg); background: rgba(255,255,255,.35); }
 .stamp.S { color: #d4a017; border-color: #d4a017; }
 .stamp.slam { animation: slam .45s cubic-bezier(.5,0,.75,0) forwards; }
 .results .actions { grid-column: 1 / -1; display: flex; gap: 12px; justify-content: flex-end; margin-top: 8px; opacity: 0; transition: opacity .3s; }
 .results .actions.in { opacity: 1; }
 .newbest { position: absolute; top: -18px; right: 20px; background: var(--pink); border: 3px solid var(--ink); border-radius: 12px; padding: 2px 12px; font-weight: 700; transform: rotate(6deg); box-shadow: 0 3px 0 var(--ink); }
 
+@keyframes panelin { 0% { transform: translateY(30px) scale(.94); opacity: 0; } 100% { transform: none; opacity: 1; } }
 @keyframes logoin { 0% { transform: scale(.2) rotate(-20deg); opacity: 0; } 100% { transform: scale(1) rotate(-3deg); opacity: 1; } }
 @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 @keyframes cardin { 0% { transform: translateY(-60px) rotate(-10deg) scale(.6); opacity: 0; } 12% { transform: translateY(0) rotate(-2deg) scale(1); opacity: 1; } 82% { opacity: 1; transform: translateY(0) rotate(-2deg); } 100% { opacity: 0; transform: translateY(-40px) rotate(-4deg); } }

@@ -209,6 +209,11 @@ export function reverbIR(ctx, seconds = 1.6) {
     const fo = Math.floor(sr * 0.05);
     for (let i = 0; i < fo; i++) d[len - 1 - i] *= i / fo;
   }
+  // unit energy per channel: steady tones come back at ~0 dB, so send gain == reverb level
+  let e = 0;
+  for (let ch = 0; ch < 2; ch++) for (const x of buf.getChannelData(ch)) e += x * x;
+  const k = 1 / Math.sqrt(e / 2);
+  for (let ch = 0; ch < 2; ch++) { const d = buf.getChannelData(ch); for (let i = 0; i < len; i++) d[i] *= k; }
   c.ir = buf;
   return buf;
 }

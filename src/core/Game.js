@@ -272,7 +272,9 @@ export class Game {
   // ---------------------------------------------------------------- flow
   async boot() {
     await loadAudio();
+    sound.setListener(this.camera);
     this.applySettings();
+    document.addEventListener('visibilitychange', () => (document.hidden ? sound.suspend() : sound.resume()));
     const direct = this.params.get('level');
     if (direct && getLevel(direct)) {
       await this.startLevel(direct, { skipIntro: this.params.get('skipIntro') === '1' });
@@ -537,7 +539,7 @@ export class Game {
       this.rig.look(dx, dy * inv);
       this.viewmodel.sway(dx, dy);
     }
-    if (this.state === 'title' || this.state === 'office') this.orbitCamera(realDt);
+    if (this.state === 'title' || this.state === 'office' || this.state === 'results') this.orbitCamera(realDt);
     else if (this.rig.override && this.state !== 'intro' && !this.bulletCam.active) this.rig.override = null;
 
     this.rig.update(dt, this.frozen ? 0 : realDt);
@@ -553,6 +555,7 @@ export class Game {
     this.fx.update(dt);
     this.tracers.update(dt, this.camera);
     this.env.update(dt, this.camera);
+    this.viewmodel.enabled = this.state === 'play' || this.state === 'outro';
     this.viewmodel.update(this.frozen ? 0 : realDt, this.rig, this.rifle);
     this.hud.update(realDt);
     this.popups.update(realDt);

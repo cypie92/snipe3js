@@ -32,4 +32,6 @@ export const sound = {
   setVolumes: call('setVolumes'),
   duck: call('duck'),
   update: call('update'),
+  suspend: call('suspend'),
+  resume: call('resume'),
 };

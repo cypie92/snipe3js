@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound Lab — Jack of All Blasts</title>
+<style>
+  :root { --ink: #2b2b3a; --paper: #fff8ee; --sun: #ffc93c; --teal: #2ec4b6; --tomato: #ff5a4e; --cobalt: #3a6ee8;
+    --bubble: #ff7eb6; --tang: #ff9f1c; --lime: #a3e635; --violet: #9b6cf0; --grass: #7cc653; --sky: #c2e4ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--sky); color: var(--ink); font: 15px/1.35 Fredoka, system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: var(--sun); border-bottom: 3px solid var(--ink); }
+  header h1 { margin: 0; font-size: 24px; font-weight: 700; }
+  header .sub { font-family: 'Patrick Hand', cursive; font-size: 19px; opacity: .8; }
+  .pill { margin-left: auto; padding: 4px 12px; border: 3px solid var(--ink); border-radius: 99px; background: var(--paper); font-weight: 600; }
+  .pill.on { background: var(--lime); }
+  main { display: grid; grid-template-columns: 330px 1fr; gap: 18px; padding: 18px 20px 40px; align-items: start; }
+  .panel { background: var(--paper); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); padding: 12px 14px 14px; margin-bottom: 18px; }
+  .panel h2 { margin: 0 0 10px; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .panel h2 small { font-weight: 500; opacity: .6; font-size: 13px; }
+  .row { display: grid; grid-template-columns: 78px 1fr 44px; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; }
+  .row output { text-align: right; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--cobalt); }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: 600 14px Fredoka, system-ui, sans-serif; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 12px;
+    box-shadow: 0 3px 0 var(--ink); padding: 6px 11px; cursor: pointer; transition: transform .06s; }
+  button:hover { transform: translateY(-1px); }
+  button:active, button.hit { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+  button.active { background: var(--lime); }
+  .cat-rifle button { background: #ffe1dc; } .cat-impact button { background: #fff0c2; } .cat-feedback button { background: #d8f6f2; }
+  .cat-ui button { background: #e3ebff; } .cat-voice button { background: #ffe0ef; } .cat-animal button { background: #ecf8d8; }
+  .stop { background: #eee !important; }
+  #meter { width: 100%; height: 46px; display: block; border: 3px solid var(--ink); border-radius: 10px; background: #1f2230; }
+  .mono { font: 12px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+  #now { font-family: 'Patrick Hand', cursive; font-size: 18px; min-height: 24px; }
+  label.chk { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; }
+  #wave { width: 100%; height: 120px; display: block; background: #fff; border: 3px solid var(--ink); border-radius: 10px; }
+  select { font: 600 14px Fredoka, sans-serif; border: 3px solid var(--ink); border-radius: 10px; padding: 4px 6px; background: #fff; }
+  table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, Menlo, monospace; }
+  td, th { border-bottom: 1px solid #0002; padding: 2px 6px; text-align: right; } td:first-child, th:first-child { text-align: left; }
+  .bad { color: var(--tomato); font-weight: 700; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sound Lab</h1><span class="sub">Jack of All Blasts · 100% synthesised audio</span>
+  <span id="state" class="pill">click anything to unlock audio</span>
+</header>
+<main>
+  <div>
+    <section class="panel"><h2>Mix</h2><div id="vols"></div>
+      <canvas id="meter" width="600" height="80"></canvas>
+      <div class="btns" style="margin-top:10px"><button id="duck">Duck music</button><button id="stress">Stress 40</button></div>
+    </section>
+    <section class="panel"><h2>Play options</h2><div id="opts"></div>
+      <label class="chk"><input type="checkbox" id="positional"> Positional (listener at origin, looking -Z)</label>
+      <div class="mono" id="spatial"></div>
+    </section>
+    <section class="panel"><h2>Music</h2><div class="btns" id="music"></div><div id="now"></div></section>
+    <section class="panel"><h2>Ambience</h2><div class="btns" id="amb"></div></section>
+    <section class="panel"><h2>Engine <small>audio.stats()</small></h2><div class="mono" id="stats"></div></section>
+  </div>
+  <div>
+    <div id="sfx"></div>
+    <section class="panel"><h2>Offline analyser <small>renders through the real mix graph</small></h2>
+      <div class="btns"><select id="pick"></select><button id="render">Render &amp; measure</button><button id="renderAll">Measure all SFX</button></div>
+      <canvas id="wave" width="1200" height="160" style="margin-top:10px"></canvas>
+      <div class="mono" id="result"></div><div id="table"></div>
+    </section>
+  </div>
+</main>
+<script type="module">
+import '@fontsource/fredoka/400.css';
+import '@fontsource/fredoka/600.css';
+import '@fontsource/fredoka/700.css';
+import '@fontsource/patrick-hand/400.css';
+import { audio, SFX_NAMES, SFX_CATEGORIES, SONG_NAMES, AMBIENCE_NAMES } from '../src/audio/Audio.js';
+import { SFX } from '../src/audio/sfx/index.js';
+import * as report from '../src/audio/report.js';
+import { renderSfx } from '../src/audio/offline.js';
+import { analyze } from '../src/audio/analyze.js';
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, parent) => { const e = Object.assign(document.createElement(tag), props); parent?.appendChild(e); return e; };
+const flash = (b) => { b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 90); };
+
+// ---------------------------------------------------------------- sliders
+function slider(parent, label, min, max, step, value, onInput, fmt = (v) => v) {
+  const row = el('div', { className: 'row' }, parent);
+  el('span', { textContent: label }, row);
+  const input = el('input', { type: 'range', min, max, step, value }, row);
+  const out = el('output', { textContent: fmt(value) }, row);
+  input.addEventListener('input', () => { out.textContent = fmt(Number(input.value)); onInput(Number(input.value)); });
+  return input;
+}
+for (const k of ['master', 'sfx', 'music', 'ambience']) slider($('vols'), k, 0, 1.5, 0.05, 1, (v) => audio.setVolumes({ [k]: v }));
+const play = { pitch: 1, variance: null, azimuth: 30, distance: 60, zoom: 1 };
+slider($('opts'), 'pitch', 0.5, 2, 0.01, 1, (v) => (play.pitch = v));
+slider($('opts'), 'variance', -0.01, 0.3, 0.01, -0.01, (v) => (play.variance = v < 0 ? null : v), (v) => (v < 0 ? 'auto' : v));
+slider($('opts'), 'azimuth °', -180, 180, 1, 30, (v) => { play.azimuth = v; showSpatial(); });
+slider($('opts'), 'distance m', 0, 150, 1, 60, (v) => { play.distance = v; showSpatial(); });
+slider($('opts'), 'scope x', 1, 8, 1, 1, (v) => { play.zoom = v; setZoom(v); showSpatial(); });
+
+// fake camera at origin looking down -Z (three.js convention), fov changes with "scope"
+const cam = { fov: 50, zoom: 1, matrixWorld: { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1.6, 0, 1] } };
+audio.setListener(cam);
+function setZoom(z) { cam.fov = (2 * Math.atan(Math.tan((50 * Math.PI) / 360) / z) * 180) / Math.PI; audio.update(); }
+const position = () => {
+  const a = (play.azimuth * Math.PI) / 180;
+  return [Math.sin(a) * play.distance, 1.6, -Math.cos(a) * play.distance];
+};
+function showSpatial() {
+  const s = audio._spatial($('positional').checked ? position() : null);
+  $('spatial').textContent = `gain ${s.gain.toFixed(2)}  pan ${s.pan.toFixed(2)}  lowpass ${Math.round(s.lowpass)} Hz`;
+}
+$('positional').addEventListener('change', showSpatial);
+showSpatial();
+
+// ---------------------------------------------------------------- SFX buttons
+const TITLES = { rifle: 'Rifle & scope', impact: 'Impacts & props', feedback: 'Feedback', ui: 'UI', voice: 'Voices', animal: 'Animals' };
+for (const cat of SFX_CATEGORIES) {
+  const sec = el('section', { className: `panel cat-${cat}` }, $('sfx'));
+  el('h2', { innerHTML: `${TITLES[cat]} <small>${SFX_NAMES.filter((n) => SFX[n].cat === cat).length}</small>` }, sec);
+  const box = el('div', { className: 'btns' }, sec);
+  for (const name of SFX_NAMES.filter((n) => SFX[n].cat === cat)) {
+    const b = el('button', { textContent: name, title: `audio.sfx('${name}')` }, box);
+    b.addEventListener('click', () => {
+      audio.unlock();
+      audio.sfx(name, { pitch: play.pitch, variance: play.variance ?? undefined, position: $('positional').checked ? position() : undefined });
+    });
+    b.addEventListener('mouseenter', () => audio.sfx('uiHover', { volume: 0.5 }));
+    el('option', { value: name, textContent: name }, $('pick'));
+  }
+}
+
+// ---------------------------------------------------------------- music & ambience
+function group(parent, names, fn) {
+  const btns = [...names, null].map((n) => {
+    const b = el('button', { textContent: n ?? 'stop', className: n ? '' : 'stop' }, parent);
+    b.addEventListener('click', () => { audio.unlock(); fn(n); btns.forEach((x) => x.classList.toggle('active', x === b && !!n)); });
+    return b;
+  });
+}
+group($('music'), SONG_NAMES, (n) => audio.music(n));
+group($('amb'), AMBIENCE_NAMES, (n) => audio.ambience(n));
+$('duck').addEventListener('click', () => { audio.unlock(); audio.duck(0.7, 1.0); });
+$('stress').addEventListener('click', () => {
+  audio.unlock();
+  for (let i = 0; i < 40; i++) setTimeout(() => audio.sfx(SFX_NAMES[Math.floor(Math.random() * SFX_NAMES.length)], { position: [Math.random() * 200 - 100, 2, -Math.random() * 150] }), i * 25);
+});
+
+// ---------------------------------------------------------------- meter + stats
+let an = null;
+const mctx = $('meter').getContext('2d');
+const hold = [0, 0];
+function meter() {
+  requestAnimationFrame(meter);
+  if (audio.ready && !an) {
+    const sp = audio.ctx.createChannelSplitter(2);
+    an = [0, 1].map(() => Object.assign(audio.ctx.createAnalyser(), { fftSize: 1024 }));
+    audio.mix.output.connect(sp);
+    an.forEach((a, i) => sp.connect(a, i));
+  }
+  const W = $('meter').width, H = $('meter').height;
+  mctx.fillStyle = '#1f2230'; mctx.fillRect(0, 0, W, H);
+  if (!an) return;
+  const buf = new Float32Array(1024);
+  an.forEach((a, i) => {
+    a.getFloatTimeDomainData(buf);
+    let pk = 0, sq = 0;
+    for (const x of buf) { pk = Math.max(pk, Math.abs(x)); sq += x * x; }
+    const toX = (v) => Math.max(0, (20 * Math.log10(v + 1e-9) + 60) / 60) * W;
+    hold[i] = Math.max(pk, hold[i] * 0.97);
+    const y = 4 + i * 26;
+    mctx.fillStyle = '#2ec4b6'; mctx.fillRect(0, y, toX(Math.sqrt(sq / buf.length)), 22);
+    mctx.fillStyle = pk > 0.89 ? '#ff5a4e' : '#ffc93c'; mctx.fillRect(toX(pk) - 3, y, 3, 22);
+    mctx.fillStyle = '#fff'; mctx.fillRect(toX(hold[i]) - 2, y, 2, 22);
+  });
+  mctx.fillStyle = '#ff5a4e'; mctx.fillRect((59 / 60) * W, 0, 2, H); // -1 dBFS line
+  mctx.fillStyle = '#ffffffb0'; mctx.font = '600 22px Fredoka, sans-serif';
+  for (const d of [-48, -36, -24, -12, -6]) mctx.fillText(String(d), ((d + 60) / 60) * W - 18, H - 4);
+}
+meter();
+setInterval(() => {
+  $('state').textContent = audio.ctx ? `audio ${audio.ctx.state}` : 'click anything to unlock audio';
+  $('state').classList.toggle('on', audio.ready);
+  $('stats').textContent = JSON.stringify(audio.stats(), null, 1).replace(/[{}"]/g, '').trim();
+  const s = audio.musicInfo();
+  $('now').textContent = s ? `♪ ${s.name} — bar ${s.bar + 1}, beat ${s.beat + 1} · ${s.section}` : '';
+}, 250);
+(function frame() { audio.update(); requestAnimationFrame(frame); })();
+
+// ---------------------------------------------------------------- offline analyser
+function drawWave(buf) {
+  const c = $('wave'), g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  const d = buf.getChannelData(0), W = c.width, H = c.height, step = Math.ceil(d.length / W);
+  g.fillStyle = '#3a6ee8';
+  for (let x = 0; x < W; x++) {
+    let lo = 0, hi = 0;
+    for (let i = x * step; i < Math.min(d.length, (x + 1) * step); i++) { lo = Math.min(lo, d[i]); hi = Math.max(hi, d[i]); }
+    g.fillRect(x, H / 2 - hi * H / 2, 1, Math.max(1, (hi - lo) * H / 2));
+  }
+  g.fillStyle = '#ff5a4e'; g.fillRect(0, H / 2 - 0.891 * H / 2, W, 1); g.fillRect(0, H / 2 + 0.891 * H / 2, W, 1);
+}
+$('render').addEventListener('click', async () => {
+  const name = $('pick').value;
+  const { buf, declared } = await renderSfx(name, { seed: Math.floor(Math.random() * 1000) });
+  drawWave(buf);
+  $('result').textContent = `${name}: ${JSON.stringify(analyze(buf, { declared }))}`;
+});
+$('renderAll').addEventListener('click', async () => {
+  $('table').textContent = 'rendering…';
+  const rows = await report.sfxReport({ seeds: [1] });
+  const cols = ['name', 'declared', 'active', 'peakDb', 'lufsM', 'rmsDb', 'endDb', 'dc'];
+  $('table').innerHTML = `<table><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${rows.map((r) => `<tr>${cols.map((c) =>
+    `<td class="${(c === 'peakDb' && r[c] > -1) || (c === 'endDb' && r[c] > -60) ? 'bad' : ''}">${r[c]}</td>`).join('')}</tr>`).join('')}</table>`;
+});
+
+// ---------------------------------------------------------------- automation hooks (tools/audio-check.mjs)
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+window.__audioLab = {
+  ready: true, audio, report,
+  async apiSmoke({ expectAudio = true } = {}) {
+    const errs = [];
+    const tryit = (label, fn) => { try { fn(); } catch (e) { errs.push(`${label}: ${e.message}`); } };
+    tryit('ambience-before-unlock', () => audio.ambience('village'));
+    tryit('sfx-before-unlock', () => audio.sfx('shot'));
+    tryit('unlock', () => audio.unlock());
+    tryit('unlock-again', () => audio.unlock());
+    for (let i = 0; i < 20 && expectAudio && !audio.ready; i++) await sleep(50);
+    tryit('setVolumes', () => audio.setVolumes({ master: 1, sfx: 1, music: 0.8, ambience: 0.8, bogus: 3 }));
+    tryit('setListener', () => audio.setListener(cam));
+    let played = 0;
+    for (const n of SFX_NAMES) tryit(n, () => { if (audio.sfx(n, { position: position(), variance: 0.1 })) played++; });
+    tryit('unknown', () => audio.sfx('definitelyNotASound'));
+    tryit('bad position', () => audio.sfx('pop', { position: { x: NaN } }));
+    tryit('bad numbers', () => audio.sfx('ding', { pitch: NaN, volume: Infinity, variance: -3, delay: NaN }));
+    tryit('null opts', () => audio.sfx('uiClick', null));
+    tryit('object3d-like', () => audio.sfx('tick', { position: { isObject3D: true, matrixWorld: { elements: [1,0,0,0,0,1,0,0,0,0,1,0,5,0,-20,1] } } }));
+    tryit('music', () => audio.music('menu'));
+    await sleep(1200);
+    const mid = audio.stats();
+    tryit('music-switch', () => audio.music('level'));
+    tryit('amb-switch', () => audio.ambience('harbour'));
+    tryit('duck', () => audio.duck(0.5, 0.3));
+    tryit('update', () => audio.update());
+    tryit('restart', () => audio.music('level', { restart: true }));
+    tryit('suspend/resume', () => { audio.suspend(); audio.resume(); });
+    await sleep(2500);
+    const during = audio.stats();
+    tryit('stop', () => { audio.music(null); audio.ambience(null); });
+    await sleep(expectAudio ? 9000 : 100);
+    const after = audio.stats();
+    const ok = errs.length === 0 && (!expectAudio || (mid.state === 'running' && played >= SFX_NAMES.length - 2 && after.voices === 0 && after.fading === 0));
+    return { ok, errs, played, mid, during, after };
+  },
+};
+</script>
+</body>
+</html>
