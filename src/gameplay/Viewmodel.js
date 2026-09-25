@@ -71,7 +71,6 @@ export class Viewmodel {
       part(rbox(0.11, 0.09, 0.13, 0.04), GLOVE, { x: 0.0, y: -0.06, z: -0.46 }), // left hand under fore-end
       part(rbox(0.12, 0.06, 0.05, 0.02), CUFF, { x: 0.0, y: -0.09, z: -0.38 }),
       part(cyl(0.055, 0.06, 0.5, 12), SLEEVE, { rx: 1.25, x: 0.03, y: -0.2, z: 0.36 }), // right sleeve
-      part(cyl(0.055, 0.06, 0.55, 12), SLEEVE, { rx: 1.05, rz: 0.35, x: -0.06, y: -0.26, z: -0.18 }), // left sleeve
     ]);
     this.gun.add(new THREE.Mesh(hands, materials.toy));
 
@@ -83,13 +82,14 @@ export class Viewmodel {
       }
     });
 
-    this.gun.scale.setScalar(0.52);
-    this.hip = new THREE.Vector3(0.2, -0.19, -0.44);
+    this.gun.scale.setScalar(0.42);
+    this.hip = new THREE.Vector3(0.22, -0.2, -0.56);
     this.ads = new THREE.Vector3(0.0, -0.085, -0.22);
     this.recoil = 0;
     this.recoilVel = 0;
     this.lag = new THREE.Vector2();
     this.lagVel = new THREE.Vector2();
+    this.yawOffset = 0.1;
     this.muzzleLocal = new THREE.Vector3(0, 0.025, -1.02); // in gun space (scaled with the gun)
     this.t = 0;
   }
@@ -122,7 +122,7 @@ export class Viewmodel {
     g.position.x -= this.lag.x;
     g.position.y += this.lag.y + Math.sin(this.t * 1.6) * 0.004;
     g.position.z += this.recoil * 0.06;
-    g.rotation.set(this.recoil * 0.12 + this.lag.y * 2, -0.05 * (1 - s) - this.lag.x * 2, 0.04 * (1 - s));
+    g.rotation.set(this.recoil * 0.12 + this.lag.y * 2, (this.yawOffset - 0.05) * (1 - s) - this.lag.x * 2, 0.04 * (1 - s));
 
     // bolt cycle / reload poses
     let boltRot = 0, boltSlide = 0;
