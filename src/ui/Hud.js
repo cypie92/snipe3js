@@ -62,8 +62,25 @@ export class Hud {
     this.hintArrow = el('div', 'hint-arrow hidden');
     this.bars = el('div', 'bars', '<div class="slowmo">SLOW-MO</div>');
 
+    this.touch = el('div', 'touch hidden', `<button class="tb pause">❚❚</button><button class="tb jobs">📋</button>
+      <button class="tb hint">?</button><button class="tb reload">R</button><button class="tb zin">+</button>
+      <button class="tb zout">−</button><button class="tb scopeb">◎</button><button class="tb fire">FIRE</button>`);
+    const tap = (cls, fn) => this.touch.querySelector(cls).addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fn();
+    });
+    tap('.fire', () => game.state === 'play' && !game.paused && game.shooting.fire());
+    tap('.scopeb', () => game.setScope(!game.rig.scoped));
+    tap('.zin', () => game.rig.cycleZoom(1));
+    tap('.zout', () => (game.rig.zoomIndex === 0 ? game.setScope(false) : game.rig.cycleZoom(-1)));
+    tap('.reload', () => game.rifle.reload());
+    tap('.hint', () => game.useHint());
+    tap('.jobs', () => this.toggleClipboard());
+    tap('.pause', () => (game.paused ? game.resume() : game.pause()));
+
     this.root.append(this.scope, this.cross, this.clip, this.top, this.tr, this.ammo, this.help, this.prompt,
-      this.toasts, this.flashEl, this.hintMarker, this.hintArrow);
+      this.toasts, this.flashEl, this.hintMarker, this.hintArrow, this.touch);
     root.appendChild(this.bars);
 
     this.lastSec = -1;
@@ -249,6 +266,14 @@ export class Hud {
       this._ammo = rifle.ammo;
       this._mag = rifle.magSize;
       this.renderRounds();
+    }
+
+    // Touch controls
+    const touch = g.input.touchMode;
+    this.touch.classList.toggle('hidden', !touch);
+    if (touch) {
+      this.help.style.display = 'none';
+      this.touch.classList.toggle('scoped', g.rig.scoped);
     }
 
     // Help fades

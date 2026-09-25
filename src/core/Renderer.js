@@ -34,6 +34,16 @@ export class Renderer {
     this.size = new THREE.Vector2(1, 1);
   }
 
+  /** Switch quality preset at runtime (pixel ratio + post stack). */
+  setQuality(name) {
+    if (!QUALITY[name]) return;
+    this.quality = name;
+    this.q = QUALITY[name];
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.q.pixelRatio));
+    this.build();
+    if (this.size.x > 1) this.setSize(this.size.x, this.size.y);
+  }
+
   attach(scene, camera) {
     this.scene = scene;
     this.camera = camera;

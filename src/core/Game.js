@@ -8,6 +8,8 @@ import { Emitter } from './Events.js';
 import { LevelContext } from './LevelContext.js';
 import { sound, loadAudio } from './sound.js';
 import { Environment } from '../gfx/Environment.js';
+import { materials } from '../gfx/materials.js';
+import { applyWind, windUniforms } from '../gfx/wind.js';
 import { Particles } from '../gfx/Particles.js';
 import { Tracers } from '../gfx/Tracer.js';
 import { Rifle } from '../gameplay/Rifle.js';
@@ -39,6 +41,7 @@ export class Game {
     this.renderer.attach(this.scene, this.camera);
     this.renderer.renderer.info.autoReset = false;
 
+    applyWind(materials.foliage);
     this.rig = new CameraRig(this.camera);
     this.input = new Input(canvas);
     this.tweens = new Tweens();
@@ -94,17 +97,38 @@ export class Game {
 
   applyQuality() {
     const q = this.resolveQuality();
-    const r = new Renderer({ canvas: this.canvas, quality: q });
-    // Swap only the post stack/pixel ratio on the existing GL context.
-    this.renderer.quality = r.quality;
-    this.renderer.q = r.q;
-    r.renderer.dispose();
-    this.renderer.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, this.renderer.q.pixelRatio));
-    this.env.sun.shadow.mapSize.set(this.renderer.q.shadowMapSize, this.renderer.q.shadowMapSize);
-    this.env.sun.shadow.map?.dispose();
-    this.env.sun.shadow.map = null;
-    this.renderer.build();
+    if (q === this.renderer.quality) return;
+    this.renderer.setQuality(q);
+    const size = this.renderer.q.shadowMapSize;
+    if (this.env.sun.shadow.mapSize.x !== size) {
+      this.env.sun.shadow.mapSize.set(size, size);
+      this.env.sun.shadow.map?.dispose();
+      this.env.sun.shadow.map = null;
+    }
     this.resize();
+  }
+
+  /** Auto mode only: step quality down if the frame rate stays low during play. */
+  adaptQuality(realDt) {
+    if (this.params.get('quality') || this.progress.data.settings.quality !== 'auto') return;
+    if (this.state !== 'play' || this.paused) return;
+    const a = (this.adapt ||= { t: 0, frames: 0, cooldown: 3 });
+    a.cooldown -= realDt;
+    if (a.cooldown > 0) return;
+    a.t += realDt;
+    a.frames++;
+    if (a.t < 4) return;
+    const fps = a.frames / a.t;
+    a.t = 0;
+    a.frames = 0;
+    const order = ['high', 'medium', 'low'];
+    const i = order.indexOf(this.renderer.quality);
+    if (fps < 36 && i < 2) {
+      this.renderer.setQuality(order[i + 1]);
+      this.resize();
+      a.cooldown = 5;
+      this.hud.toast('Graphics adjusted', `Switched to ${order[i + 1]} quality for smoother play`);
+    }
   }
 
   applyUpgrades() {
@@ -258,6 +282,11 @@ export class Game {
       if (screen === 'office') this.showOffice();
       else this.showTitle();
     }
+    this.markReady();
+  }
+
+  markReady() {
+    if (this.ready) return;
     this.ready = true;
     document.getElementById('loading')?.remove();
     console.log('[game] ready');
@@ -341,6 +370,7 @@ export class Game {
     this.rig.scopeT = 0;
     this.rig.fovNow = this.rig.baseFov;
     this.hud.setup(this.level);
+    this.markReady();
     sound.ambience(def.ambience || 'village');
     sound.music('level');
     if (!skipIntro) await this.playIntro();
@@ -496,6 +526,7 @@ export class Game {
     const realDt = Math.min(0.05, Math.max(0, (now - this.lastNow) / 1000));
     this.lastNow = now;
     if (realDt > 0) this.fps += (1 / realDt - this.fps) * 0.05;
+    this.adaptQuality(realDt);
 
     let dt = this.paused || this.frozen ? 0 : realDt * this.timeScale;
     if (this.bulletCam.active) dt *= 0.12;
@@ -518,6 +549,7 @@ export class Game {
       if (this.state === 'play') this.scoring.time += dt;
     }
     this.bulletCam.update(this.frozen ? 0 : realDt);
+    windUniforms.uTime.value = this.time;
     this.fx.update(dt);
     this.tracers.update(dt, this.camera);
     this.env.update(dt, this.camera);

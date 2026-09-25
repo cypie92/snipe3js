@@ -134,3 +134,24 @@ body { font-family: var(--font-ui); color: var(--ink); user-select: none; -webki
 @keyframes bob { 0%,100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -6px); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes flashrow { 0% { background: rgba(255,201,60,.8); } 100% { background: transparent; } }
+
+/* ---------- Touch controls ---------- */
+.touch { position: absolute; inset: 0; pointer-events: none; }
+.touch .tb { pointer-events: auto; position: absolute; width: 58px; height: 58px; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); box-shadow: 0 4px 0 var(--ink); font-family: var(--font-ui); font-weight: 700; font-size: 20px; color: var(--ink); touch-action: none; }
+.touch .tb:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.touch .fire { right: 26px; bottom: 96px; width: 96px; height: 96px; background: var(--tomato); color: #fff; font-size: 22px; }
+.touch .scopeb { right: 136px; bottom: 150px; background: var(--sun); font-size: 26px; }
+.touch .zin { right: 136px; bottom: 214px; display: none; }
+.touch .zout { right: 200px; bottom: 170px; display: none; }
+.touch.scoped .zin, .touch.scoped .zout { display: block; }
+.touch .reload { right: 40px; bottom: 210px; width: 50px; height: 50px; }
+.touch .hint { left: 18px; bottom: 24px; width: 50px; height: 50px; background: var(--teal); }
+.touch .jobs { left: 78px; bottom: 24px; width: 50px; height: 50px; }
+.touch .pause { right: 16px; top: 120px; width: 46px; height: 46px; font-size: 14px; }
+@media (max-width: 760px) {
+  .clipboard { width: 250px; }
+  .clipboard:not(.closed) { transform: rotate(-1.5deg) scale(.8); }
+  .topbar .chip { font-size: 16px; padding: 2px 10px; }
+  .corner-tr .chip { font-size: 16px; }
+  .ammo { bottom: 210px; right: 110px; }
+}
