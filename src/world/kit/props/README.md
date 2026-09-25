@@ -41,6 +41,7 @@ ctx.onUpdate(lamp.userData.update);     // needed for anything animated (safe to
 | `lampPost({ seed, height = 4.4, color, arms: 1 \| 2, lit = true, tilt })` | `parts.bulb` (emissive mesh + collider), `parts.post`; `setLit(bool)`, `setFlicker(bool)` (job tell), `lit` | 688 / 1160 (2 arms) | 2 |
 | `bench({ seed, length = 1.9, color, wood })` | `parts.bench` | 996 | 1 |
 | `bin({ seed, color, overflow = false })` | `parts.lid` (pivot at the back hinge, `rotation.x < 0` opens), `parts.body`; `setOpen(bool)`, `pop()` | 760 / 1100 | 2-3 |
+| `wheelieBin({ seed, color, lidColor, open = false })` | tall two-wheeled bin for the "man stuck in a bin" gag. `parts.lid` (back hinge), `parts.body`, `parts.mouth` (Object3D at the opening: seat a character there); `setOpen(bool)`, `pop()` | 744 | 2 |
 | `bollard({ seed, color, band, tilt })` | - | 288 | 1 |
 | `planter({ seed, w = 1.5, d = 0.7, h = 0.55, plant: 'flowers' \| 'shrub' \| 'topiary', color })` | `parts.box`, `parts.plants` (foliage) | 1212 | 2 |
 | `signpost({ seed, height = 2.7, arrows: [{ yaw, color, len, textColor }], tilt })` | `parts.arrows[i]` (pivot on the post axis; `rotation.y` = pointing), colliders; `spinArrow(i \| arrow, turns)`, `pointArrow(i \| arrow, yaw)` | 528 | 2 |
@@ -48,10 +49,11 @@ ctx.onUpdate(lamp.userData.update);     // needed for anything animated (safe to
 | `bikeRack({ seed, n = 4, color })` | - | 664 | 1 |
 | `hydrant({ seed, color })` | `parts.spout` (Object3D at the front nozzle, facing +Z: water FX spawn) | 1004 | 1 |
 | `trafficCone({ seed, color })` | - | 260 | 1 |
-| `gardenTap({ seed, mount: 'post' \| 'wall', under: 'bucket' \| 'can' \| 'none', dripping = false })` | `parts.handle` (pivot, spins about Y, collider), `parts.spout` (drip spawn point, below the nozzle), `parts.drop`; `setDripping(bool)` (built-in falling droplet tell), `turnHandle(turns = 1)`, `dripping` | 1016 | 2-3 |
+| `gardenTap({ seed, mount: 'post' \| 'wall', under: 'bucket' \| 'can' \| 'none', dripping = false })` | `parts.handle` (pivot, spins about Y, collider), `parts.spout` (drip spawn point, below the nozzle), `parts.drop`, `parts.puddle` (`under:'none'` only); `setDripping(bool)` (built-in falling droplet tell; with `under:'none'` a puddle spreads while dripping and dries up after), `turnHandle(turns = 1)`, `dripping` | 638-1016 | 3 |
 | `bicycle({ seed, color, basket = true })` | `parts.wheels` [rear, front], `parts.frame`, `parts.body`; `speed` | 1372 | 2 |
 | `picnicTable({ seed, cloth = true, picnic = true })` | gingham cloth, basket, lemonade jug, sandwiches | 1164 | 1 |
 | `parasolTable({ seed, colors: [c1, c2], chairs = 2, open = true })` | `parts.parasol` (pivot at pole top), `parts.table`; `setOpen(bool)` folds/unfolds | 1128 | 2 |
+| `easel({ seed, painting: 'landscape' \| 'portrait' \| 'abstract' })` | painter's easel with a painting + palette. `parts.canvas` (pivot + collider); `splat(color)` pops a paint splat onto the canvas (fun hit), `clean()` | 556 | 1-2 |
 
 `'wall'` garden taps have their back plate at z = 0: stick the group on a wall facing +Z.
 
@@ -75,7 +77,7 @@ const stall = K.marketStall({ goods: 'veg', awning: [P.teal, '#fff8ee'], seed: 2
 ### `melonStack({ seed })`
 Pyramid of 9 striped watermelons on a pallet. **Every melon is its own pivot** (`parts.melons`, with
 colliders) → great fun hits: `userData.knock(melon, dirX = ±1)` tumbles it off onto the ground.
-2 draw calls, 1076 tris.
+`avalanche()` knocks them all off, top first (the "melon mayhem" secret). 2 draw calls, 1076 tris.
 ```js
 const stack = K.melonStack({ seed: 1 });
 for (const m of stack.userData.parts.melons) ctx.prop(m, { onHit: () => stack.userData.knock(m, Math.sign(m.position.x) || 1) });
@@ -86,7 +88,7 @@ for (const m of stack.userData.parts.melons) ctx.prop(m, { onHit: () => stack.us
 Catenary rope with pennants that gently wave, hooks at both ends. **1 draw call** (rope, hooks, flags
 and coil are all LiveMesh pieces), ~1.1k tris for 6 m.
 - `parts.flags[i]` (pivots with colliders), `parts.coil` (the neat furled bundle hanging on the hook at
-  `from`, collider r=0.36), `parts.rope`.
+  `from`; its collider r=0.36 also covers the hook - use it as the job target), `parts.hooks` [from, to], `parts.rope`.
 - `setFurled(bool, { instant })` → animated: the rope end flies from the hook to `to`, the sag grows,
   flags pop in one by one, then the line settles with a bounce (1.8 s). Furling reverses it (1.1 s).
 - `userData.furled` (getter).
@@ -117,6 +119,13 @@ hoist band, gold pixel-heart emblem - deliberately not any real flag). parts: `f
 (pivot at the hoist top; slides along the pole), `pole`. `setRaised(bool)` glides the flag up/down
 (job: "raise the flag"), `raised` getter. 2 draw calls, 584 tris.
 
+### `kite({ seed, colors: [c1, c2], stuck = true })`
+Smiley diamond kite with a waving bow tail, tangled by its string. **The group origin is the tangled knot**:
+put it at the edge of a tree canopy (`tree()` round canopies reach ~3.3 m from the trunk). parts: `knot`
+(job target, collider r=0.32), `kite` (pivot + collider), `tail`. `free()` → knot unties, kite floats up
+~2.7 m and hovers fluttering (re-parent/move `parts.kite` to hand it to a character); `flyAway()` drifts it
+off and hides it; `freed`. 1 draw call, ~510 tris.
+
 ### `weathervane({ seed, windYaw = 0, base: 'plinth' | 'none' })`
 Gold rooster + arrow over N/E/S/W arms (~1.6 m; put it on a roof). parts: `vane` (spins about Y, drifts
 with the wind). `spin(impulse = 8)` for shot reactions. 2 draw calls, 808 tris.
@@ -130,7 +139,7 @@ body hop on its springs (fun hit / car-alarm gag). Moving the vehicle along a pa
 | builder | notes | tris | dc |
 |---|---|---|---|
 | `car({ style: 'hatch' \| 'beetle' \| 'van' \| 'pickup', color, seed, roof: 'none' \| 'rack' \| 'luggage' \| 'surfboard' })` | big round headlights, grille "smile", bumpers, plates; seeded two-tone roof / stripe; pickup carries a hay bale + milk churn | 2.2k-3.5k | 2 |
-| `iceCreamVan({ seed, color, trim, roofColor })` | pastel van, giant cone with scoops/flake/cherry on the roof, striped serving hatch (+X side), drip trim. `parts.speaker` (roof loudspeaker pivot + collider); `jingle(bool)` pulses it (tell) | 3454 | 3 |
+| `iceCreamVan({ seed, color, trim, roofColor })` | pastel van, giant cone with scoops/flake/cherry on the roof, striped serving hatch (+X side), drip trim. `parts.speaker` (roof loudspeaker pivot + collider); `jingle(bool)` pulses it (tell), `breakSpeaker()` stops it and droops the horn (job reaction) | 3454 | 3 |
 | `bus({ seed, color })` | double-decker (default tomato), destination board, door on the +X side | 3388 | 2 |
 | `tractor({ seed, color })` | big knobbly rear wheels, exhaust, open cab with roof | 3636 | 3 |
 
@@ -149,7 +158,7 @@ van.userData.jingle(true);
 | `gnome({ seed, pose: 'stand' \| 'fishing' \| 'toadstool' \| 'wave', hat, coat })` | glazed garden gnome ~0.8 m (toadstool ~1.3 m). `parts.hat` (pivot + collider), `parts.body`; `bonk()` hat pops up spinning and lands | 912-1300 | 2 |
 | `giantMarrow({ seed })` | 1.7 m prize marrow on straw with a 1st-prize rosette and a sign. `parts.marrow` (pivot, collider; `wobble` rocks it), `parts.straw` | 1080 | 2 |
 | `alarmClock({ seed, color, size = 0.55 })` | twin-bell clock. `parts.bell` (bells + hammer pivot, collider), `parts.body`; `ring(bool)` rattles + hops | 1112 | 2 |
-| `cameraOnTripod({ seed, color })` | retro camera on a wooden tripod. `parts.camera` (pivot at the tripod head: aim with rotation), `parts.flash`; `flash()`, `aim(yaw, pitch)` | 1020 | 2 (+1 while flashing) |
+| `cameraOnTripod({ seed, color })` | retro camera on a wooden tripod. `parts.camera` (pivot at the tripod head: aim with rotation), `parts.flash`, `parts.photo`; `snap()` = flash + a photo pops out and flutters to the ground in front (selfie job reaction), `flash()`, `aim(yaw, pitch)` | 1020 | 2-3 |
 | `birdseedBag({ seed })` | paper sack with a bird label. `parts.bag` (pivot at the front-bottom edge), `parts.spill` (ground point where seed lands - send pigeons here), `parts.pile`; `spill()` tips it and fans out seed, `reset()` | 634 | 1 (2 spilled) |
 | `teapot({ seed, color, size = 0.4 })` | polka-dot china. `parts.lid`, `parts.spout` (FX point); `rattle(bool)` (boiling tell) | 1416 | 2 |
 | `fireworkRocket({ seed, colors, onBurst })` | rocket in a sand bucket. `parts.rocket`, `parts.stand`, `parts.particles`; `launch()` → fuse sparks, climb with a smoke/spark trail, star burst at ~21 m (Promise resolves after the burst; `onBurst(worldPos)` / `userData.onBurst` fires at the burst); `reset()`, `launched` | 492 | 2 (3 in flight) |
@@ -162,6 +171,22 @@ spanner.position.set(-31, 7.4, -12);                      // on a rooftop ledge
 ctx.collectible(spanner);                                 // on hit: spanner.userData.collect()
 ctx.onUpdate(spanner.userData.update);
 ```
+
+## Puddleby Green job hooks (docs/levels/puddleby-green.md)
+| job | build | target (`ctx.job({ targets })`) | tell | on complete |
+|---|---|---|---|---|
+| `bunting` | `bunting({ from, to, furled: true })` | `parts.coil` | coil on the hook | `setFurled(false)` |
+| `pigeons` | `birdseedBag()` on Mrs Crumb's bench | `parts.bag` | (characters) | `spill()`; flock to `parts.spill` |
+| `icecream` | `iceCreamVan()` + `jingle(true)` | `parts.speaker` | pulsing horn (+ audio) | `breakSpeaker()` |
+| `postman` | `alarmClock()` on the bench | `parts.bell` or the clock | (Zzz from characters) | `ring(true)`, stop later with `ring(false)` |
+| `kite` | `kite()` knot at the oak canopy edge | `parts.knot` | kite flapping | `free()` |
+| `selfie` | `cameraOnTripod()` | `parts.camera` | tourists posing | `snap()` |
+| `tap` | `gardenTap({ mount: 'wall', under: 'none', dripping: true })` | `parts.handle` | droplet + puddle | `turnHandle(1)` then `setDripping(false)` |
+| `vane` (secret) | `weathervane()` | `parts.vane` | - | `spin(14)` |
+| `melons` (secret) | `melonStack()` beside the fruit stall | any melon | - | `avalanche()` |
+| spanners | `goldenSpanner()` x3 | the group | twinkle | `collect()` |
+Gags: `wheelieBin({ open: true })` + a character at `parts.mouth`; `easel()` for the painter (`splat()` on a
+fun hit); `gnome({ pose: 'fishing' })` on a roof; `giantMarrow()` at the fête; `balloonBunch()` at a stall.
 
 ## Helpers (exported from `index.js`)
 - `stats(object)` → `{ tris, calls }` of visible, non-collider meshes.

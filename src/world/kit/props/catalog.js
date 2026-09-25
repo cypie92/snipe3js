@@ -23,7 +23,7 @@ function inTree(obj) {
   const g = new THREE.Group();
   const t = N.tree({ type: 'round', seed: 9 });
   g.add(t);
-  obj.position.set(1.6, 4.2, 1.4);
+  obj.position.set(2.6, 3.3, 1.9);
   g.add(obj);
   g.name = obj.name;
   g.userData = obj.userData;
