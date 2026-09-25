@@ -5,7 +5,7 @@
 //   wB* wrist bend          wW* wrist wiggle        lF* leg forward      lO* leg outward  lT* toe-out  k* knee
 // Arms use Euler 'YZX': aF > ~1.6 flips the meaning of aO, and for raised arms (aO > ~1.4) a NEGATIVE eS
 // bends the forearm up/over the head. Stubby arms cannot reach above the head: keep hands beside it.
-import { createPoseType, TAU, clamp, noise, hop, smooth, bump, win } from './anim.js';
+import { createPoseType, TAU, clamp, noise, hop, smooth, bump, win, lerp } from './anim.js';
 
 export const PersonPose = createPoseType([
   'bx', 'by', 'bz', 'brx', 'bry', 'brz', 'bsq',
@@ -24,6 +24,20 @@ const ARM_KEYS = ['aFL', 'aOL', 'aTL', 'eBL', 'eSL', 'wBL', 'wWL', 'aFR', 'aOR',
 const _listen = Object.fromEntries(ARM_KEYS.map((k) => [k, 0]));
 
 // ---- shared building blocks -----------------------------------------------------------------
+/** Smooth keyframe curve: keys = [[t0, v0], [t1, v1], ...] with t ascending in [0, 1]. */
+function keys(c, k) {
+  if (c <= k[0][0]) return k[0][1];
+  for (let i = 1; i < k.length; i++) {
+    if (c <= k[i][0]) return lerp(k[i - 1][1], k[i][1], smooth((c - k[i - 1][0]) / (k[i][0] - k[i - 1][0])));
+  }
+  return k[k.length - 1][1];
+}
+const cyc = (T, period) => ((T / period) % 1 + 1) % 1;
+
+/** Arms folded across the chest (sailor's hornpipe, impatient queuer). */
+function foldArms(o) {
+  both(o, 'aF', 1.0); both(o, 'aT', 0.95); both(o, 'eB', 1.95); both(o, 'aO', 0.14);
+}
 function breathe(o, T, s, amt = 1) {
   o.ssq += 0.022 * amt * Math.sin(T * TAU / 3.4);
   o.nrx += 0.012 * amt * Math.sin(T * TAU / 3.4 - 0.6);
@@ -339,9 +353,21 @@ export const ACTIONS = {
     o.lid = 0.15; o.smile = 0.6; o.lidT = -0.2;
   },
 
-  eat(o, t, s) {
+  eat(o, t, s, opt) {
     const T = t * s.tempo + s.phase;
     breathe(o, T, s);
+    if ((opt.food || s.food) === 'chips') { // chip cone at the chest (left), fork chips to the mouth (right)
+      const c = cyc(T, 2.3);
+      const dip = win(c, 0.02, 0.3, 0.08, 0.1), up = win(c, 0.3, 0.62, 0.1, 0.12);
+      const chew = Math.max(0, Math.sin(T * 14)) * win(c, 0.52, 0.98, 0.05, 0.1);
+      o.aFL = 1.0; o.aTL = 0.55; o.eBL = 1.2; o.aOL = 0.12;
+      o.aFR = 0.55 + 0.35 * dip + 0.8 * up; o.aTR = 0.3 + 0.3 * dip + 0.35 * up; o.eBR = 0.85 + 0.45 * dip + 1.05 * up; o.aOR = 0.1;
+      o.nrx = 0.12 + 0.18 * dip - 0.08 * up; o.eyeY = -0.5 * dip;
+      o.mouth = 0.55 * win(c, 0.42, 0.6, 0.05, 0.05) + 0.25 * chew; o.smile = 0.65; o.lid = 0.15 + 0.35 * chew;
+      const glance = win(T % 7.3, 4.6, 5.8, 0.15, 0.2); // keeping an eye out for gulls...
+      o.nry = 0.55 * glance * (Math.sin(T * 0.37 + s.seed) > 0 ? 1 : -1); o.eyeX = 0.7 * o.nry; o.browT = -0.35 * glance;
+      return;
+    }
     const lick = win(T % 3.2, 0.5, 1.6, 0.25, 0.35);
     o.aFR = 0.55 + 0.75 * lick; o.aTR = 0.3 + 0.25 * lick; o.eBR = 1.2 + 0.5 * lick; o.wBR = -(0.55 + 0.75 * lick) - (1.2 + 0.5 * lick) + 0.4;
     armsIdle(o, T, s, 'relaxed');
@@ -388,15 +414,248 @@ export const ACTIONS = {
     o.srx = 0.08; o.nrx = 0.06; o.nry = 0.15 * Math.sin(T * 1.3);
     o.lid = 0.3; o.lidT = 0.55; o.browT = 0.9; o.browY = -0.3; o.smile = -0.9; o.mouth = 0.25 * Math.max(0, Math.sin(T * 9));
   },
+
+  // ---- harbour & beach -------------------------------------------------------------------------
+  // Water actions (swim, tread) expect the root ON the water surface: the body sinks so only the head
+  // and shoulders are above it, and the Person switches to the wet material (everything below the root
+  // is discarded), so the water shader never has to hide the legs.
+  tread(o, t, s, opt) {
+    const T = t * s.tempo + s.phase;
+    const d = s.d;
+    o.by = -(d.shY - 0.06) + 0.03 * Math.sin(T * 2.4);
+    const sc = Math.sin(T * 3.1);
+    both(o, 'aO', 0.95); both(o, 'aF', 0.4); both(o, 'eB', 0.55);
+    o.aTL = 0.25 + 0.4 * sc; o.aTR = 0.25 - 0.4 * sc; o.wWL = 0.4 * sc; o.wWR = -0.4 * sc;
+    o.lFL = 0.55 + 0.45 * Math.sin(T * 3.1); o.lFR = 0.55 - 0.45 * Math.sin(T * 3.1); o.kL = o.kR = 1.0;
+    o.nry = 0.45 * noise(T * 0.25, s.seed); o.nrx = -0.05 + 0.04 * Math.sin(T * 2.4); o.nrz = 0.07 * Math.sin(T * 1.2);
+    o.smile = 0.55; o.mouth = 0.12;
+    if (opt.wave !== false) { // now and then a cheery wave to the shore
+      const w = win(T % 9.5, 5.5, 7.6, 0.3, 0.35);
+      o.by += 0.07 * w;
+      o.aOR = lerp(o.aOR, 2.05 + 0.3 * Math.sin(T * 8.5), w); o.aFR = lerp(o.aFR, 0.3, w); o.eBR = lerp(o.eBR, 0.1, w);
+      o.aTR = lerp(o.aTR, 0, w); o.wWR = lerp(o.wWR, -0.5 * Math.sin(T * 8.5), w);
+      o.mouth += 0.35 * w; o.browY = 0.5 * w; o.nrz += 0.12 * w;
+    }
+  },
+
+  swim(o, t, s, opt) { // breaststroke (kids: doggy paddle); use with a Walker(action: 'swim') to move
+    const T = t * s.tempo + s.phase;
+    const d = s.d;
+    const lean = 0.75;
+    o.brx = lean;
+    o.bz = -d.shY * Math.sin(lean) * 0.75;
+    o.by = -(d.shY * Math.cos(lean) - 0.04);
+    o.nrx = -lean * 0.95 - 0.1;
+    if (s.kid || opt.style === 'doggy') {
+      const a = Math.sin(T * 6.5);
+      o.aFL = 0.95 + 0.45 * a; o.aFR = 0.95 - 0.45 * a; o.eBL = 0.9 - 0.5 * a; o.eBR = 0.9 + 0.5 * a;
+      both(o, 'aT', 0.22); both(o, 'aO', 0.12);
+      o.by += 0.02 * Math.abs(a); o.nrz = 0.08 * a;
+      o.lFL = 0.3 * a; o.lFR = -0.3 * a;
+      o.mouth = 0.3; o.smile = 0.3; o.browY = 0.4;
+      return;
+    }
+    const c = cyc(T, 1.55);
+    const aF = keys(c, [[0, 0.95], [0.3, 0.75], [0.55, 0.35], [0.7, 0.4], [1, 0.95]]);
+    const aO = keys(c, [[0, 0.08], [0.3, 0.9], [0.55, 0.35], [0.75, 0.1], [1, 0.08]]);
+    const aT = keys(c, [[0, 0.35], [0.3, -0.1], [0.55, 0.55], [0.75, 0.45], [1, 0.35]]);
+    const eB = keys(c, [[0, 0.08], [0.3, 0.35], [0.55, 1.7], [0.72, 1.2], [1, 0.08]]);
+    both(o, 'aF', aF); both(o, 'aO', aO); both(o, 'aT', aT); both(o, 'eB', eB);
+    const lift = keys(c, [[0, 0], [0.35, 0.3], [0.55, 1], [0.8, 0.2], [1, 0]]);
+    o.by += 0.07 * lift; o.nrx -= 0.1 * lift;
+    const kick = keys(c, [[0, 0], [0.45, 0.2], [0.65, 1], [0.85, 0.1], [1, 0]]);
+    both(o, 'lF', -0.2 + 0.9 * kick); both(o, 'k', 0.2 + 1.5 * kick); both(o, 'lO', 0.35 * kick);
+    o.mouth = 0.35 * lift; o.smile = 0.35; o.lid = 0.15;
+  },
+
+  row(o, t, s, opt) { // seated rowing; Person adds oars pivoting in rowlocks unless opts.oars === false
+    const T = t * s.tempo + s.phase;
+    sitBase(o, 0, s, { height: opt.height ?? 0.34 });
+    both(o, 'lF', 1.25); both(o, 'lO', 0.15);
+    const c = cyc(T, opt.period || 2.1);
+    const lean = keys(c, [[0, 0.38], [0.45, -0.34], [0.55, -0.32], [1, 0.38]]);
+    const reach = keys(c, [[0, 1], [0.1, 0.95], [0.45, 0], [0.55, 0], [0.85, 0.8], [1, 1]]);
+    const high = keys(c, [[0, 0.2], [0.08, 1], [0.45, 1], [0.56, 0], [0.95, 0], [1, 0.2]]);
+    o.srx = lean; o.nrx = -lean * 0.85 + 0.04;
+    o.kL = o.kR = 0.75 + 0.55 * reach;
+    const bias = clamp(opt.bias || 0, -1, 1); // one arm lazier -> the boat goes round in circles
+    for (const [S, k] of [['L', 1 - bias * 0.7], ['R', 1 + bias * 0.7]]) {
+      const r = 1 - (1 - reach) * clamp(k, 0.1, 1.3);
+      o['aF' + S] = 0.3 + 0.9 * r + 0.15 * high;
+      o['eB' + S] = 0.15 + 1.55 * (1 - r);
+      o['aO' + S] = 0.22; o['aT' + S] = 0.1;
+    }
+    o.mouth = 0.3 * high * (1 - reach); o.lid = 0.25 * high; o.browT = 0.25 * high; o.smile = 0.2 - 0.4 * high;
+    if (opt.lost) { // "which way's the harbour?"
+      const look = win(T % 6, 3.8, 5.8, 0.3, 0.3);
+      o.nry = 0.9 * Math.sin(T * 1.7) * look; o.browT = -0.5 * look; o.browY = 0.5 * look; o.smile = -0.5 * look;
+    }
+  },
+
+  paddle(o, t, s, opt) { // sitting in a dinghy, paddling over the side with one hand
+    const T = t * s.tempo * 1.15 + s.phase;
+    sitBase(o, 0, s, { height: opt.height ?? 0.3 });
+    both(o, 'lF', 1.35); o.kL = o.kR = 1.05;
+    const side = clamp(Math.sin(T * 0.42) * 3, -1, 1);
+    const st = Math.sin(T * 4.6);
+    o.srz = -0.32 * side; o.srx = 0.3; o.sry = 0.15 * side; o.hrz = -0.08 * side;
+    for (const [S, k] of [['R', Math.max(0, side)], ['L', Math.max(0, -side)]]) {
+      o['aO' + S] = 0.3 + 0.75 * k; o['aF' + S] = 0.5 + k * (0.3 + 0.6 * st); o['eB' + S] = 0.55 - 0.3 * k; o['wW' + S] = 0.6 * k * st;
+    }
+    o.nrz = 0.18 * side; o.nrx = 0.1; o.mouth = 0.3; o.smile = 0.1; o.browT = 0.35; o.lid = 0.15;
+  },
+
+  lie(o, t, s, opt) { // sunbathing: opts.pose 'back' (default) | 'front' | 'deckchair' (opts.height = seat)
+    const T = t * s.tempo + s.phase;
+    const d = s.d;
+    const pose = opt.pose || 'back';
+    if (pose === 'deckchair') {
+      sitBase(o, 0, s, { height: opt.height ?? 0.28 });
+      o.srx = -0.72; o.hrx = -0.12; o.nrx = 0.52 + 0.03 * Math.sin(T * 0.4);
+      both(o, 'lF', 1.2); o.kL = 0.45; o.kR = 0.62 + 0.1 * Math.max(0, Math.sin(T * 1.8)); o.lTR = 0.2 * Math.sin(T * 2.2);
+      both(o, 'aO', 2.0); both(o, 'aF', 0.4); both(o, 'eS', -1.55); both(o, 'eB', 0.3);
+    } else if (pose === 'front') {
+      o.brx = Math.PI / 2; o.by = d.bodyR * d.bodyD * (1 + 0.17 * (s.belly || 0)) + 0.02; o.bz = -d.top * 0.45;
+      o.nrx = -1.05 + 0.04 * Math.sin(T * 0.7); o.nry = 0.2 * noise(T * 0.2, s.seed);
+      both(o, 'aO', 2.45); both(o, 'aF', 0.3); both(o, 'eS', -1.35); both(o, 'eB', 0.4);
+      o.kL = 1.5 + 0.45 * Math.sin(T * 2.4); o.kR = 1.5 - 0.45 * Math.sin(T * 2.4); both(o, 'lO', 0.08); both(o, 'lF', -0.05);
+      o.lid = 0.2; o.smile = 0.75; o.mouth = 0.1;
+      return;
+    } else {
+      o.brx = -Math.PI / 2; o.by = 0.2; o.bz = d.top * 0.45;
+      o.nrx = 0.5; o.nry = 0.15 * noise(T * 0.15, s.seed);
+      both(o, 'aO', 2.3); both(o, 'aF', 0.25); both(o, 'eS', -1.5); both(o, 'eB', 0.25);
+      const knee = win(T % 14, 2, 9, 0.8, 0.8);
+      o.lFL = -0.22 + 0.9 * knee; o.kL = 0.1 + 1.35 * knee; o.lFR = -0.22; o.kR = 0.08;
+      o.lTR = 0.25 * Math.sin(T * 2.6); o.lTL = 0.1;
+    }
+    o.lid = opt.awake ? 0.2 : 0.88; o.smile = 0.85; o.mouth = 0.05; o.ssq = 0.03 * Math.sin(T * 1.5);
+  },
+
+  jig(o, t, s) { // happy sailor's hornpipe: hop-hop-kick with folded arms
+    const T = t * s.tempo;
+    const rate = 1.75;
+    const h = hop(T, 1 / rate);
+    const side = Math.floor(T * rate) % 2 ? 1 : -1;
+    o.by = 0.13 * h * s.energy; o.bsq = 0.1 * (h - 0.4);
+    const kick = h, stand = 0.25 * h;
+    o.lFL = side > 0 ? 0.75 * kick : 0.05; o.kL = side > 0 ? 0.1 : 0.2 + stand;
+    o.lFR = side < 0 ? 0.75 * kick : 0.05; o.kR = side < 0 ? 0.1 : 0.2 + stand;
+    o.hrz = 0.1 * side * h; o.srz = -0.08 * side * h;
+    if (s.seed % 2) foldArms(o);
+    else { both(o, 'aO', 0.62); both(o, 'aF', -0.12); both(o, 'eS', 1.75); both(o, 'eB', 0.15); }
+    o.nrz = 0.16 * Math.sin(T * rate * Math.PI); o.nrx = -0.1 + 0.06 * h;
+    o.lid = 0.5; o.smile = 0.9; o.mouth = 0.45 + 0.2 * h; o.browY = 0.5;
+  },
+
+  shakeFist(o, t, s, opt) { // cross, fist in the air (Person pops a grumpy cloud now and then)
+    const T = t * s.tempo + s.phase;
+    const up = smooth(t / 0.2);
+    const shake = Math.sin(T * 22);
+    o.aOR = 1.7 * up; o.aFR = 0.5 * up; o.eSR = -(1.25 + 0.35 * shake) * up; o.eBR = 0.3 * up; o.wWR = 0.3 * shake;
+    if (opt.both) { o.aOL = 1.7 * up; o.aFL = 0.5 * up; o.eSL = -(1.25 - 0.35 * shake) * up; o.eBL = 0.3 * up; }
+    else { o.aOL = 0.62; o.aFL = -0.12; o.eSL = 1.75; o.eBL = 0.15; }
+    const stomp = Math.max(0, Math.sin(T * 6.5)) * win(T % 3.1, 0.2, 1.7);
+    o.lFL = 0.22 * stomp; o.kL = 0.45 * stomp; o.by = 0.02 * stomp;
+    o.srx = 0.12; o.nrx = 0.05 + 0.04 * Math.sin(T * 11); o.nry = 0.1 * Math.sin(T * 3);
+    o.lid = 0.3; o.lidT = 0.6; o.browT = 0.9; o.browY = -0.35; o.smile = -0.9; o.mouth = 0.35 + 0.3 * Math.max(0, Math.sin(T * 9));
+  },
+
+  pull(o, t, s, opt) { // tugging a rope / stuck door with both hands (opts.height = hand height in m)
+    const T = t * s.tempo + s.phase;
+    const d = s.d;
+    const c = cyc(T, opt.period || 1.4);
+    const heave = keys(c, [[0, 0], [0.16, 1], [0.35, 0.8], [1, 0]]);
+    const lean = -0.3 - 0.28 * heave;
+    o.srx = lean; o.hy = -0.06 - 0.03 * heave; o.hrx = -0.12;
+    o.lFL = 0.5; o.kL = 0.6; o.lFR = -0.32; o.kR = 0.08; both(o, 'lO', 0.08);
+    const hgt = (opt.height ?? 0.95) / s.scale;
+    const phi = Math.atan2(d.shY - 0.1 - hgt, 0.5);
+    const aF = Math.PI / 2 - phi - lean - 0.1;
+    both(o, 'aF', aF); both(o, 'aT', 0.4); both(o, 'eB', 0.1 + 0.15 * (1 - heave)); both(o, 'aO', 0.02);
+    o.bx = 0.012 * Math.sin(T * 38) * heave; o.bsq = -0.04 * heave;
+    o.nrx = -lean * 0.6; o.lid = 0.5 + 0.35 * heave; o.browT = 0.7; o.browY = -0.2; o.mouth = 0.12 + 0.18 * heave; o.smile = -0.7;
+  },
+
+  impatient(o, t, s) { // arms folded, toe tapping, sighing (the chip-shop queue)
+    const T = t * s.tempo + s.phase;
+    breathe(o, T, s);
+    foldArms(o);
+    const tap = Math.max(0, Math.sin(T * 7.5));
+    o.lFR = 0.1 * tap; o.kR = 0.14 * tap; o.lTR = 0.1;
+    const sigh = bump(T % 6.5, 3.2, 4.2);
+    o.ssq += 0.07 * sigh; o.nrx = -0.25 * sigh + 0.03; o.eyeY = 0.8 * sigh; o.lid = 0.3 + 0.2 * sigh;
+    o.nry = 0.35 * noise(T * 0.3, s.seed) * (1 - sigh);
+    o.browT = 0.35; o.smile = -0.4; o.mouth = 0.2 * sigh;
+  },
+
+  checkWatch(o, t, s) { // lifts the wrist, peers at the watch, taps it
+    const T = t * s.tempo + s.phase;
+    breathe(o, T, s);
+    const look = win(T % 5.2, 0.3, 3.3, 0.3, 0.35);
+    armsIdle(o, T, s, 'relaxed');
+    o.aFL = lerp(o.aFL, 1.3, look); o.aTL = 0.75 * look; o.eBL = lerp(o.eBL, 1.6, look); o.aOL = lerp(o.aOL, 0.3, look); o.wBL = -0.3 * look;
+    const tap = Math.max(0, Math.sin(T * 9)) * win(T % 5.2, 1.4, 2.6);
+    o.aFR = lerp(o.aFR, 1.05, look); o.aTR = 0.72 * look; o.eBR = lerp(o.eBR, 1.7 + 0.15 * tap, look);
+    o.nrx = 0.32 * look; o.nry = 0.28 * look + 0.4 * noise(T * 0.3, s.seed) * (1 - look); o.eyeY = -0.5 * look;
+    o.lFR = 0.1 * Math.max(0, Math.sin(T * 7)) * (1 - look);
+    o.browT = 0.4; o.smile = -0.35; o.mouth = 0.1 * tap;
+  },
+
+  lookout(o, t, s, opt) { // binoculars (auto-attached), slowly scanning the sea; opts.sit/height for a lifeguard chair
+    const T = t * s.tempo + s.phase;
+    if (opt.sit || opt.height) sitBase(o, T, s, opt);
+    breathe(o, T, s, 0.5);
+    const scan = 0.75 * Math.sin(T * 0.33) + 0.15 * Math.sin(T * 0.9);
+    o.sry += 0.45 * scan; o.nry = 0.45 * scan; o.nrx = -0.06;
+    both(o, 'aF', 1.3); both(o, 'aT', 0.62); both(o, 'eB', 1.72); both(o, 'aO', 0.32); both(o, 'wB', -0.2);
+    o.lid = 0.05; o.smile = 0.1; o.browY = 0.2;
+  },
+
+  whistle(o, t, s) { // lifeguard blowing the whistle, other arm waving swimmers in
+    const T = t * s.tempo + s.phase;
+    const blow = win(T % 2.2, 0.15, 1.3, 0.06, 0.12);
+    o.aFR = 1.25; o.aTR = 0.7; o.eBR = 2.05; o.aOR = 0.25;
+    o.aOL = 1.9 + 0.35 * Math.sin(T * 7); o.aFL = 0.35; o.eBL = 0.1; o.eSL = 0.3 * Math.sin(T * 7 + 1);
+    o.srx = 0.1 * blow; o.by = 0.03 * blow; o.bsq = 0.04 * blow; o.nrx = -0.05;
+    o.lid = -0.2; o.browY = 0.85; o.browT = 0.2; o.smile = -0.2;
+  },
+
+  dig(o, t, s) { // kneeling in the sand with a spade (sandcastle builders)
+    const T = t * s.tempo + s.phase;
+    const d = s.d;
+    o.by = -(d.kneeY - d.legR * 0.9); both(o, 'lF', 0.05); o.kL = o.kR = Math.PI / 2 + 0.05; both(o, 'lO', 0.12);
+    o.srx = 0.45; o.nrx = 0.3;
+    const c = cyc(T, 1.3);
+    const scoop = keys(c, [[0, 0], [0.35, 1], [0.55, 0.9], [1, 0]]);
+    o.aFR = 0.55 + 0.7 * scoop; o.eBR = 0.5 - 0.2 * scoop; o.aTR = 0.2; o.aOR = 0.15;
+    o.aFL = 0.85 + 0.15 * Math.max(0, Math.sin(T * 9)); o.eBL = 0.45; o.aTL = 0.3; o.aOL = 0.1;
+    o.smile = 0.6; o.mouth = 0.15; o.lid = 0.15; o.eyeY = -0.4;
+  },
+
+  chase(o, t, s) { // running after something, arms outstretched ("come back, deckchair!")
+    const T = t * s.tempo;
+    gait(o, s.gait, s, 1);
+    both(o, 'aF', 1.35); o.aFL += 0.15 * Math.sin(T * 9); o.aFR += 0.15 * Math.sin(T * 9 + 2);
+    both(o, 'eB', 0.2); both(o, 'aO', 0.15); both(o, 'aT', 0.12);
+    o.srx = 0.3; o.mouth = 0.85; o.browY = 0.9; o.smile = -0.6; o.lid = -0.2;
+  },
 };
 
-// Actions that want a held prop (auto-attached if the person has none).
+// Actions that want held props (auto-attached if the person has none). fn(s, opts) -> list, or a list.
 export const ACTION_PROPS = {
-  sweep: { type: 'broom' }, fish: { type: 'rod' }, eat: { type: 'icecream' }, paint: { type: 'brush' },
-  read: { type: 'newspaper', bone: 'spine' }, photo: { type: 'camera', bone: 'head' },
+  sweep: [{ type: 'broom' }], fish: [{ type: 'rod' }], paint: [{ type: 'brush' }], dig: [{ type: 'spade' }],
+  read: [{ type: 'newspaper', bone: 'spine' }], photo: [{ type: 'camera', bone: 'head' }], lookout: [{ type: 'binoculars', bone: 'head' }],
+  eat: (s, opt) => ((opt.food || s.food) === 'chips' ? [{ type: 'chips' }, { type: 'chipfork' }] : [{ type: 'icecream' }]),
 };
+/** Actions played in water (root on the surface; body below it is hidden). */
+export const WATER_ACTIONS = new Set(['swim', 'tread']);
+/** Actions sitting/lying on something: a bad hit keeps the character on it. */
+export const SEATED_ACTIONS = new Set(['sit', 'sleep', 'row', 'paddle']);
+/** Periodic sticker icons: action -> [icon, period s, duration s]. */
+export const ACTION_ICONS = { jig: ['note', 1.9, 1.0], shakeFist: ['anger', 3.4, 1.3], whistle: ['bang', 2.2, 0.8], impatient: ['question', 6.5, 1.2] };
 export const ACTION_NAMES = Object.keys(ACTIONS);
-export const GAIT_ACTIONS = new Set(['walk', 'run', 'panic']);
+export const GAIT_ACTIONS = new Set(['walk', 'run', 'panic', 'chase']);
 
 // ---- one-shot overlays ------------------------------------------------------------------------
 /** Bad-hit reaction timeline. Returns overlay weight. */

@@ -1,12 +1,12 @@
 // Shopfronts: a house body (upper floors + roof from house.js) with a projecting painted
 // shopfront: pilasters, big display window with goods, striped scalloped awning and a sign
 // board painted on a CanvasTexture. Front faces +Z, origin = footprint centre at ground.
-import { THREE, materials, Kit, cbox, cylBetween, rngOf, shade, mix, DEG } from './common.js';
+import { THREE, materials, Kit, cbox, cylBetween, rngOf, shade, mix, DEG, addCollider, Tweens, ease } from './common.js';
 import { box, cyl, ico, sphere, torus, cone } from '../../geo.js';
 import { P, WALLS } from '../../../gfx/palette.js';
 import { buildHouse, GROUND_FLOOR } from './house.js';
 import { GLASS, STREAK, LEAF, FLOWERS } from './facade.js';
-import { signMaterial } from './signs.js';
+import { signMaterial, labelMaterial } from './signs.js';
 
 /** Shop presets: sign text, colours and what sits in the window. */
 export const SHOP_KINDS = {
@@ -164,12 +164,80 @@ export function shop(opts = {}) {
     }
   }
 
+  // optional roller shutter over the whole shopfront (housing is static, the curtain is a part)
+  const shW = sfW - 2 * pil + 0.06;
+  const shTop = winTop - 0.1;
+  if (opts.shutter) {
+    kit.add(cbox(shW + 0.14, 0.36, 0.4, 0.07), '#7d8a97', { y: shTop + 0.08, z: fz + proj + 0.2 });
+    kit.add(box(0.08, shTop, 0.12), '#6b7784', { x: -shW / 2 - 0.02, y: shTop / 2, z: fz + proj + 0.17 });
+    kit.add(box(0.08, shTop, 0.12), '#6b7784', { x: shW / 2 + 0.02, y: shTop / 2, z: fz + proj + 0.17 });
+  }
+
   const group = kit.build(new THREE.Group());
   group.name = opts.name ?? `shop-${kind}`;
   group.userData.kind = 'shop';
   group.userData.shopKind = kind;
+  group.userData.surface = 'stone';
   group.userData.parts = parts;
   group.userData.size = { ...res.size, depth: D + proj + 1.6 };
+
+  if (opts.shutter) {
+    const shutter = new THREE.Group();
+    shutter.name = 'shutter';
+    const sk = new Kit('shutter');
+    const hgt = shTop - 0.02;
+    sk.add(box(shW, hgt, 0.05), ['#8f9daa', '#a9b5c0'], { y: -hgt / 2 });
+    for (let y = -0.12; y > -hgt + 0.1; y -= 0.14) sk.add(box(shW, 0.035, 0.03), '#7f8c99', { y, z: 0.035 });
+    sk.add(cbox(shW, 0.12, 0.1, 0.03), '#5d6975', { y: -hgt + 0.06, z: 0.02 });
+    sk.add(box(0.3, 0.05, 0.06), '#c9ced6', { y: -hgt + 0.08, z: 0.08 });
+    // "sorry, closed" board hanging on the shutter
+    sk.add(cyl(0.01, 0.01, 0.35, 4), '#c9a46a', { x: -0.3, y: -0.9, z: 0.06, rz: 0.55 });
+    sk.add(cyl(0.01, 0.01, 0.35, 4), '#c9a46a', { x: 0.3, y: -0.9, z: 0.06, rz: -0.55 });
+    sk.add(cbox(1.2, 0.46, 0.05, 0.02), '#fff8ee', { y: -1.26, z: 0.07 });
+    sk.raw(new THREE.PlaneGeometry(1.1, 0.36), labelMaterial('SORRY, CLOSED', { bg: '#fff8ee', fg: P.tomato, w: 384, h: 128, radius: 0.12 }), { y: -1.26, z: 0.1 });
+    sk.build(shutter);
+    shutter.position.set(0, shTop, fz + proj + 0.2);
+    group.add(shutter);
+    // release: red box + lever on the right pilaster
+    const release = new THREE.Group();
+    release.name = 'release';
+    const rk = new Kit('release');
+    rk.add(cbox(0.34, 0.44, 0.2, 0.05), P.tomato, {});
+    rk.add(box(0.2, 0.06, 0.05), P.sunflower, { y: 0.1, z: 0.11 });
+    rk.build(release);
+    const handle = new THREE.Group();
+    handle.name = 'releaseHandle';
+    const hk = new Kit('releaseHandle');
+    hk.add(cyl(0.035, 0.035, 0.42, 6), '#c9ced6', { y: 0.21 });
+    hk.add(sphere(0.08, 8, 6), P.sunflower, { y: 0.44 });
+    hk.build(handle);
+    handle.position.set(0, -0.05, 0.12);
+    handle.rotation.z = 0.5;
+    release.add(handle);
+    release.position.set(sfW / 2 - pil / 2, 1.35, fz + proj + 0.18);
+    addCollider(release, 0.55, [0, 0.1, 0.1]);
+    group.add(release);
+    parts.shutter = shutter;
+    parts.release = release;
+    const tw = new Tweens();
+    const state = { open: false };
+    group.userData.openShutter = () => {
+      if (state.open) return Promise.resolve(true);
+      state.open = true;
+      const h0 = handle.rotation.z;
+      tw.run('handle', 0.3, (e) => { handle.rotation.z = h0 + (-1.1 - h0) * e; }, ease.outBack);
+      return tw.run('shutter', 1.3, (e) => { shutter.scale.y = Math.max(0.04, 1 - 0.96 * e); }, ease.outBack);
+    };
+    group.userData.closeShutter = () => {
+      state.open = false;
+      const s0 = shutter.scale.y;
+      tw.run('handle', 0.3, (e) => { handle.rotation.z = -1.1 + (0.5 + 1.1) * e; }, ease.outCubic);
+      return tw.run('shutter', 1.0, (e) => { shutter.scale.y = s0 + (1 - s0) * e; }, ease.outBounce);
+    };
+    group.userData.isOpen = () => state.open;
+    group.userData.update = (dt) => tw.update(Math.min(dt, 0.05));
+    if (opts.shutterOpen) { state.open = true; shutter.scale.y = 0.04; handle.rotation.z = -1.1; }
+  }
   return group;
 }
 

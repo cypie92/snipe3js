@@ -1,0 +1,635 @@
+// Puddleby Green: bespoke set pieces the kits don't have (phone kiosk with an open door, fête
+// marquee, bouncy castle, coconut shy, allotment beds, shed, greenhouse, scarecrow, village sign...).
+// Everything is vertex-coloured and merged (1-3 draw calls each) so the static batcher can absorb it.
+import * as THREE from 'three';
+import * as B from '../../world/kit/buildings/index.js';
+import { materials } from '../../gfx/materials.js';
+import { P } from '../../gfx/palette.js';
+import { Rng } from '../../core/rng.js';
+import { TAU } from './util.js';
+
+const { Kit, cbox, prism, lathe, shade } = B;
+const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+const cyl = (rt, rb, h, s = 10) => new THREE.CylinderGeometry(rt, rb, h, s);
+const ball = (r, d = 1) => new THREE.IcosahedronGeometry(r, d);
+const RED = '#e8413c';
+const CREAM = '#fff8ee';
+
+/** Flat-top rounded blob (cabbage, bush, heap). */
+function blob(r, seed, detail = 1, amp = 0.12) {
+  const g = new THREE.IcosahedronGeometry(r, detail);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const k = 1 + (Math.sin(x * 7.1 + seed) * Math.cos(z * 6.3 - seed) + Math.sin(y * 5.7 + seed * 2)) * amp * 0.5;
+    p.setXYZ(i, x * k, y * k, z * k);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A painted banner/board material (CanvasTexture), cached by text. */
+const boardCache = new Map();
+export function boardMaterial(text, { bg = P.cobalt, fg = CREAM, border = P.ink, sub = null, w = 1024, h = 256, font = 0.62 } = {}) {
+  const key = [text, bg, fg, border, sub, w, h].join('|');
+  if (boardCache.has(key)) return boardCache.get(key);
+  const tex = B.paintedTexture(w, h, (ctx) => {
+    const r = h * 0.18;
+    const rr = (x, y, ww, hh, rad) => {
+      ctx.beginPath();
+      ctx.moveTo(x + rad, y);
+      ctx.arcTo(x + ww, y, x + ww, y + hh, rad);
+      ctx.arcTo(x + ww, y + hh, x, y + hh, rad);
+      ctx.arcTo(x, y + hh, x, y, rad);
+      ctx.arcTo(x, y, x + ww, y, rad);
+      ctx.closePath();
+    };
+    ctx.fillStyle = border;
+    rr(0, 0, w, h, r);
+    ctx.fill();
+    ctx.fillStyle = bg;
+    const b = h * 0.07;
+    rr(b, b, w - 2 * b, h - 2 * b, r * 0.7);
+    ctx.fill();
+    const g = ctx.createLinearGradient(0, b, 0, h - b);
+    g.addColorStop(0, 'rgba(255,255,255,0.2)');
+    g.addColorStop(0.55, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    rr(b, b, w - 2 * b, h - 2 * b, r * 0.7);
+    ctx.fill();
+    const mainH = sub ? h * font * 0.8 : h * font;
+    let size = mainH;
+    ctx.font = `700 ${size}px ${B.FONT}`;
+    const tw = ctx.measureText(text).width;
+    if (tw > w * 0.88) size = (size * w * 0.88) / tw;
+    ctx.font = `700 ${size}px ${B.FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const ty = sub ? h * 0.42 : h * 0.54;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = size * 0.16;
+    ctx.strokeStyle = P.ink;
+    ctx.fillStyle = 'rgba(43,43,58,0.35)';
+    ctx.fillText(text, w / 2, ty + size * 0.07);
+    ctx.strokeText(text, w / 2, ty);
+    ctx.fillStyle = fg;
+    ctx.fillText(text, w / 2, ty);
+    if (sub) {
+      let s2 = h * 0.2;
+      ctx.font = `600 ${s2}px ${B.FONT}`;
+      const w2 = ctx.measureText(sub).width;
+      if (w2 > w * 0.86) s2 = (s2 * w * 0.86) / w2;
+      ctx.font = `600 ${s2}px ${B.FONT}`;
+      ctx.fillStyle = fg;
+      ctx.fillText(sub, w / 2, h * 0.78);
+    }
+  }, { anisotropy: 8 });
+  const m = new THREE.MeshStandardMaterial({ map: tex, color: tex ? '#ffffff' : bg, roughness: 0.6, metalness: 0 });
+  m.name = `board:${text}`;
+  boardCache.set(key, m);
+  return m;
+}
+
+// ------------------------------------------------------------------ phone kiosk (door ajar)
+let kioskGlass = null;
+function glassMat() {
+  if (!kioskGlass) {
+    kioskGlass = new THREE.MeshStandardMaterial({ color: '#cdefff', transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, depthWrite: false, envMapIntensity: 1.6 });
+    kioskGlass.name = 'kioskGlass';
+  }
+  return kioskGlass;
+}
+
+/** Glazing bars + frame rails of one kiosk side, in the kit's current frame (pane plane z = 0). */
+function paneBars(kit, w, x0 = 0) {
+  kit.add(box(w, 0.26, 0.08), RED, { x: x0, y: 0.33 });
+  kit.add(box(w, 0.12, 0.08), RED, { x: x0, y: 2.12 });
+  for (let r = 1; r < 6; r++) kit.add(box(w, 0.05, 0.07), RED, { x: x0, y: 0.46 + (r / 6) * 1.6 });
+  for (let c = 1; c < 3; c++) kit.add(box(0.05, 1.6, 0.07), RED, { x: x0 - w / 2 + (c / 3) * w, y: 1.26 });
+}
+
+/**
+ * Red telephone kiosk with its door swung open (front = +Z). Glazing is see-through (and
+ * shoot-through), so whatever sits on the shelf inside can be spotted and hit.
+ * parts: { shelf (Object3D on the shelf top), door (pivot) }
+ */
+export function phoneKiosk({ open = 1.9 } = {}) {
+  const kit = new Kit('kiosk');
+  const W = 1.12, H = 2.36;
+  const pw = W - 0.22;
+  const dark = shade(RED, -0.12);
+  kit.add(cbox(W + 0.2, 0.2, W + 0.2, 0.05), dark, { y: 0.1 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.add(cbox(0.17, H, 0.17, 0.05), RED, { x: sx * (W / 2 - 0.02), y: 0.2 + H / 2, z: sz * (W / 2 - 0.02) });
+  // back + side walls (the front one is the open door)
+  for (const f of [1, 2, 3]) kit.at({ ry: (f * Math.PI) / 2, z: 0 }, () => kit.at({ z: W / 2 - 0.02 }, () => paneBars(kit, pw)));
+  // TELEPHONE signs on all four sides + stepped domed roof
+  for (let f = 0; f < 4; f++) {
+    kit.at({ ry: (f * Math.PI) / 2 }, () => {
+      kit.add(box(W - 0.16, 0.22, 0.06), CREAM, { y: 2.33, z: W / 2 + 0.02 });
+      kit.raw(new THREE.PlaneGeometry(W - 0.26, 0.17), B.labelMaterial('TELEPHONE', { bg: CREAM, fg: P.ink, w: 512, h: 80, radius: 0.1 }), { y: 2.33, z: W / 2 + 0.056 });
+    });
+  }
+  kit.add(cbox(W + 0.16, 0.16, W + 0.16, 0.05), RED, { y: 2.52 });
+  kit.add(cbox(W + 0.02, 0.14, W + 0.02, 0.05), RED, { y: 2.66 });
+  kit.add(new THREE.SphereGeometry(0.64, 16, 5, 0, TAU, 0, Math.PI / 2), RED, { y: 2.7, sy: 0.34, sx: 0.9, sz: 0.9 });
+  kit.add(ball(0.1, 0), P.gold, { y: 2.93 }, materials.glossy);
+  // interior: back-wall shelf, black phone, yellow directory, floor
+  kit.add(box(W - 0.3, 0.05, 0.34), P.woodDark, { y: 1.02, z: -W / 2 + 0.26 });
+  kit.add(cbox(0.3, 0.36, 0.2, 0.04), P.ink, { y: 1.48, z: -W / 2 + 0.14 });
+  kit.add(cbox(0.28, 0.07, 0.08, 0.03), '#3a3e4c', { y: 1.7, z: -W / 2 + 0.26 });
+  kit.add(cyl(0.05, 0.05, 0.02, 10), '#d9dde6', { y: 1.5, z: -W / 2 + 0.25, rx: Math.PI / 2 });
+  kit.add(cbox(0.22, 0.06, 0.28, 0.02), P.sunflower, { x: 0.28, y: 1.08, z: -W / 2 + 0.26 });
+  kit.add(box(W - 0.22, 0.02, W - 0.22), '#5a4a42', { y: 0.21 });
+  const group = kit.build(new THREE.Group());
+  group.name = 'phoneKiosk';
+  // see-through glass (no raycast: you can shoot through the panes)
+  const panes = [];
+  for (const f of [1, 2, 3]) {
+    const g = new THREE.PlaneGeometry(pw, 1.62).translate(0, 1.26, W / 2 - 0.02);
+    g.applyMatrix4(new THREE.Matrix4().makeRotationY((f * Math.PI) / 2));
+    panes.push(g);
+  }
+  const gl = new THREE.Mesh(mergePlain(panes), glassMat());
+  gl.raycast = () => {};
+  gl.castShadow = false;
+  gl.name = 'kioskGlass';
+  group.add(gl);
+  // the door, hinged on the front-left post, swung open toward the viewer
+  const door = new THREE.Group();
+  door.name = 'door';
+  door.position.set(-W / 2 + 0.02, 0, W / 2 - 0.02);
+  const dk = new Kit('door');
+  paneBars(dk, pw, (W - 0.04) / 2);
+  dk.add(box(0.06, 0.34, 0.06), P.ink, { x: W - 0.24, y: 1.2, z: 0.05 });
+  dk.build(door);
+  const dg = new THREE.Mesh(new THREE.PlaneGeometry(pw, 1.62).translate((W - 0.04) / 2, 1.26, 0), glassMat());
+  dg.raycast = () => {};
+  dg.castShadow = false;
+  door.add(dg);
+  door.rotation.y = -open;
+  group.add(door);
+  const shelf = new THREE.Object3D();
+  shelf.name = 'shelf';
+  shelf.position.set(-0.02, 1.05, -W / 2 + 0.3);
+  group.add(shelf);
+  group.userData.parts = { shelf, door };
+  group.userData.surface = 'metal';
+  return group;
+}
+
+function mergePlain(list) {
+  const n = list.reduce((a, g) => a + g.attributes.position.count, 0);
+  const idx = [];
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
+  let o = 0;
+  for (const g of list) {
+    pos.set(g.attributes.position.array, o * 3);
+    nor.set(g.attributes.normal.array, o * 3);
+    for (const i of g.index.array) idx.push(i + o);
+    o += g.attributes.position.count;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+// ------------------------------------------------------------------ fête pieces
+/** Striped fête marquee, open at the front (+Z). ~w x d, ridge ~4.3 m. */
+export function marquee({ w = 9, d = 6, colors = [RED, CREAM], seed = 1, sign = 'TEA TENT' } = {}) {
+  const rng = new Rng(`marquee-${seed}`);
+  const kit = new Kit('marquee');
+  const wallH = 2.3, ridge = 4.3;
+  const n = Math.round(w / 0.75);
+  const sw = w / n;
+  // back + side walls in stripes
+  for (let i = 0; i < n; i++) kit.add(box(sw + 0.01, wallH, 0.08), colors[i % 2], { x: -w / 2 + sw * (i + 0.5), y: wallH / 2, z: -d / 2 });
+  const nd = Math.round(d / 0.75);
+  const sd = d / nd;
+  for (const sx of [-1, 1]) for (let i = 0; i < nd; i++) kit.add(box(0.08, wallH, sd + 0.01), colors[i % 2], { x: sx * w / 2, y: wallH / 2, z: -d / 2 + sd * (i + 0.5) });
+  // roof: two slopes of stripes
+  const slope = Math.hypot(w / 2, ridge - wallH);
+  const ang = Math.atan2(ridge - wallH, w / 2);
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < nd; i++) {
+      kit.add(box(slope + 0.35, 0.08, sd + 0.01), colors[i % 2], {
+        x: sx * (w / 4 + 0.1), y: (wallH + ridge) / 2 + 0.05, z: -d / 2 + sd * (i + 0.5), rz: -sx * ang,
+      });
+    }
+  }
+  // gable ends (triangles) front/back
+  for (const sz of [-1, 1]) kit.add(prism([[-w / 2, 0], [w / 2, 0], [0, ridge - wallH]], 0.07), colors[0], { y: wallH, z: sz * (d / 2) - (sz > 0 ? 0.07 : 0) });
+  // scalloped valance around the eaves
+  const scal = (x, z, ry) => kit.add(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 10, 1, false, 0, Math.PI), colors[1], { x, y: wallH - 0.02, z, rx: Math.PI / 2, ry });
+  for (let i = 0; i < n; i++) { scal(-w / 2 + sw * (i + 0.5), d / 2 + 0.04, 0); scal(-w / 2 + sw * (i + 0.5), -d / 2 - 0.04, 0); }
+  // poles with flag finials
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    kit.add(cyl(0.06, 0.06, wallH + 0.4, 6), CREAM, { x: sx * w / 2, y: (wallH + 0.4) / 2, z: sz * d / 2 });
+  }
+  for (const sz of [-1, 1]) {
+    kit.add(cyl(0.07, 0.07, ridge + 1.1, 6), CREAM, { y: (ridge + 1.1) / 2, z: sz * d / 2 });
+    kit.add(prism([[0, 0], [0.7, -0.2], [0, -0.42]], 0.03), rng.pick([P.sunflower, P.teal, P.bubblegum]), { y: ridge + 1.05, z: sz * d / 2 });
+    kit.add(ball(0.08, 0), P.gold, { y: ridge + 1.12, z: sz * d / 2 }, materials.glossy);
+  }
+  // tied-back front flaps
+  for (const sx of [-1, 1]) kit.add(new THREE.ConeGeometry(0.45, wallH, 6, 1, true), colors[0], { x: sx * (w / 2 - 0.35), y: wallH / 2, z: d / 2 - 0.1, sx: 0.8, sz: 0.3 });
+  // interior: trestle table with cloth + cakes + urn
+  kit.add(box(w * 0.7, 0.75, 1.0), CREAM, { y: 0.4, z: -d / 2 + 1.2 });
+  kit.add(box(w * 0.7 + 0.04, 0.05, 1.04), '#ffd1dc', { y: 0.78, z: -d / 2 + 1.2 });
+  for (let i = 0; i < 7; i++) {
+    const x = -w * 0.3 + (i / 6) * w * 0.6;
+    const c = rng.pick([P.bubblegum, '#fff1d6', '#c8894a', P.sunflower, '#ff9ec4']);
+    kit.add(cyl(0.2, 0.22, 0.2, 12), c, { x, y: 0.92, z: -d / 2 + 1.2 });
+    kit.add(cyl(0.21, 0.21, 0.05, 12), rng.pick([CREAM, P.tomato, '#7a4a26']), { x, y: 1.04, z: -d / 2 + 1.2 });
+    kit.add(ball(0.04, 0), P.tomato, { x, y: 1.09, z: -d / 2 + 1.2 });
+  }
+  kit.add(cyl(0.2, 0.22, 0.55, 12), '#a9b4c2', { x: w * 0.36 - 0.2, y: 1.06, z: -d / 2 + 1.2 }, materials.metal);
+  // painted sign over the entrance
+  kit.add(box(3.2, 0.72, 0.08), P.ink, { y: wallH + 0.5, z: d / 2 + 0.06 });
+  kit.raw(new THREE.PlaneGeometry(3.05, 0.62), boardMaterial(sign, { bg: P.teal, fg: CREAM, w: 1024, h: 208 }), { y: wallH + 0.5, z: d / 2 + 0.105 });
+  kit.add(box(w - 0.1, 0.04, d - 0.1), '#9bd86a', { y: 0.02 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'marquee';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** Pastel bouncy castle (~5 x 4 m). Returns { group, deck } where deck is the bouncing surface height. */
+export function bouncyCastle({ seed = 1 } = {}) {
+  const kit = new Kit('bouncy');
+  const base = '#7fc8ff', wall = '#ff9ec4', tower = '#ffe590', cap = '#b89adb';
+  const Wd = 5, Dp = 4.2;
+  kit.add(cbox(Wd, 0.6, Dp, 0.25), base, { y: 0.3 });
+  kit.add(cbox(Wd - 0.4, 0.08, Dp - 0.5, 0.04), shade(base, 0.12), { y: 0.62, z: 0.15 });
+  // puffy walls (back + sides) with arch windows
+  kit.add(cbox(Wd, 1.5, 0.5, 0.24), wall, { y: 1.3, z: -Dp / 2 + 0.25 });
+  for (const sx of [-1, 1]) kit.add(cbox(0.5, 1.3, Dp - 0.6, 0.24), wall, { x: sx * (Wd / 2 - 0.25), y: 1.2, z: 0.05 });
+  for (let i = -1; i <= 1; i++) kit.add(new THREE.CircleGeometry(0.34, 12), shade(base, 0.2), { x: i * 1.3, y: 1.45, z: -Dp / 2 + 0.51 });
+  // turrets at the corners
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    kit.at({ x: sx * (Wd / 2 - 0.2), z: sz * (Dp / 2 - 0.2) }, () => {
+      kit.add(new THREE.CapsuleGeometry(0.42, 1.9, 4, 12), tower, { y: 1.35 });
+      kit.add(new THREE.ConeGeometry(0.55, 0.9, 12), cap, { y: 2.85 });
+      kit.add(ball(0.12, 1), P.tomato, { y: 3.35 });
+      for (let k = 0; k < 3; k++) kit.add(new THREE.TorusGeometry(0.43, 0.05, 5, 16), shade(tower, -0.08), { y: 0.7 + k * 0.6, rx: Math.PI / 2 });
+    });
+  }
+  // front ramp
+  kit.add(cbox(Wd - 1.2, 0.3, 1.1, 0.14), wall, { y: 0.15, z: Dp / 2 + 0.45, rx: 0.12 });
+  // smiley face on the back wall
+  kit.add(ball(0.12, 1), P.ink, { x: -0.35, y: 1.75, z: -Dp / 2 + 0.52, sz: 0.3 });
+  kit.add(ball(0.12, 1), P.ink, { x: 0.35, y: 1.75, z: -Dp / 2 + 0.52, sz: 0.3 });
+  kit.add(new THREE.TorusGeometry(0.34, 0.06, 5, 12, Math.PI), P.ink, { y: 1.5, z: -Dp / 2 + 0.53, rz: Math.PI });
+  void seed;
+  const g = kit.build(new THREE.Group());
+  g.name = 'bouncyCastle';
+  g.userData.surface = 'soft';
+  g.userData.deck = 0.66;
+  g.userData.size = { w: Wd, d: Dp };
+  return g;
+}
+
+/** Coconut shy: striped booth with five coconuts on posts. */
+export function coconutShy({ seed = 2 } = {}) {
+  const rng = new Rng(`shy-${seed}`);
+  const kit = new Kit('shy');
+  const w = 3.6;
+  for (const sx of [-1, 1]) kit.add(cbox(0.14, 2.6, 0.14, 0.04), P.woodDark, { x: sx * w / 2, y: 1.3, z: -0.7 });
+  for (const sx of [-1, 1]) kit.add(cbox(0.14, 2.3, 0.14, 0.04), P.woodDark, { x: sx * w / 2, y: 1.15, z: 0.7 });
+  for (let i = 0; i < 6; i++) kit.add(box(w / 6 + 0.01, 0.08, 1.7), i % 2 ? CREAM : P.cobalt, { x: -w / 2 + (w / 6) * (i + 0.5), y: 2.5, z: 0, rx: -0.14 });
+  for (let i = 0; i < 6; i++) kit.add(new THREE.CylinderGeometry(0.28, 0.28, 0.05, 10, 1, false, 0, Math.PI), i % 2 ? CREAM : P.cobalt, { x: -w / 2 + (w / 6) * (i + 0.5), y: 2.38, z: 0.85, rx: Math.PI / 2 });
+  kit.add(box(w, 0.9, 0.08), P.tomato, { y: 0.45, z: 0.75 });
+  kit.add(box(w, 0.08, 0.3), CREAM, { y: 0.92, z: 0.75 });
+  for (let i = 0; i < 5; i++) {
+    const x = -1.3 + i * 0.65;
+    kit.add(cyl(0.035, 0.035, 1.2, 6), P.woodLight, { x, y: 0.6, z: -0.45 });
+    kit.add(cyl(0.1, 0.06, 0.1, 8), P.sunflower, { x, y: 1.24, z: -0.45 });
+    kit.add(blob(0.16, i + seed, 1, 0.18), '#7a4a26', { x, y: 1.4, z: -0.45 });
+  }
+  kit.add(cyl(0.22, 0.18, 0.3, 10), P.teal, { x: 1.4, y: 1.1, z: 0.78 });
+  for (let i = 0; i < 4; i++) kit.add(ball(0.07, 0), rng.pick([P.tomato, CREAM, P.sunflower]), { x: 1.35 + (i % 2) * 0.1, y: 1.26 + i * 0.02, z: 0.72 + (i > 1 ? 0.1 : 0) });
+  kit.add(box(2.4, 0.5, 0.06), P.ink, { y: 2.8, z: 0.86, rx: -0.14 });
+  kit.raw(new THREE.PlaneGeometry(2.3, 0.42), boardMaterial('COCONUT SHY', { bg: P.sunflower, fg: P.tomato, w: 1024, h: 190 }), { y: 2.8, z: 0.9, rx: -0.14 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'coconutShy';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** Tombola table: a striped drum on a stand + prize bottles. */
+export function tombola({ seed = 3 } = {}) {
+  const rng = new Rng(`tombola-${seed}`);
+  const kit = new Kit('tombola');
+  kit.add(box(2.2, 0.8, 0.9), CREAM, { y: 0.4 });
+  kit.add(box(2.24, 0.06, 0.94), P.bubblegum, { y: 0.82 });
+  for (let i = 0; i < 8; i++) {
+    const c = rng.pick([P.tomato, P.teal, P.sunflower, P.violet, P.lime]);
+    kit.add(cyl(0.06, 0.07, 0.28, 8), c, { x: -0.95 + i * 0.12, y: 1.0, z: 0.2 }, materials.glossy);
+    kit.add(cyl(0.025, 0.03, 0.1, 6), c, { x: -0.95 + i * 0.12, y: 1.18, z: 0.2 }, materials.glossy);
+  }
+  kit.add(cyl(0.34, 0.34, 0.7, 8), P.sunflower, { x: 0.45, y: 1.3, rz: Math.PI / 2 });
+  for (let k = 0; k < 8; k += 2) kit.add(cyl(0.345, 0.345, 0.12, 8), P.tomato, { x: 0.45 - 0.3 + k * 0.08, y: 1.3, rz: Math.PI / 2 });
+  for (const sx of [0.05, 0.85]) kit.add(box(0.06, 0.5, 0.06), P.woodDark, { x: sx, y: 1.05 });
+  kit.add(box(1.6, 0.36, 0.06), P.ink, { y: 1.95, z: -0.2 });
+  kit.raw(new THREE.PlaneGeometry(1.52, 0.3), boardMaterial('TOMBOLA', { bg: P.violet, fg: P.sunflower, w: 768, h: 150 }), { y: 1.95, z: -0.165 });
+  for (const sx of [-0.7, 0.7]) kit.add(box(0.05, 1.2, 0.05), P.woodDark, { x: sx, y: 1.45, z: -0.25 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'tombola';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** A straw bale (optionally stacked). */
+export function hayBales(layout = [[0, 0, 0, 0]], { seed = 4 } = {}) {
+  const rng = new Rng(`hay-${seed}`);
+  const kit = new Kit('hay');
+  for (const [x, y, z, ry] of layout) {
+    const c = B.hsl('#f0cf6a', rng.range(-0.01, 0.01), rng.range(-0.05, 0.05), rng.range(-0.04, 0.03));
+    kit.add(cbox(1.2, 0.55, 0.62, 0.12), [shade(c, -0.08), c], { x, y: y + 0.275, z, ry });
+    for (const s of [-0.3, 0.3]) kit.add(box(0.04, 0.57, 0.64), '#c9a04a', { x: x + Math.cos(ry) * s, y: y + 0.275, z: z - Math.sin(ry) * s, ry });
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = 'hayBales';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** Fête banner strung between two poles: "PUDDLEBY FETE TODAY!". */
+export function feteBanner({ w = 7, h = 4.2, text = 'PUDDLEBY FÊTE', sub = 'TODAY 2pm · everyone welcome!' } = {}) {
+  const kit = new Kit('banner');
+  for (const sx of [-1, 1]) {
+    kit.add(cyl(0.09, 0.11, h + 0.4, 8), P.woodLight, { x: sx * w / 2, y: (h + 0.4) / 2 });
+    kit.add(ball(0.16, 1), P.tomato, { x: sx * w / 2, y: h + 0.5 });
+    for (let i = 0; i < 4; i++) kit.add(new THREE.ConeGeometry(0.22, 0.3, 3), [P.sunflower, P.teal, P.bubblegum, P.tomato][i], { x: sx * w / 2 + sx * 0.25, y: h - 0.2 - i * 0.35, rz: sx * Math.PI / 2 });
+  }
+  kit.add(box(w - 0.3, 1.25, 0.06), P.ink, { y: h - 0.45 });
+  kit.raw(new THREE.PlaneGeometry(w - 0.45, 1.1), boardMaterial(text, { bg: P.tomato, fg: CREAM, sub, w: 1400, h: 220, font: 0.7 }), { y: h - 0.45, z: 0.035 });
+  kit.raw(new THREE.PlaneGeometry(w - 0.45, 1.1), boardMaterial(text, { bg: P.tomato, fg: CREAM, sub, w: 1400, h: 220, font: 0.7 }), { y: h - 0.45, z: -0.035, ry: Math.PI });
+  const g = kit.build(new THREE.Group());
+  g.name = 'feteBanner';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** "PUDDLEBY GREEN" village sign on two posts with a flower bed in front. */
+export function villageSign() {
+  const kit = new Kit('villageSign');
+  for (const sx of [-1, 1]) {
+    kit.add(cbox(0.2, 2.5, 0.2, 0.05), P.woodDark, { x: sx * 1.5, y: 1.25 });
+    kit.add(new THREE.ConeGeometry(0.17, 0.25, 4), P.woodDark, { x: sx * 1.5, y: 2.62, ry: Math.PI / 4 });
+  }
+  kit.add(cbox(3.4, 1.3, 0.14, 0.05), P.woodDark, { y: 1.75 });
+  kit.raw(new THREE.PlaneGeometry(3.2, 1.12), boardMaterial('PUDDLEBY GREEN', { bg: '#2f7d62', fg: CREAM, sub: 'Please drive carefully · twinned with Nowhere', w: 1024, h: 360, font: 0.5 }), { y: 1.75, z: 0.075 });
+  kit.raw(new THREE.PlaneGeometry(3.2, 1.12), boardMaterial('PUDDLEBY GREEN', { bg: '#2f7d62', fg: CREAM, sub: 'Please drive carefully · twinned with Nowhere', w: 1024, h: 360, font: 0.5 }), { y: 1.75, z: -0.075, ry: Math.PI });
+  // little "Best kept village" plaque
+  kit.add(cbox(1.3, 0.34, 0.1, 0.03), P.gold, { y: 0.82, z: 0.02 }, materials.glossy);
+  kit.raw(new THREE.PlaneGeometry(1.2, 0.26), B.labelMaterial('BEST KEPT VILLAGE 1987', { bg: '#e8b33c', fg: P.ink, w: 768, h: 120, radius: 0.2 }), { y: 0.82, z: 0.075 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'villageSign';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+// ------------------------------------------------------------------ allotments
+const SOIL = '#8b5e3c';
+/** Raised veg bed w x d with rows of a crop: cabbage | carrot | lettuce | pumpkin | leek | strawberry. */
+export function vegBed(w, d, crop = 'cabbage', { seed = 1, frame = true } = {}) {
+  const rng = new Rng(`bed-${seed}-${crop}`);
+  const kit = new Kit('bed');
+  kit.add(cbox(w, 0.24, d, 0.08), [shade(SOIL, -0.1), SOIL], { y: 0.1 });
+  if (frame) {
+    for (const sz of [-1, 1]) kit.add(box(w + 0.1, 0.26, 0.08), P.wood, { y: 0.12, z: sz * (d / 2 + 0.02) });
+    for (const sx of [-1, 1]) kit.add(box(0.08, 0.26, d + 0.1), P.wood, { x: sx * (w / 2 + 0.02), y: 0.12 });
+  }
+  const rows = Math.max(1, Math.round(d / 0.7));
+  const cols = Math.max(1, Math.round(w / 0.6));
+  for (let r = 0; r < rows; r++) {
+    const z = -d / 2 + (d / rows) * (r + 0.5);
+    for (let c = 0; c < cols; c++) {
+      const x = -w / 2 + (w / cols) * (c + 0.5) + rng.range(-0.06, 0.06);
+      const s = rng.range(0.85, 1.15);
+      if (crop === 'cabbage') {
+        kit.add(blob(0.2 * s, rng.range(0, 9), 1, 0.1), rng.pick(['#8fd35e', '#7cc653', '#a6da6c']), { x, y: 0.34, z, sy: 0.8 }, materials.foliage);
+        kit.add(blob(0.12 * s, rng.range(0, 9), 1, 0.1), '#c8ee9a', { x, y: 0.44, z }, materials.foliage);
+      } else if (crop === 'carrot') {
+        for (let k = 0; k < 3; k++) kit.add(new THREE.ConeGeometry(0.05, 0.34 * s, 4), '#5fae44', { x: x + (k - 1) * 0.05, y: 0.38, z, rz: (k - 1) * 0.3 }, materials.foliage);
+        kit.add(new THREE.ConeGeometry(0.05, 0.12, 6), P.tangerine, { x, y: 0.26, z, rx: Math.PI });
+      } else if (crop === 'lettuce') {
+        kit.add(blob(0.17 * s, rng.range(0, 9), 1, 0.25), rng.pick(['#b8e07a', '#9bd86a']), { x, y: 0.32, z, sy: 0.65 }, materials.foliage);
+      } else if (crop === 'pumpkin') {
+        if ((r + c) % 2) continue;
+        kit.add(blob(0.3 * s, rng.range(0, 9), 1, 0.06), P.tangerine, { x, y: 0.4, z, sy: 0.7 }, materials.glossy);
+        kit.add(cyl(0.03, 0.04, 0.12, 5), '#5a7a2a', { x, y: 0.62, z });
+        kit.add(blob(0.18, rng.range(0, 9), 0, 0.2), '#5fae44', { x: x + 0.25, y: 0.3, z: z + 0.1, sy: 0.4 }, materials.foliage);
+      } else if (crop === 'leek') {
+        kit.add(cyl(0.04, 0.05, 0.3, 6), '#eef5d6', { x, y: 0.36, z });
+        for (let k = 0; k < 2; k++) kit.add(new THREE.ConeGeometry(0.06, 0.4, 3), '#4f9a3c', { x: x + (k ? 0.05 : -0.05), y: 0.65, z, rz: k ? -0.25 : 0.25 }, materials.foliage);
+      } else if (crop === 'strawberry') {
+        kit.add(blob(0.14, rng.range(0, 9), 0, 0.2), '#5fae44', { x, y: 0.28, z, sy: 0.5 }, materials.foliage);
+        kit.add(ball(0.05, 0), P.tomato, { x: x + 0.08, y: 0.26, z: z + 0.06 }, materials.glossy);
+      }
+    }
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = `bed-${crop}`;
+  g.userData.surface = 'dust';
+  return g;
+}
+
+/** Runner-bean wigwam: canes tied at the top, leafy with red flowers. */
+export function beanWigwam({ seed = 1, h = 2.2 } = {}) {
+  const rng = new Rng(`bean-${seed}`);
+  const kit = new Kit('wigwam');
+  const n = 6, r = 0.55;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU;
+    const top = new THREE.Vector3(0, h, 0), bot = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r);
+    kit.add(cylBetween(bot, top, 0.025), '#c9a46a');
+    for (let k = 0; k < 4; k++) {
+      const p = bot.clone().lerp(top, 0.2 + k * 0.2);
+      kit.add(blob(0.16, rng.range(0, 9), 0, 0.3), rng.pick(['#5fae44', '#7cc653', '#4f9a3c']), { x: p.x, y: p.y, z: p.z }, materials.foliage);
+      if (rng.chance(0.5)) kit.add(ball(0.04, 0), P.tomato, { x: p.x * 1.2, y: p.y + 0.05, z: p.z * 1.2 });
+    }
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = 'beanWigwam';
+  g.userData.surface = 'leaves';
+  return g;
+}
+
+function cylBetween(a, b, r) {
+  const len = a.distanceTo(b);
+  const g = new THREE.CylinderGeometry(r, r, len, 5);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+  return g.applyMatrix4(new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)));
+}
+
+/** Tall toy sunflowers in a row along +X. */
+export function sunflowers(n = 5, { seed = 5, spacing = 0.7 } = {}) {
+  const rng = new Rng(`sun-${seed}`);
+  const kit = new Kit('sunflowers');
+  for (let i = 0; i < n; i++) {
+    const h = rng.range(1.8, 2.6);
+    const x = (i - (n - 1) / 2) * spacing + rng.range(-0.1, 0.1);
+    const lean = rng.range(-0.08, 0.08);
+    kit.at({ x, rz: lean }, () => {
+      kit.add(cyl(0.035, 0.05, h, 6), '#5a9a3a', { y: h / 2 });
+      for (const s of [-1, 1]) kit.add(new THREE.SphereGeometry(0.18, 8, 5), '#5fae44', { x: s * 0.16, y: h * 0.45 + (s > 0 ? 0.2 : 0), sx: 1.4, sy: 0.3, sz: 0.8, rz: s * 0.4 }, materials.foliage);
+      kit.at({ y: h, z: 0.05, rx: -0.35 }, () => {
+        for (let k = 0; k < 12; k++) {
+          const a = (k / 12) * TAU;
+          kit.add(new THREE.SphereGeometry(0.1, 6, 4), k % 2 ? P.sunflower : '#ffb81c', { x: Math.cos(a) * 0.24, y: Math.sin(a) * 0.24, sx: 0.8, sy: 1.6, sz: 0.3, rz: a - Math.PI / 2 });
+        }
+        kit.add(cyl(0.17, 0.17, 0.08, 12), '#7a4a26', { rx: Math.PI / 2, z: 0.02 });
+      });
+    });
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = 'sunflowers';
+  g.userData.surface = 'leaves';
+  return g;
+}
+
+/** Garden shed with a felt roof, door and window (front +Z). */
+export function shed({ color = '#8fbf9f', seed = 6 } = {}) {
+  const kit = new Kit('shed');
+  const w = 2.6, d = 2.0, h = 2.1;
+  kit.add(cbox(w, h, d, 0.06), [shade(color, -0.08), color], { y: h / 2 });
+  for (let i = 0; i < 7; i++) kit.add(box(w + 0.02, 0.03, 0.02), shade(color, -0.15), { y: 0.3 + i * 0.26, z: d / 2 + 0.005 });
+  kit.add(prism([[-w / 2 - 0.15, 0], [w / 2 + 0.15, 0], [0, 0.8]], d + 0.3), '#4a5566', { y: h, z: 0 });
+  kit.add(cbox(0.8, 1.7, 0.06, 0.03), shade(color, -0.22), { x: -0.55, y: 0.85, z: d / 2 + 0.03 });
+  kit.add(ball(0.04, 0), P.gold, { x: -0.25, y: 0.9, z: d / 2 + 0.08 });
+  kit.add(box(0.7, 0.55, 0.05), '#bfe6ff', { x: 0.6, y: 1.35, z: d / 2 + 0.03 }, materials.glossy);
+  kit.add(box(0.8, 0.07, 0.08), CREAM, { x: 0.6, y: 1.05, z: d / 2 + 0.05 });
+  kit.add(box(0.8, 0.07, 0.08), CREAM, { x: 0.6, y: 1.65, z: d / 2 + 0.05 });
+  kit.add(box(0.9, 0.12, 0.3), P.tomato, { x: 0.6, y: 1.0, z: d / 2 + 0.15 });
+  for (let k = 0; k < 4; k++) kit.add(ball(0.08, 0), [P.bubblegum, P.sunflower, '#fff8ee', P.violet][k], { x: 0.35 + k * 0.17, y: 1.13, z: d / 2 + 0.16 });
+  void seed;
+  const g = kit.build(new THREE.Group());
+  g.name = 'shed';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** Little greenhouse (white frame, glossy glass, tomatoes). Front +Z. */
+export function greenhouse({ w = 2.4, d = 3.2 } = {}) {
+  const kit = new Kit('greenhouse');
+  const h = 1.8, rh = 0.9;
+  kit.add(box(w, 0.4, d), '#d9cdb5', { y: 0.2 });
+  kit.add(box(w - 0.1, h - 0.4, d - 0.1), '#d4f1ff', { y: 0.4 + (h - 0.4) / 2 }, materials.glossy);
+  kit.add(prism([[-w / 2, 0], [w / 2, 0], [0, rh]], d - 0.1), '#d4f1ff', { y: h }, materials.glossy);
+  for (let i = 0; i <= 4; i++) {
+    const z = -d / 2 + (i / 4) * d;
+    kit.add(box(w + 0.04, 0.05, 0.05), CREAM, { y: h, z });
+    for (const sx of [-1, 1]) {
+      kit.add(box(0.05, h - 0.4, 0.05), CREAM, { x: sx * w / 2, y: 0.4 + (h - 0.4) / 2, z });
+      kit.add(box(0.05, Math.hypot(w / 2, rh) + 0.04, 0.05), CREAM, { x: sx * w / 4, y: h + rh / 2, z, rz: sx * Math.atan2(w / 2, rh) });
+    }
+  }
+  kit.add(box(0.06, 0.06, d + 0.05), CREAM, { y: h + rh });
+  for (let i = 0; i < 6; i++) kit.add(ball(0.08, 0), P.tomato, { x: (i % 2 ? 0.5 : -0.5) * w * 0.6, y: 1.0 + (i % 3) * 0.2, z: -d / 3 + (i / 5) * (d * 0.66) });
+  const g = kit.build(new THREE.Group());
+  g.name = 'greenhouse';
+  g.userData.surface = 'glass';
+  return g;
+}
+
+/** Friendly scarecrow with a patched coat and straw hat. */
+export function scarecrow({ coat = '#3a6ee8', seed = 7 } = {}) {
+  const kit = new Kit('scarecrow');
+  kit.add(cyl(0.05, 0.06, 2.2, 6), P.woodDark, { y: 1.1 });
+  kit.add(cyl(0.04, 0.04, 1.9, 6), P.woodDark, { y: 1.55, rz: Math.PI / 2 });
+  kit.add(cbox(0.6, 0.75, 0.34, 0.1), coat, { y: 1.3 });
+  for (const sx of [-1, 1]) {
+    kit.add(cbox(0.55, 0.22, 0.24, 0.08), coat, { x: sx * 0.5, y: 1.55 });
+    kit.add(new THREE.ConeGeometry(0.1, 0.24, 5), '#f2d27a', { x: sx * 0.86, y: 1.55, rz: sx * Math.PI / 2 });
+  }
+  kit.add(box(0.18, 0.18, 0.02), P.tomato, { x: 0.12, y: 1.15, z: 0.18 });
+  kit.add(box(0.14, 0.14, 0.02), P.sunflower, { x: -0.15, y: 1.45, z: 0.18 });
+  kit.add(new THREE.SphereGeometry(0.26, 12, 9), '#e8d2a0', { y: 1.95 });
+  for (const sx of [-1, 1]) kit.add(ball(0.045, 0), P.ink, { x: sx * 0.09, y: 2.0, z: 0.22 });
+  kit.add(new THREE.TorusGeometry(0.1, 0.02, 4, 10, Math.PI), P.ink, { y: 1.88, z: 0.22, rz: Math.PI });
+  kit.add(new THREE.ConeGeometry(0.05, 0.12, 5), P.tangerine, { y: 1.95, z: 0.29, rx: Math.PI / 2 });
+  kit.add(cyl(0.48, 0.48, 0.04, 14), '#f2d27a', { y: 2.14 });
+  kit.add(cyl(0.2, 0.26, 0.25, 12), '#f2d27a', { y: 2.28 });
+  kit.add(cyl(0.265, 0.265, 0.06, 12), P.tomato, { y: 2.2 });
+  void seed;
+  const g = kit.build(new THREE.Group());
+  g.name = 'scarecrow';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** Compost bin: slatted box with a lumpy heap. */
+export function compost() {
+  const kit = new Kit('compost');
+  for (let i = 0; i < 4; i++) {
+    kit.add(box(1.3, 0.12, 0.06), P.wood, { y: 0.15 + i * 0.2, z: 0.6 });
+    kit.add(box(1.3, 0.12, 0.06), P.wood, { y: 0.15 + i * 0.2, z: -0.6 });
+    kit.add(box(0.06, 0.12, 1.2), P.wood, { x: -0.62, y: 0.15 + i * 0.2 });
+  }
+  kit.add(blob(0.6, 3, 1, 0.25), '#6b4a2a', { y: 0.55, sy: 0.7 });
+  kit.add(blob(0.2, 5, 0, 0.3), '#8fd35e', { x: 0.2, y: 0.95, z: 0.1 }, materials.foliage);
+  const g = kit.build(new THREE.Group());
+  g.name = 'compost';
+  g.userData.surface = 'dust';
+  return g;
+}
+
+/** Trestle table with prize produce and rosettes (fête judging table). */
+export function prizeTable({ seed = 8 } = {}) {
+  const rng = new Rng(`prize-${seed}`);
+  const kit = new Kit('prize');
+  kit.add(box(2.4, 0.06, 0.8), CREAM, { y: 0.78 });
+  kit.add(box(2.42, 0.55, 0.02), '#9fdcf7', { y: 0.52, z: 0.41 });
+  for (const sx of [-1, 1]) kit.add(box(0.06, 0.78, 0.7), P.woodDark, { x: sx * 1.05, y: 0.39 });
+  const items = [
+    () => kit.add(blob(0.16, 1, 1, 0.05), P.tomato, { x: -0.9, y: 0.95, z: 0 }, materials.glossy),
+    () => kit.add(blob(0.3, 2, 1, 0.05), P.tangerine, { x: -0.4, y: 1.02, z: 0, sy: 0.75 }, materials.glossy),
+    () => kit.add(new THREE.CapsuleGeometry(0.12, 0.5, 4, 10), '#3f8a34', { x: 0.25, y: 0.93, z: 0, rz: Math.PI / 2 }, materials.glossy),
+    () => kit.add(cyl(0.22, 0.24, 0.24, 14), '#fff1d6', { x: 0.85, y: 0.94, z: 0 }),
+  ];
+  items.forEach((f) => f());
+  kit.add(cyl(0.23, 0.23, 0.05, 14), P.bubblegum, { x: 0.85, y: 1.08, z: 0 });
+  for (let i = 0; i < 3; i++) {
+    const x = -0.9 + i * 0.65;
+    const c = [P.gold, '#c9d2de', '#d88a4a'][i];
+    kit.add(cyl(0.08, 0.08, 0.02, 10), c, { x, y: 0.82, z: 0.25, rx: Math.PI / 2 }, materials.glossy);
+    kit.add(box(0.05, 0.14, 0.01), rng.pick([P.cobalt, P.tomato]), { x: x - 0.02, y: 0.72, z: 0.26, rz: 0.2 });
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = 'prizeTable';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** Gravel lay-by pad (where the lead parks Jack's van). */
+export function gravelPad(w, d, color = '#cdbd9c') {
+  const shape = roundRectShape(w, d, Math.min(2.5, w / 2 - 0.1, d / 2 - 0.1));
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: false, curveSegments: 6 });
+  g.rotateX(-Math.PI / 2);
+  const kit = new Kit('gravel');
+  kit.add(g, (x, y, z, c) => c.set(B.hsl(color, 0, 0, (Math.sin(x * 3.1) * Math.cos(z * 2.7)) * 0.02)));
+  const grp = kit.build(new THREE.Group());
+  grp.name = 'gravel';
+  grp.userData.surface = 'dust';
+  return grp;
+}
+
+export function roundRectShape(w, d, r) {
+  const s = new THREE.Shape();
+  const x = -w / 2, y = -d / 2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y);
+  s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + d - r);
+  s.quadraticCurveTo(x + w, y + d, x + w - r, y + d);
+  s.lineTo(x + r, y + d);
+  s.quadraticCurveTo(x, y + d, x, y + d - r);
+  s.lineTo(x, y + r);
+  s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+}
+
+export { blob };

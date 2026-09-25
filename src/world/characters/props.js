@@ -1,4 +1,5 @@
-// Hand-held props (broom, fishing rod, newspaper, camera, ice cream, book, bouquet, brush, palette).
+// Hand-held props (broom, fishing rod, newspaper, camera, ice cream, book, bouquet, brush, palette,
+// chips + chip fork, binoculars, spade, fish, oar).
 // Geometry is built once per type/variant and shared by everyone; a prop is a small Mesh parented to a
 // hand bone, so it only costs a draw call while held. Prop origin = grip point, +Y = "up" the handle.
 import * as THREE from 'three';
@@ -76,6 +77,44 @@ function build(type, variant = 0) {
       ...[[P.tomato, 0.08, 0.06], [P.sunflower, 0.12, -0.02], [P.cobalt, 0.02, 0.09], [P.lime, -0.05, 0.08], ['#fff8ee', 0.1, -0.09]]
         .map(([c, x, z]) => part(sphere(0.025, 6, 4), c, { x, y: 0.01, z, sy: 0.4 })),
     ]);
+    case 'chips': { // chip-shop paper cone, chips poking out (+ a blob of ketchup)
+      const parts = [
+        part(cone(0.07, 0.19, 10), (x, y, z, c) => c.set(Math.floor((Math.atan2(x, z) + 3.2) / 0.63) % 2 ? '#f4efe4' : '#ff5a4e'), { y: 0.03, rx: Math.PI }),
+        part(cyl(0.068, 0.062, 0.03, 10, true), '#f4efe4', { y: 0.12 }),
+      ];
+      for (let i = 0; i < 8; i++) {
+        const a = i * 2.4, r = i === 0 ? 0 : 0.035;
+        parts.push(part(box(0.022, 0.1, 0.022), i % 3 ? '#ffd166' : '#f2b84b', { x: Math.cos(a) * r, y: 0.15 + (i % 3) * 0.012, z: Math.sin(a) * r, rx: Math.sin(a) * 0.35, rz: Math.cos(a) * 0.35 }));
+      }
+      parts.push(part(sphere(0.022, 6, 4), P.tomato, { x: -0.02, y: 0.19, z: 0.02, sy: 0.6 }));
+      return merge(parts);
+    }
+    case 'chipfork': return merge([ // little wooden chip fork with a chip speared on it
+      part(box(0.012, 0.11, 0.004), '#e3c28a', { y: 0.05 }),
+      part(box(0.024, 0.07, 0.024), '#ffd166', { y: 0.11, rz: 0.2 }),
+    ]);
+    case 'binoculars': return merge([
+      part(cyl(0.03, 0.034, 0.11, 10), '#2b2b3a', { x: 0.042, rx: Math.PI / 2 }),
+      part(cyl(0.03, 0.034, 0.11, 10), '#2b2b3a', { x: -0.042, rx: Math.PI / 2 }),
+      part(cyl(0.024, 0.024, 0.006, 10), '#6fb7e8', { x: 0.042, z: 0.057, rx: Math.PI / 2 }),
+      part(cyl(0.024, 0.024, 0.006, 10), '#6fb7e8', { x: -0.042, z: 0.057, rx: Math.PI / 2 }),
+      part(box(0.05, 0.022, 0.05), '#4a5566', { z: -0.01 }),
+    ]);
+    case 'spade': return merge([ // beach spade
+      part(cyl(0.012, 0.012, 0.3, 6), P.tomato, { y: -0.05 }),
+      part(box(0.07, 0.02, 0.03), P.tomato, { y: 0.1 }),
+      part(box(0.1, 0.12, 0.012), P.sunflower, { y: -0.25, rx: 0.2 }),
+    ]);
+    case 'fish': { // a big fish, held by the tail (hangs down from the grip)
+      const body = (x, y, z, c) => c.set(z > 0.3 ? '#dfe9f2' : y > 0.2 ? '#5f86b0' : '#8fb5d6');
+      return merge([
+        part(sphere(1, 10, 8), body, { y: -0.2, sx: 0.045, sy: 0.17, sz: 0.075 }),
+        part(cone(0.07, 0.09, 4), '#5f86b0', { y: -0.01, sx: 0.4 }),
+        part(sphere(0.016, 6, 4), '#262634', { x: 0.035, y: -0.3, z: 0.02 }),
+        part(sphere(0.016, 6, 4), '#262634', { x: -0.035, y: -0.3, z: 0.02 }),
+        part(cone(0.03, 0.05, 4), '#5f86b0', { z: -0.06, y: -0.2, rx: -Math.PI / 2, sx: 0.4 }),
+      ]);
+    }
     default: return null;
   }
 }
@@ -91,6 +130,11 @@ const GRIPS = {
   bouquet: { hand: 'R', p: [0.05, -0.05, 0.08], r: [-0.2, 0, 0] },
   brush: { hand: 'R', p: [0, -0.04, 0.03], r: [1.2, 0, 0] },
   palette: { hand: 'L', p: [0.02, -0.06, 0.08], r: [0, 0, 0] },
+  chips: { hand: 'L', p: [0, -0.07, 0.05], r: [0, 0, 0], upright: true },
+  chipfork: { hand: 'R', p: [0, -0.05, 0.04], r: [Math.PI - 0.5, 0, 0] },
+  binoculars: { hand: 'R', p: [0, -0.05, 0.05], r: [0, 0, 0] },
+  spade: { hand: 'R', p: [0, -0.045, 0.02], r: [0.3, 0, 0] },
+  fish: { hand: 'R', p: [0, -0.06, 0.03], r: [0, 0, 0], upright: true },
 };
 
 export const PROP_TYPES = Object.keys(GRIPS);
@@ -107,8 +151,23 @@ export function makeProp(type, variant = 0) {
   mesh.name = `prop:${type}`;
   mesh.position.fromArray(grip.p);
   mesh.rotation.set(...grip.r);
-  return { mesh, hand: grip.hand, type };
+  return { mesh, hand: grip.hand, type, upright: !!grip.upright };
 }
+
+let oarGeo;
+/** A rowing oar along +Y: handle at y = 0, blade at the far end (length 2.1 m). */
+export function makeOar() {
+  oarGeo ||= merge([
+    part(cyl(0.026, 0.026, 0.16, 8), '#7a4a26', { y: 0.08 }),
+    part(cyl(0.02, 0.024, 1.6, 6), '#dca66b', { y: 0.95 }),
+    part(sphere(1, 8, 5), (x, y, z, c) => c.set(y > 0.55 ? P.tomato : '#dca66b'), { y: 1.9, sx: 0.085, sy: 0.24, sz: 0.018 }),
+  ]);
+  const m = new THREE.Mesh(oarGeo, materials.toy);
+  m.castShadow = true;
+  m.name = 'prop:oar';
+  return m;
+}
+export const OAR_LENGTH = 2.12;
 
 /** Local-space (prop space) tip of the fishing rod. */
 export const ROD_TIP = new THREE.Vector3(0, 1.95, 0);

@@ -1,7 +1,8 @@
 // Cottage / townhouse generator + terraces. Front faces +Z, origin = footprint centre at ground.
-import { THREE, Kit, cbox, rngOf, shade, mix, wobbleColor, clamp, DEG, stats } from './common.js';
+import { THREE, Kit, cbox, prism, rngOf, shade, mix, wobbleColor, clamp, DEG, TAU, stats } from './common.js';
 import { box, cyl, ico, cone } from '../../geo.js';
-import { P, WALLS, ROOFS } from '../../../gfx/palette.js';
+import { hash3 } from '../../../core/rng.js';
+import { P, WALLS, ROOFS, CLOTHES } from '../../../gfx/palette.js';
 import { addWindow, addWindowBox, addDoor, addChimney, addDrainpipe, addQuoins, addBrickPatch, addClimber, addDormer, addTimbers, CURTAINS, FLOWERS, LEAF } from './facade.js';
 import { gableRoof, hipRoof, mansardRoof } from './roofs.js';
 
@@ -48,6 +49,11 @@ export function resolveHouse(opts = {}) {
     brickPatch: opts.brickPatch ?? rng.chance(0.4),
     pots: opts.pots ?? rng.chance(0.5),
     gag: opts.gag ?? rng.pick(['none', 'none', 'none', 'gnome', 'birdhouse']),
+    balconies: opts.balconies ?? 'none',
+    railColor: opts.railColor ?? '#fff8ee',
+    base: opts.base ?? 0,
+    stairSide: opts.stairSide ?? null,
+    washing: opts.washing ?? false,
     groundFloor: opts.groundFloor ?? true,
     wonk: opts.wonk ?? 1,
     lean: opts.lean ?? null,
@@ -154,24 +160,51 @@ export function buildHouse(kit, opts = {}) {
     }
   }
   // upper floors
+  parts.balconies = [];
+  const balconyInfo = [];
   for (let f = 1; f < floors; f++) {
     const base = GROUND_FLOOR + (f - 1) * UPPER_FLOOR;
     const z = fz + jetty;
+    const balc = o.balconies === 'all' || (o.balconies === 'top' && f === floors - 1) || (o.balconies === 'first' && f === 1);
     if (style === 'tudor') {
       kit.at({ y: base + 0.1, z }, () => addTimbers(kit, { w: W + 0.1, h: UPPER_FLOOR - 0.12, rng, cols: nCols * 2 }));
     }
     for (let i = 0; i < nCols; i++) {
       const x = colX(i);
-      const small = i === doorCol && nCols % 2 === 1;
-      const w = small ? 0.8 : 1.05;
-      const h = f === floors - 1 && floors === 3 ? 1.15 : 1.3;
+      const small = i === doorCol && nCols % 2 === 1 && !balc;
+      const w = small ? 0.8 : balc ? 1.0 : 1.05;
+      const h = balc ? 2.0 : f === floors - 1 && floors === 3 ? 1.15 : 1.3;
       const j = wj();
-      kit.at({ x: x + j.x, y: base + 0.82, z: z + (style === 'tudor' ? 0.06 : 0), rz: j.rz }, () => {
+      kit.at({ x: x + j.x, y: base + (balc ? 0.2 : 0.82), z: z + (style === 'tudor' ? 0.06 : 0), rz: balc ? 0 : j.rz }, () => {
         const top3 = f === 2; // third floor of a 3-floor house: keep it light
-        addWindow(kit, { w, h, style: top3 || (small && winStyle === 'shuttered') ? 'sash' : winStyle, trim, shutter: winStyle === 'shuttered' && !small && !top3 ? o.shutter : null, curtains: !top3 && rng.chance(0.75) ? curtain : null, rng });
-        if (o.windowBoxes && !small && (floors < 3 || f === 1)) addWindowBox(kit, { w, rng, flowers: o.flowers, color: rng.chance(0.6) ? P.woodDark : o.door });
+        addWindow(kit, { w, h, style: balc || top3 || (small && winStyle === 'shuttered') ? 'sash' : winStyle, trim, shutter: winStyle === 'shuttered' && !small && !top3 ? o.shutter : null, curtains: !top3 && rng.chance(0.75) ? curtain : null, rng });
+        if (o.windowBoxes && !small && !balc && (floors < 3 || f === 1)) addWindowBox(kit, { w, rng, flowers: o.flowers, color: rng.chance(0.6) ? P.woodDark : o.door });
         parts.windows.push(kit.anchor('window', { y: h / 2, z: 0.1 }));
       });
+    }
+    if (balc) {
+      const bw = W - 0.5, bd = 1.0, by = base + 0.04;
+      const rc = o.railColor;
+      kit.at({ y: by, z }, () => {
+        kit.add(cbox(bw, 0.2, bd, 0.06), shade(trim === P.white ? '#e9e1d2' : trim, -0.02), { y: -0.08, z: bd / 2 });
+        for (const bx of [-bw / 2 + 0.35, bw / 2 - 0.35]) kit.add(prism([[0, 0], [bd - 0.12, 0], [0, -0.55]], 0.14), rc, { x: bx, y: -0.18, ry: -Math.PI / 2 });
+        const nP = Math.max(3, Math.round(bw / 0.36));
+        for (let k = 0; k <= nP; k++) kit.add(box(0.06, 0.8, 0.06), rc, { x: -bw / 2 + 0.1 + (k / nP) * (bw - 0.2), y: 0.42, z: bd - 0.1 });
+        kit.add(cbox(bw, 0.09, 0.12, 0.03), rc, { y: 0.86, z: bd - 0.1 });
+        kit.add(box(bw - 0.1, 0.05, 0.06), rc, { y: 0.1, z: bd - 0.1 });
+        for (const sx of [-1, 1]) {
+          kit.add(cbox(0.1, 0.09, bd, 0.03), rc, { x: sx * (bw / 2 - 0.06), y: 0.86, z: bd / 2 });
+          kit.add(box(0.06, 0.8, 0.06), rc, { x: sx * (bw / 2 - 0.06), y: 0.42, z: 0.15 });
+        }
+        for (const sx of [-1, 1]) {
+          if (!rng.chance(0.75)) continue;
+          kit.add(cyl(0.16, 0.12, 0.3, 8), P.roofTerracotta, { x: sx * (bw / 2 - 0.35), y: 0.17, z: 0.35 });
+          kit.add(ico(0.24, 0), LEAF[1], { x: sx * (bw / 2 - 0.35), y: 0.45, z: 0.35 });
+          kit.add(ico(0.1, 0), rng.pick(o.flowers), { x: sx * (bw / 2 - 0.35) + 0.1, y: 0.58, z: 0.45 });
+        }
+      });
+      parts.balconies.push(kit.anchor('balcony', { y: by + 0.02, z: z + bd / 2 }));
+      balconyInfo.push({ y: by, z, bw, bd });
     }
   }
   if (o.brickPatch && style !== 'brick' && style !== 'tudor' && o.groundFloor !== false) {
@@ -216,6 +249,32 @@ export function buildHouse(kit, opts = {}) {
     }
   }
 
+  // ---- stone base for hillside stacking (house floor at y = 0, base down to -base)
+  if (o.base > 0) {
+    const bh = o.base, front = 1.6;
+    const bd = D + 0.4 + front;
+    kit.addFaces(box(W + 0.4, bh, bd), (x, y, z, c) => {
+      const i = Math.floor((y + 50) / 0.45);
+      const h = hash3(Math.floor((x + z + (i % 2) * 0.55) / 1.1), i, 7.7);
+      c.set(shade(h > 0.75 ? '#d8d0c1' : h < 0.25 ? '#968d7e' : '#bdb4a4', (h - 0.5) * 0.05));
+    }, { y: -bh / 2 - 0.02, z: front / 2 });
+    kit.add(cbox(W + 0.5, 0.12, bd + 0.1, 0.04), '#d8d0c1', { y: -0.05, z: front / 2 });
+    // terrace railing along the front edge
+    const tz = D / 2 + front + 0.1;
+    for (let k = 0; k <= Math.round(W / 0.5); k++) kit.add(box(0.06, 0.7, 0.06), o.railColor, { x: -W / 2 + (k / Math.round(W / 0.5)) * W, y: 0.35, z: tz });
+    kit.add(cbox(W + 0.1, 0.08, 0.1, 0.03), o.railColor, { y: 0.72, z: tz });
+    // stairs down one side
+    const ss = o.stairSide ?? (doorCol === 0 ? -1 : 1);
+    const n = Math.ceil(bh / 0.3);
+    for (let i = 0; i < n; i++) {
+      const top = -0.3 * (i + 1) + 0.08;
+      const hgt = top + bh;
+      if (hgt <= 0.05) break;
+      kit.add(box(0.4, hgt, 1.2), i % 2 ? '#c9c0b1' : '#bdb4a4', { x: ss * (W / 2 + 0.4 + i * 0.4), y: -bh + hgt / 2, z: D / 2 + front - 0.6 });
+    }
+    parts.stairFoot = kit.anchor('stairFoot', { x: ss * (W / 2 + 0.6 + n * 0.4), y: -bh, z: D / 2 + front - 0.6 });
+  }
+
   // ---- roof
   const roofTop = buildRoof(kit, o, { W, D, yW, jetty, wall: upperWall, trim, colX, nCols, parts });
 
@@ -255,7 +314,14 @@ export function buildHouse(kit, opts = {}) {
     kit.place(g, { x: along ? 0 : off, y: roofTop + (o.roofStyle === 'gable' ? 0.1 : 0.02), z: along ? off : jetty / 2, ry: rng.range(-0.5, 0.5) });
     parts.gnome = g;
   }
-  return { parts, size: { width: W, depth: D + jetty, height: roofTop }, options: o };
+  if (o.washing && balconyInfo.length) {
+    const b = balconyInfo[balconyInfo.length - 1];
+    const wash = makeWashing(rng, b.bw - 0.2);
+    kit.place(wash, { y: b.y + 1.35, z: b.z + b.bd - 0.1 });
+    for (const sx of [-1, 1]) kit.add(cyl(0.025, 0.025, 0.55, 5), '#8f877a', { x: sx * (b.bw / 2 - 0.12), y: b.y + 1.1, z: b.z + b.bd - 0.1 });
+    parts.washing = wash;
+  }
+  return { parts, size: { width: W, depth: D + jetty + (o.base > 0 ? 1.6 : 0), height: roofTop }, options: o };
 }
 
 /** Garden gnome (separate little Group so a job can knock it off the roof). ~0.7 m. */
@@ -270,6 +336,40 @@ export function makeGnome(rng) {
   for (const s of [-1, 1]) k.add(box(0.08, 0.06, 0.14), P.woodDark, { x: s * 0.08, y: 0.03, z: 0.1 });
   const g = k.build(new THREE.Group());
   g.name = 'gnome';
+  return g;
+}
+
+/** A sagging washing line with clothes (separate Group; userData.update makes it flap). */
+export function makeWashing(rng, span = 3) {
+  const k = new Kit('washing');
+  const pts = [];
+  for (let i = 0; i <= 10; i++) { const t = i / 10; pts.push(new THREE.Vector3(-span / 2 + t * span, -Math.sin(Math.PI * t) * 0.14, 0)); }
+  k.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 10, 0.015, 4), '#f4f0e6');
+  const n = Math.max(3, Math.round(span / 0.55));
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    const x = -span / 2 + t * span;
+    const y = -Math.sin(Math.PI * t) * 0.14;
+    const c = rng.pick(CLOTHES);
+    const kind = rng.pick(['shirt', 'shirt', 'trousers', 'towel', 'sock', 'sock']);
+    if (kind === 'shirt') {
+      k.add(box(0.38, 0.42, 0.03), c, { x, y: y - 0.23 });
+      k.add(box(0.62, 0.13, 0.03), c, { x, y: y - 0.07 });
+    } else if (kind === 'trousers') {
+      for (const s of [-1, 1]) k.add(box(0.14, 0.52, 0.03), c, { x: x + s * 0.09, y: y - 0.3 });
+      k.add(box(0.34, 0.1, 0.03), c, { x, y: y - 0.05 });
+    } else if (kind === 'towel') {
+      k.add(box(0.42, 0.55, 0.025), c, { x, y: y - 0.28 });
+      k.add(box(0.42, 0.06, 0.03), '#fff8ee', { x, y: y - 0.47 });
+    } else {
+      k.add(box(0.09, 0.26, 0.03), c, { x, y: y - 0.14 });
+      k.add(box(0.16, 0.08, 0.03), c, { x: x + 0.04, y: y - 0.26 });
+    }
+  }
+  const g = k.build(new THREE.Group());
+  g.name = 'washing';
+  const phase = rng.range(0, TAU);
+  g.userData.update = (dt, t) => { g.rotation.x = Math.sin(t * 1.6 + phase) * 0.14 + Math.sin(t * 3.7 + phase) * 0.04; };
   return g;
 }
 
@@ -379,6 +479,27 @@ function buildRoof(kit, o, { W, D, yW, jetty, wall, trim, colX, nCols, parts }) 
       }));
     }
     if (o.gutters) addPipe(-sideX * (W / 2 - 0.22), r.gutters[0].y, r.gutters[0].z + jetty / 2);
+  } else if (style === 'flat') {
+    // flat roof terrace with a parapet, stair hut, chimney and a water tank
+    const pw = W + 0.16, pd = D + jetty + 0.16, zc = jetty / 2;
+    kit.add(cbox(pw, 0.3, pd, 0.06), shade(wall, -0.1), { y: yW + 0.05, z: zc });
+    kit.add(box(pw - 0.3, 0.05, pd - 0.3), '#d9cfc0', { y: yW + 0.21, z: zc });
+    for (const [x, z, w, d] of [[0, pd / 2 - 0.1, pw, 0.2], [0, -pd / 2 + 0.1, pw, 0.2], [pw / 2 - 0.1, 0, 0.2, pd - 0.4], [-pw / 2 + 0.1, 0, 0.2, pd - 0.4]]) {
+      kit.add(box(w, 0.72, d), wall, { x, y: yW + 0.52, z: z + zc });
+      kit.add(cbox(w + 0.08, 0.1, d + 0.08, 0.03), trim, { x, y: yW + 0.92, z: z + zc });
+    }
+    const hx = -sideX * Math.max(0, W / 2 - 1.1), hz = zc - D / 2 + 1.1;
+    kit.add(cbox(1.3, 1.15, 1.5, 0.08), wall, { x: hx, y: yW + 0.8, z: hz });
+    kit.add(cbox(1.5, 0.14, 1.7, 0.05), trim, { x: hx, y: yW + 1.42, z: hz });
+    kit.add(box(0.7, 0.95, 0.06), o.door, { x: hx, y: yW + 0.72, z: hz + 0.76 });
+    kit.add(cyl(0.38, 0.38, 0.75, 10), '#8fa3b3', { x: -hx * 0.6, y: yW + 0.62, z: zc - D / 4 });
+    kit.add(cyl(0.4, 0.4, 0.06, 10), '#6b7f8f', { x: -hx * 0.6, y: yW + 1.02, z: zc - D / 4 });
+    parts.chimneyTops.push(...addChimney(kit, {
+      x: sideX * (W / 2 - 0.55), z: zc - 0.4, baseY: yW, topY: yW + rng.range(1.7, 2.3), rng, color: chimneyColor, potColor,
+      pots: rng.int(1, 2), lean: rng.range(-2, 2) * DEG * Math.min(1, o.wonk), w: 0.8, d: 0.62,
+    }));
+    roofTop = yW + 1.5;
+    if (o.drainpipes) kit.at({}, () => addDrainpipe(kit, { x: -sideX * (W / 2 - 0.22), zWall: D / 2 + jetty, gutter: [-sideX * (W / 2 - 0.22), yW + 0.1, D / 2 + jetty + 0.12] }));
   } else {
     const r = mansardRoof(kit, { W: W + 0.02, D: D + jetty, yW, color: o.roof, rng, trim, gutter: o.gutters ? P.metalDark : null });
     roofTop = r.ridgeY;

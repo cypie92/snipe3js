@@ -1,0 +1,372 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Look-dev — Jack of All Blasts</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #info { position: fixed; left: 8px; bottom: 8px; font: 11px/1.35 monospace; color: #fff8ee; background: rgba(43, 43, 58, .78);
+    padding: 5px 8px; border-radius: 6px; white-space: pre; pointer-events: none; display: none; }
+  #scope { position: fixed; inset: 0; pointer-events: none; display: none; }
+</style>
+<script>
+  // Deterministic Math.random for repeatable A/B shots (particles etc.). Classic script = runs before modules.
+  (() => { let s = 1234567; Math.random = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="scope"></canvas>
+<div id="info"></div>
+<script type="module">
+// Look-dev studio: the real kit (buildings, props, nature, characters) + water + particles under the game's
+// renderer, post stack and environment, framed like gameplay (12 m perch, 25-130 m targets).
+// URL params:
+//   preset=morning|noon|golden|indoor   quality=low|medium|high   tone=NEUTRAL|AGX|ACES_FILMIC
+//   cam=perch|scope|close|orbit|top|low   yaw=<deg> pitch=<deg> (perch/scope)   zoom=2|4|8 (scope)
+//   at=<x,y,z> (scope/close target, default the fountain)   fov=<deg>
+//   ao=0 bloom=0 outline=0 grade=0 tilt=0|1 dof=0|1 (A/B toggles; also live: __lookdev.set({ ao: false }))
+//   vm=1 (first-person rifle)   fx=1 (particle bursts)   mask=1 (scope mask overlay when cam=scope)
+//   debug=1 (stats panel)   steps=<n> (frames of fixed 1/60 s before __ready, default 8)
+import * as THREE from 'three';
+import { Renderer } from '../src/core/Renderer.js';
+import { Environment } from '../src/gfx/Environment.js';
+import { materials } from '../src/gfx/materials.js';
+import { applyWind, windUniforms } from '../src/gfx/wind.js';
+import { Particles } from '../src/gfx/Particles.js';
+import { Tracers } from '../src/gfx/Tracer.js';
+import { P } from '../src/gfx/palette.js';
+import { part, merge } from '../src/world/geo.js';
+import { hash3 } from '../src/core/rng.js';
+import * as B from '../src/world/kit/buildings/index.js';
+import * as K from '../src/world/kit/props/index.js';
+import * as N from '../src/world/kit/nature/index.js';
+import { Person, Crowd, PigeonFlock, Dog, Duck, Cat } from '../src/world/characters/index.js';
+import { Viewmodel } from '../src/gameplay/Viewmodel.js';
+
+const params = new URLSearchParams(location.search);
+const num = (k, d) => (params.has(k) ? Number(params.get(k)) : d);
+const flag = (k, d) => (params.has(k) ? params.get(k) !== '0' : d);
+const vec = (k, d) => (params.has(k) ? new THREE.Vector3(...params.get(k).split(',').map(Number)) : d.clone());
+const W = await import('../src/gfx/water.js').catch(() => null);
+
+const canvas = document.getElementById('c');
+const renderer = new Renderer({ canvas, quality: params.get('quality') || 'high', tone: params.get('tone') || undefined });
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 3500);
+scene.add(camera);
+const env = new Environment(scene, renderer.renderer, { shadowMapSize: renderer.q.shadowMapSize });
+env.apply(params.get('preset') || 'morning');
+renderer.attach(scene, camera);
+applyWind(materials.foliage);
+
+const updaters = [];
+const add = (obj, x = 0, z = 0, ry = 0, y = 0) => {
+  obj.position.x += x;
+  obj.position.y += y;
+  obj.position.z += z;
+  obj.rotation.y += ry;
+  scene.add(obj);
+  const u = obj.userData?.update;
+  if (typeof u === 'function') updaters.push(u);
+  else if (typeof obj.update === 'function') updaters.push((dt, t) => obj.update(dt, t));
+  return obj;
+};
+
+// ---------------------------------------------------------------- ground (vertex-colour grass, gentle noise)
+{
+  const size = 700, seg = 140;
+  const g = new THREE.PlaneGeometry(size, size, seg, seg).rotateX(-Math.PI / 2);
+  const pos = g.attributes.position;
+  const col = new Float32Array(pos.count * 3);
+  const a = new THREE.Color(P.grass), b = new THREE.Color(P.grassDark), c = new THREE.Color(P.grassLight), t = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const n = hash3(Math.floor(x / 9), 0, Math.floor(z / 9)) * 0.5 + hash3(Math.floor(x / 23), 1, Math.floor(z / 23)) * 0.5;
+    t.copy(a).lerp(n > 0.5 ? c : b, Math.abs(n - 0.5) * 0.9);
+    col[i * 3] = t.r; col[i * 3 + 1] = t.g; col[i * 3 + 2] = t.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const ground = new THREE.Mesh(g, materials.toy);
+  ground.receiveShadow = true;
+  ground.name = 'ground';
+  scene.add(ground);
+}
+
+// ---------------------------------------------------------------- the diorama (perch at 0,12,62 looking -Z)
+const SQ = new THREE.Vector3(0, 0, -10);
+add(B.cobbleSquare({ width: 46, depth: 32, radius: 7 }), SQ.x, SQ.z);
+const fountain = add(B.fountain({ flowing: true }), SQ.x, SQ.z);
+add(B.road({ points: [[-120, 30], [-40, 29], [0, 31], [40, 29.5], [120, 32]], width: 7 }));
+add(B.pavement({ points: [[-120, 24.6], [-40, 23.6], [0, 25.6], [40, 24.1], [120, 26.6]], width: 3, kerbSide: 1 }));
+add(B.church({ graves: 6 }), -40, -46, 0.1);
+add(B.terrace(4, { seed: 12, startNumber: 2 }), -8, -44, 0);
+add(B.shop({ kind: 'bakery', seed: 3, floors: 2 }), 11, -43, 0);
+add(B.shop({ kind: 'fishchips', seed: 4, floors: 3, roofStyle: 'mansard' }), 20, -42.5, 0);
+add(B.pub({ crooked: true }), 38, -22, -0.35);
+add(B.house({ seed: 33, floors: 2, gableFront: true, windowStyle: 'roundtop' }), -44, -8, Math.PI / 2 - 0.1);
+add(B.house({ seed: 44, roofStyle: 'hip', windowStyle: 'shuttered' }), 50, 6, -Math.PI / 2);
+add(B.house({ seed: 11, floors: 1, roofStyle: 'gable', gableFront: false, gag: 'gnome' }), -30, 14, 0.2);
+add(B.house({ seed: 66, style: 'tudor' }), 62, -30, -0.6);
+add(B.house({ seed: 55, roofStyle: 'mansard', floors: 2 }), -68, -34, 0.35);
+add(B.bandstand({}), -22, -4, 0.3);
+add(B.phoneBox({}), -9, 9.5, 0);
+add(B.postBox({}), -6, 9.8, 0);
+add(B.busStop({}), 10, 22.5, 0);
+add(B.hedgeRow([[24, 4], [44, 4]], { seed: 4, flowers: 0.6 }));
+add(B.lowWall([[-54, -18], [-54, -58], [-24, -58]], { seed: 2 }));
+add(B.picketFence([[-38, 20], [-22, 20], [-22, 26]], { seed: 3 }));
+add(B.backdrop({ seed: 7 }));
+
+// trees & greenery
+const trees = [
+  ['round', 30, -52], ['conifer', -58, -52], ['tall', 52, -44], ['blossom', -26, -26], ['round', 28, 12],
+  ['round', -56, 4], ['conifer', 72, -8], ['blossom', 16, -26], ['round', -12, 18], ['tall', 44, 18],
+];
+trees.forEach(([type, x, z], i) => add(N.tree({ type: N.TREE_TYPES.includes(type) ? type : N.TREE_TYPES[0], seed: 3 + i }), x, z, i * 0.7));
+{
+  const pts = [];
+  for (let i = 0; i < 30; i++) {
+    const a = i * 2.39996, r = Math.sqrt(i + 0.5) * 3.2;
+    pts.push([-80 + Math.cos(a) * r, -70 + Math.sin(a) * r * 0.6]);
+  }
+  add(N.forest(pts, { types: ['round', 'conifer', 'tall'], seed: 5 }));
+}
+for (let i = 0; i < 6; i++) add(N.bush({ seed: 20 + i, flowers: i % 2 ? '#ff7eb6' : undefined }), -16 + i * 6.5, 6.5 + (i % 2), i);
+add(N.flowerPatch({ seed: 4, radius: 1.6 }), -34, 18);
+add(N.flowerPatch({ seed: 5, radius: 1.3 }), 24, 8);
+
+// props
+[[-19, 3], [19, 3], [-19, -23], [19, -23]].forEach(([x, z], i) => add(K.lampPost({ seed: 1 + i }), SQ.x + x, SQ.z + z));
+add(K.bunting({ from: [-19, 4.9, -7], to: [19, 5.1, -7], seed: 1 }));
+add(K.bunting({ from: [-19, 4.9, -33], to: [19, 5.1, -33], seed: 2, colors: [P.cobalt, P.sunflower, P.tomato] }));
+[['fruit', [P.tomato, '#fff8ee']], ['veg', [P.teal, '#fff8ee']], ['flowers', [P.bubblegum, '#fff8ee']], ['cakes', [P.sunflower, '#fff8ee']]]
+  .forEach(([goods, awning], i) => add(K.marketStall({ goods, awning, seed: i + 1 }), -9 + i * 6, 0, 0));
+add(K.melonStack({ seed: 1 }), 15, 1.5, 0);
+[[-12, -18], [12, -18], [-6, -26], [8, -2]].forEach(([x, z], i) => add(K.bench({ seed: i + 2 }), x, z, i % 2 ? Math.PI : 0));
+add(K.parasolTable({ seed: 2, colors: [P.tomato, '#fff8ee'] }), 30, -12);
+add(K.parasolTable({ seed: 3, colors: ['#2f7d62', '#fff8ee'] }), 33, -6);
+add(K.iceCreamVan ? K.iceCreamVan({ seed: 1 }) : new THREE.Group(), 34, 30, -Math.PI / 2);
+add(K.car({ seed: 3 }), -26, 29, Math.PI / 2);
+add(K.car({ seed: 5 }), 60, 31, -Math.PI / 2);
+add(K.balloonBunch({ seed: 2 }), 3, 4);
+add(K.flagPole({ color: P.cobalt, seed: 1 }), -28, -14);
+add(K.washingLine({ from: [-42, 2, 24], to: [-34, 2, 26], seed: 2 }));
+add(K.easel({ seed: 1 }), 24, -2, -0.6);
+add(K.wheelbarrow({ seed: 1, load: 'pumpkins' }), -33, 23, 0.8);
+
+// water: duck pond (W.createWater) or nothing if the module is missing
+let pond = null;
+if (W?.createWater) {
+  pond = W.createWater({ width: 16, depth: 10, shape: 'ellipse', y: 0.06 });
+  add(pond, -48, 30);
+}
+
+// characters
+const crowd = new Crowd({
+  seed: 3, area: { x: SQ.x, z: SQ.z, w: 40, d: 26 }, count: 34, groups: 5, groupSize: [2, 3],
+  paths: [[[-17, -24], [17, -24], [17, 4], [-17, 4]]], avoid: [{ x: SQ.x, z: SQ.z, r: 5.5 }, { x: 0, z: 0, r: 13 }],
+  presets: ['postman', 'police', 'vicar', 'chef', 'painter'],
+});
+scene.add(crowd.root);
+updaters.push((dt, t) => crowd.update(dt, t));
+const flock = new PigeonFlock({ seed: 2, count: 14, area: { x: 6, z: -16, w: 10, d: 6 } });
+scene.add(flock.root);
+updaters.push((dt, t) => flock.update(dt, t));
+const dog = new Dog({ seed: 4 });
+dog.root.position.set(-4, 0, 14);
+dog.setAction('wag');
+add(dog.root);
+updaters.push((dt, t) => dog.update(dt, t));
+const cat = new Cat({ seed: 2 });
+cat.root.position.set(-53.8, 1.1, -30);
+cat.setAction('sit');
+add(cat.root);
+updaters.push((dt, t) => cat.update(dt, t));
+if (pond) {
+  for (let i = 0; i < 3; i++) {
+    const d = new Duck({ seed: i + 1 });
+    d.root.position.set(-48 + (i - 1) * 3, 0.06, 30 + (i % 2) * 2);
+    d.root.rotation.y = i * 2;
+    add(d.root);
+    updaters.push((dt, t) => d.update(dt, t));
+  }
+}
+
+// casting/receiving shadows like the game (kit props set their own flags)
+scene.traverse((o) => { if (o.isMesh && o.castShadow === undefined) o.castShadow = true; });
+env.setShadowFocus(new THREE.Vector3(0, 0, -10), 100);
+
+// ---------------------------------------------------------------- fx
+const fx = new Particles(scene);
+const tracers = new Tracers(scene);
+const burstAt = (kind, x, y, z, nx = 0, ny = 1, nz = 0, scale = 1) => fx.burst(kind, new THREE.Vector3(x, y, z), new THREE.Vector3(nx, ny, nz), { scale });
+function fxDemo() {
+  burstAt('confetti', -6, 6, -24, 0, 1, 0, 1);
+  burstAt('stars', 6, 5, -24);
+  burstAt('dust', -12, 0.1, -2);
+  burstAt('wood', 13, 1.2, 2, 0, 0, 1, 1.5);
+  burstAt('metal', -8, 3, -2, 0, 0, 1, 1.5);
+  burstAt('splash', -48, 0.1, 30, 0, 1, 0, 1.4);
+  burstAt('smoke', 30, 9, -52, 0, 1, 0, 1.4);
+  burstAt('stone', 0, 2.5, -9, 0, 0, 1, 1.5);
+  burstAt('glass', 11, 3, -40, 0, 0, 1, 1.5);
+  tracers.spawn(new THREE.Vector3(0.3, 11.6, 61), new THREE.Vector3(-8, 3, -2), 0.12);
+}
+
+// ---------------------------------------------------------------- viewmodel (first-person rifle)
+let vm = null;
+if (flag('vm', false)) {
+  vm = new Viewmodel(camera);
+  vm.enabled = true;
+  renderer.setViewmodel?.(vm.root);
+}
+const fakeRig = { scopeT: 0, override: null, zoom: 1 };
+const fakeRifle = { state: 'ready', progress: 0 };
+
+// ---------------------------------------------------------------- cameras
+const D2R = Math.PI / 180;
+const PERCH = new THREE.Vector3(0, 12, 62);
+const state = { cam: params.get('cam') || 'perch', yaw: num('yaw', 0), pitch: num('pitch', -7), zoom: num('zoom', 4), at: vec('at', new THREE.Vector3(0, 2, -10)), fov: num('fov', 58), scopeT: 0 };
+function placeCamera() {
+  camera.rotation.order = 'YXZ';
+  const s = state;
+  s.scopeT = 0;
+  if (s.cam === 'perch') {
+    camera.position.copy(PERCH);
+    camera.rotation.set(s.pitch * D2R, s.yaw * D2R, 0);
+    camera.fov = s.fov;
+  } else if (s.cam === 'scope') {
+    camera.position.copy(PERCH);
+    const d = s.at.clone().sub(PERCH);
+    camera.rotation.set(Math.atan2(d.y, Math.hypot(d.x, d.z)), Math.atan2(-d.x, -d.z), 0);
+    camera.fov = 2 * Math.atan(Math.tan(29 * D2R) / s.zoom) / D2R;
+    s.scopeT = 1;
+  } else if (s.cam === 'close') {
+    camera.position.copy(s.at).add(new THREE.Vector3(9, 5, 16));
+    camera.fov = 40;
+    camera.lookAt(s.at);
+  } else if (s.cam === 'low') {
+    camera.position.set(s.at.x + 2, 1.7, s.at.z + 22);
+    camera.fov = 50;
+    camera.lookAt(s.at.x, 3, s.at.z);
+  } else if (s.cam === 'orbit') {
+    const a = num('orbit', 0.6);
+    camera.position.set(SQ.x + Math.sin(a) * 105, 48, SQ.z + Math.cos(a) * 105);
+    camera.fov = 45;
+    camera.lookAt(SQ.x, 4, SQ.z);
+  } else if (s.cam === 'top') {
+    camera.position.set(0, 190, 40);
+    camera.fov = 45;
+    camera.lookAt(0, 0, -12);
+  }
+  camera.updateProjectionMatrix();
+}
+
+// scope mask overlay (same geometry as the HUD: R = 0.47 * min(w, h))
+const maskEl = document.getElementById('scope');
+function drawMask() {
+  const w = innerWidth, h = innerHeight, R = Math.min(w, h) * 0.47;
+  maskEl.width = w; maskEl.height = h;
+  const g = maskEl.getContext('2d');
+  g.fillStyle = '#07070b';
+  g.fillRect(0, 0, w, h);
+  g.globalCompositeOperation = 'destination-out';
+  const grad = g.createRadialGradient(w / 2, h / 2, R * 0.9, w / 2, h / 2, R);
+  grad.addColorStop(0, 'rgba(0,0,0,1)'); grad.addColorStop(0.75, 'rgba(0,0,0,0.9)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad; g.beginPath(); g.arc(w / 2, h / 2, R, 0, Math.PI * 2); g.fill();
+  g.globalCompositeOperation = 'source-over';
+  const ring = g.createRadialGradient(w / 2, h / 2, R * 0.7, w / 2, h / 2, R);
+  ring.addColorStop(0, 'rgba(10,10,20,0)'); ring.addColorStop(1, 'rgba(10,10,20,0.55)');
+  g.fillStyle = ring; g.beginPath(); g.arc(w / 2, h / 2, R, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#2b2b3a'; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(w / 2 - R, h / 2); g.lineTo(w / 2 + R, h / 2); g.moveTo(w / 2, h / 2 - R); g.lineTo(w / 2, h / 2 + R); g.stroke();
+}
+function applyMask() {
+  maskEl.style.display = state.cam === 'scope' && flag('mask', true) ? 'block' : 'none';
+  if (maskEl.style.display === 'block') drawMask();
+}
+
+// ---------------------------------------------------------------- A/B toggles
+function applyToggles(o = {}) {
+  const r = renderer;
+  if ('ao' in o && r.ao) r.ao.enabled = !!o.ao;
+  if ('bloom' in o && r.bloom) r.bloom.blendMode.opacity.value = o.bloom ? 1 : 0;
+  r.setToggles?.(o);
+}
+const initial = {};
+for (const k of ['ao', 'bloom', 'outline', 'grade', 'tilt', 'dof', 'shadows']) if (params.has(k)) initial[k] = flag(k, true);
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  applyMask();
+}
+addEventListener('resize', resize);
+resize();
+placeCamera();
+applyMask();
+applyToggles(initial);
+
+// ---------------------------------------------------------------- loop (fixed 1/60 s virtual clock = deterministic shots)
+let t = 0, frames = 0, running = true;
+const steps = num('steps', 8);
+const info = document.getElementById('info');
+if (flag('debug', false)) info.style.display = 'block';
+let fxDone = false;
+function frame() {
+  const dt = running ? 1 / 60 : 0;
+  t += dt;
+  for (const u of updaters) u(dt, t);
+  windUniforms.uTime.value = t;
+  fx.update(dt);
+  tracers.update(dt, camera);
+  env.update(dt, camera);
+  if (vm) {
+    fakeRig.scopeT = state.scopeT;
+    vm.update(dt, fakeRig, fakeRifle);
+  }
+  renderer.setScope(state.scopeT, state.cam === 'scope' ? camera.position.distanceTo(state.at) : null);
+  renderer.renderer.info.reset();
+  renderer.render(dt);
+  frames++;
+  if (!fxDone && flag('fx', false) && frames === 2) { fxDemo(); fxDone = true; }
+  if (frames === steps) window.__ready = true;
+  if (info.style.display === 'block' && frames % 10 === 0) {
+    const i = renderer.renderer.info;
+    info.textContent = `calls ${i.render.calls}  tris ${(i.render.triangles / 1000).toFixed(0)}k  programs ${i.programs?.length}\n${JSON.stringify(renderer.stats?.() || {})}`;
+  }
+  requestAnimationFrame(frame);
+}
+renderer.renderer.info.autoReset = false;
+renderer.renderer.compile(scene, camera);
+requestAnimationFrame(frame);
+
+window.__lookdev = {
+  THREE, scene, camera, renderer, env, fx, tracers, state, fountain, pond, crowd,
+  set(o = {}) {
+    if (o.preset) env.apply(o.preset);
+    for (const k of ['cam', 'yaw', 'pitch', 'zoom', 'fov']) if (k in o) state[k] = o[k];
+    if (o.at) state.at = new THREE.Vector3(...o.at);
+    if (o.quality) renderer.setQuality(o.quality);
+    if (o.grade && renderer.setGrade) renderer.setGrade(o.grade);
+    if (o.env && env.set) env.set(o.env);
+    placeCamera();
+    applyMask();
+    applyToggles(o);
+    return renderer.stats?.() || null;
+  },
+  pause(on = true) { running = !on; },
+  step(n = 1) { const r = running; running = true; for (let i = 0; i < n; i++) { t += 1 / 60; for (const u of updaters) u(1 / 60, t); fx.update(1 / 60); tracers.update(1 / 60, camera); env.update(1 / 60, camera); } running = r; },
+  fx: fxDemo,
+  burst: burstAt,
+  stats() {
+    const i = renderer.renderer.info;
+    return { calls: i.render.calls, tris: i.render.triangles, programs: i.programs?.length, textures: i.memory.textures, ...(renderer.stats?.() || {}) };
+  },
+};
+</script>
+</body>
+</html>

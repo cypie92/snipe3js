@@ -116,7 +116,7 @@ function resolveColours(cfg) {
     skin,
     skinDark: shade(skin, 0.9, 0.04),
     lid: shade(skin, 0.94, 0.02),
-    nose: mix(shade(skin, 0.95), '#ff8f7a', 0.12),
+    nose: cfg.face?.zinc ? '#f2f7fb' : mix(shade(skin, 0.95), '#ff8f7a', 0.12),
     blush: mix(skin, '#ff6f86', 0.5),
     hair,
     brow: shade(hair, hair === '#c8c8d0' || hair === '#f0ece4' ? 0.78 : 0.85),
@@ -133,7 +133,7 @@ function resolveColours(cfg) {
 // ---------------------------------------------------------------- legs & shoes
 function buildLegs(rb, b, d, cfg, C) {
   const bottom = cfg.bottom.type;
-  const hemY = bottom === 'shorts' ? d.kneeY + 0.02 : bottom === 'skirt' || bottom === 'long' ? 99 : -1;
+  const hemY = bottom === 'shorts' ? d.kneeY + 0.02 : bottom === 'trunks' ? d.hipY - 0.035 : bottom === 'skirt' || bottom === 'long' ? 99 : -1;
   const legCol = cfg.bottom.legs || (bottom === 'skirt' || bottom === 'long' ? (cfg.bottom.tights || C.skin) : C.bottom);
   const sock = cfg.socks;
   const bootTop = cfg.boots ? d.kneeY - 0.01 : -1;
@@ -178,12 +178,18 @@ function buildBody(rb, b, d, cfg, C) {
   if (t === 'hivis') bands.push([0.44, 0.49], [0.6, 0.65]);
   if (t === 'jumper') bands.push([0.3, 0.37], [0.58, 0.64]);
   if (t === 'police') bands.push([0.3, 0.35]);
+  if (t === 'lifeguard') bands.push([0.56, 0.66]);
+  if (t === 'swimsuit' && cfg.top.stripes !== false) bands.push([0.12, 0.19], [0.38, 0.45], [0.56, 0.63], [0.73, 0.8]);
+  const neckline = t === 'swimsuit' ? 0.86 : t === 'bare' ? -1 : 2; // skin above this height
+  if (neckline > 0 && neckline < 1) cuts.push(neckline * H);
   for (const [a, c] of bands) cuts.push(a * H, c * H);
   const bandCol = t === 'hivis' ? '#d7dde6' : C.top2;
-  const lowerCol = (t === 'dress' || t === 'raincoat' || t === 'smock') ? C.top : C.bottom;
+  const lowerCol = (t === 'dress' || t === 'raincoat' || t === 'smock' || t === 'swimsuit') ? C.top : C.bottom;
   const g = lathe(bodyProfile(d, belly), Q.body, cuts);
   rb.add(g, (x, y, z, c) => {
     const tt = y / H;
+    if (tt > neckline && tt >= waistT) return c.set(C.skin);
+    if (t === 'swimsuit') for (const [a, e] of bands) if (tt > a && tt < e) return c.set(bandCol);
     if (tt < waistT) return c.set(lowerCol);
     if (beltT && tt >= beltT[0] && tt <= beltT[1]) return c.set(cfg.belt);
     for (const [a, e] of bands) if (tt > a && tt < e) return c.set(bandCol);
@@ -342,6 +348,43 @@ function buildBody(rb, b, d, cfg, C) {
         const p = atBody(tt, a, -0.004);
         rb.add(G.sphere(5, 3), cols[i % 3], { x: p.x, y: p.y, z: p.z, sx: 0.04, sy: 0.04, sz: 0.012, ry: a }, bw);
       });
+      break;
+    }
+    case 'swimsuit': case 'bare': {
+      if (t === 'bare') { const p = atBody(0.36, 0, -0.004); rb.add(G.sphere(5, 3), C.skinDark, { x: p.x, y: p.y, z: p.z, sx: 0.014, sy: 0.018, sz: 0.008 }, bw); } // belly button
+      break;
+    }
+    case 'lifeguard': {
+      collar(C.top, 0.935, 0.026);
+      const p = atBody(0.61, 0, 0.006); // white cross on the red band
+      rb.add(G.box(0.07, 0.022, 0.012), '#fbf7f0', { x: p.x, y: p.y, z: p.z }, bw);
+      rb.add(G.box(0.022, 0.07, 0.012), '#fbf7f0', { x: p.x, y: p.y, z: p.z }, bw);
+      break;
+    }
+    case 'sailor': {
+      const navy = cfg.top.collar || '#243056';
+      for (const s of [1, -1]) { // front V of the square sailor collar
+        const p = atBody(0.8, s * 0.3, 0.01);
+        rb.add(G.box(0.075, 0.2, 0.014), navy, { x: p.x, y: p.y, z: p.z, ry: s * 0.3, rz: s * 0.55 }, bw);
+      }
+      const bk = atBody(0.83, Math.PI, 0.012); // back flap
+      rb.add(G.box(0.26, 0.17, 0.014), navy, { x: bk.x, y: bk.y, z: bk.z, rx: 0.42 }, b.spine);
+      rb.add(G.box(0.24, 0.012, 0.016), '#fbf7f0', { x: bk.x, y: bk.y - 0.055, z: bk.z - 0.02, rx: 0.42 }, b.spine);
+      const k = atBody(0.69, 0, 0.022); // neckerchief knot + tails
+      rb.add(G.sphere(6, 4), cfg.top.scarf || P.tomato, { x: k.x, y: k.y, z: k.z, s: 0.03 }, bw);
+      for (const s of [1, -1]) rb.add(G.cone(0.028, 0.09, 4), cfg.top.scarf || P.tomato, { x: k.x + s * 0.02, y: k.y - 0.05, z: k.z, rx: Math.PI, rz: s * 0.25 }, bw);
+      break;
+    }
+    case 'reefer': { // captain's double-breasted jacket
+      front(0.66, 0.97, 0.3, 0.006, cfg.top.shirt || '#f6f2ea');
+      for (const s of [1, -1]) {
+        const p = atBody(0.76, s * 0.3, 0.012);
+        rb.add(G.box(0.07, 0.22, 0.016), shade(C.top, 0.8), { x: p.x, y: p.y, z: p.z, ry: s * 0.3, rz: s * 0.4 }, bw);
+        for (let i = 0; i < 3; i++) button(0.42 + i * 0.1, s * 0.2, cfg.top.button || '#ffd23c', 0.017);
+      }
+      const tp = atBody(0.8, 0, 0.012);
+      rb.add(G.sphere(6, 4), cfg.top.tie || '#2b2b3a', { x: tp.x, y: tp.y, z: tp.z, sx: 0.022, sy: 0.07, sz: 0.01, rx: -0.12 }, bw);
+      for (const s of [1, -1]) rb.add(G.box(0.1, 0.02, 0.07), cfg.top.button || '#ffd23c', { x: s * d.shX * 0.86, y: d.shY + 0.06, rz: s * -0.5 }, b.spine);
       break;
     }
     default: collar(C.top, 0.935, 0.024);
@@ -514,6 +557,7 @@ function buildHair(rb, b, d, cfg, C, hm) {
   const { R, Rx, Rz } = d;
   let st = cfg.hair.style;
   const hat = cfg.hat?.type;
+  if (hat === 'swimcap') return; // all tucked in
   const covers = hat && !['headband', 'veil'].includes(hat);
   if (covers && ['spiky', 'quiff', 'mohawk', 'parted'].includes(st)) st = 'short';
   if (covers && st === 'afro') st = 'curly';
@@ -615,7 +659,19 @@ function buildHair(rb, b, d, cfg, C, hm) {
 function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
   const { R, HS } = d;
   const { ex, ey, ew, eh } = meta.eye;
-  if (cfg.glasses) {
+  if (cfg.glasses === 'goggles') {
+    const gcol = cfg.glassesColor || '#2ec4b6';
+    for (const s of [1, -1]) {
+      const x = s * ex, n = surf.normal(x, ey);
+      const p = V(x, ey, surf.z(x, ey)).addScaledVector(n, 0.022).applyMatrix4(hm);
+      const m = new THREE.Matrix4().compose(p, qFromNormal(n, 0.6), V(1, 1, 1));
+      const rr = Math.max(ew, eh) * 1.1;
+      rb.add(G.torus(rr, 0.017, 4, 12), gcol, m, b.head);
+      rb.add(G.sphere(8, 5), (px, py, pz, c) => c.set(px < -0.2 && py > 0.2 ? '#f4fbff' : '#8fdcff'), M(m, { sx: rr, sy: rr, sz: 0.012 }), b.head);
+    }
+    rb.add(G.torus(1, 0.012, 3, 18), gcol, M(hm, { y: ey + 0.02, rx: Math.PI / 2 - 0.12, sx: d.Rx * 1.06, sy: d.Rz * 1.06 }), b.head); // strap
+    rb.add(G.capsule(0.01, ex * 2 - Math.max(ew, eh) * 2.3, 1, 4), gcol, M(hm, { y: ey + 0.012, z: surf.z(0, ey) + 0.024, rz: Math.PI / 2 }), b.head);
+  } else if (cfg.glasses) {
     const gcol = cfg.glassesColor || P.ink;
     const shades = cfg.glasses === 'shades';
     for (const s of [1, -1]) {
@@ -663,6 +719,14 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
   } else if (fh === 'stubble') {
     rb.add(G.sphere(10, 7), shade(C.skin, 0.8, -0.1), M(hm, { y: -0.36 * R, z: 0.08 * R, sx: 0.9 * R, sy: 0.55 * R, sz: 0.86 * R }), b.head);
   }
+  if (cfg.pipe) { // sailor's pipe in the corner of the mouth
+    const x0 = 0.045 * HS, y0 = meta.mouthY + 0.004;
+    const p = V(x0, y0, surf.z(x0, y0) + 0.01).applyMatrix4(hm);
+    const tip = p.clone().add(V(0.07, -0.035, 0.07));
+    const dir = tip.clone().sub(p);
+    rb.add(G.cyl(0.009, 0.009, dir.length(), 5), '#3a2a20', new THREE.Matrix4().compose(p.clone().add(tip).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir.normalize()), V(1, 1, 1)), b.head);
+    rb.add(G.cyl(0.024, 0.019, 0.05, 8), (px, py, pz, c) => c.set(py > 0.02 ? '#2b2b3a' : '#9a6a3a'), { x: tip.x, y: tip.y + 0.02, z: tip.z }, b.head);
+  }
   if (cfg.straw) {
     const p = V(0.04 * HS, meta.mouthY, surf.z(0.04, meta.mouthY)).applyMatrix4(hm);
     rb.add(G.cyl(0.007, 0.007, 0.2, 4), '#f2d27a', { x: p.x + 0.07, y: p.y + 0.03, z: p.z + 0.04, rz: -1.2, ry: -0.5, order: 'YXZ' }, b.head);
@@ -670,7 +734,7 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
 }
 
 // ---------------------------------------------------------------- hats
-export const HATS = ['flatcap', 'bowler', 'tophat', 'beanie', 'hardhat', 'chef', 'sunhat', 'fisherman', 'police', 'postman', 'cap', 'beret', 'straw', 'bucket', 'party', 'veil', 'headband'];
+export const HATS = ['flatcap', 'bowler', 'tophat', 'beanie', 'hardhat', 'chef', 'sunhat', 'fisherman', 'police', 'postman', 'cap', 'beret', 'straw', 'bucket', 'party', 'veil', 'headband', 'captain', 'swimcap', 'sailor', 'boater'];
 
 function buildHat(rb, b, d, cfg, C, hm, meta) {
   const h = cfg.hat;
@@ -678,7 +742,7 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
   const { R, Rx } = d;
   const col = h.color, col2 = h.color2 || shade(col, 0.72);
   // seat height (head space, x R) so every crown clears the hair helmet (~1.08R)
-  const SEAT = { headband: 0.35, flatcap: 0.55, beret: 0.64, party: 0.9, tophat: 0.7, veil: 0.5 };
+  const SEAT = { headband: 0.35, flatcap: 0.55, beret: 0.64, party: 0.9, tophat: 0.7, veil: 0.5, swimcap: 0.3, sailor: 0.62, boater: 0.56, captain: 0.52 };
   const baseY = (SEAT[h.type] ?? 0.52) * R;
   const pivot = V(0, baseY, -0.04 * R).applyMatrix4(hm);
   b.hat = rb.bone('hat', b.head, pivot.toArray());
@@ -787,6 +851,43 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       add(G.torus(1.0 * R, 0.09 * R, 5, 18), col, { y: 0.02 * R, rx: Math.PI / 2, sx: 0.98, sy: 1.02 });
       top = 0.2 * R;
       break;
+    case 'captain': { // white-topped peaked cap, navy band, gold braid + badge
+      add(G.cyl(1.22 * R, 1.02 * R, 0.5 * R, 12), col, { y: 0.34 * R, sz: 1.04 });
+      add(G.cyl(1.04 * R, 1.03 * R, 0.2 * R, 12), h.band || '#243056', { y: 0.08 * R, sz: 1.05 });
+      add(G.sphere(12, 6), P.ink, { y: -0.03 * R, z: 0.86 * R, sx: 0.74 * R, sy: 0.07 * R, sz: 0.44 * R, rx: 0.28 });
+      add(G.capsule(0.045 * R, 0.8 * R, 1, 5), '#ffd23c', { y: 0.06 * R, z: 1.07 * R, rz: Math.PI / 2 });
+      add(G.sphere(6, 4), '#ffd23c', { y: 0.3 * R, z: 1.16 * R, sx: 0.2 * R, sy: 0.17 * R, sz: 0.06 * R });
+      for (const s of [1, -1]) add(G.sphere(5, 3), '#ffd23c', { x: s * 0.22 * R, y: 0.26 * R, z: 1.12 * R, sx: 0.13 * R, sy: 0.07 * R, sz: 0.05 * R, rz: s * 0.5 });
+      top = 0.6 * R;
+      break;
+    }
+    case 'swimcap': { // rubber swim cap with a few flower bumps
+      add(G.hemi(12, 5), col, { y: -0.3 * R, rx: -0.42, sx: 1.08 * R, sy: 1.05 * R, sz: 1.1 * R });
+      if (h.flowers !== false) {
+        for (const [yaw, el] of [[0.5, 0.9], [-0.9, 0.6], [2.2, 0.8], [-2.4, 0.45], [1.3, 0.35], [3.0, 0.2]]) {
+          const dir = V(Math.sin(yaw) * Math.cos(el), Math.sin(el), Math.cos(yaw) * Math.cos(el));
+          const p = dir.clone().multiply(V(1.07 * R, 1.04 * R, 1.09 * R)).add(V(0, -0.3 * R, 0));
+          if (p.z > 0.5 * R && p.y < 0.2 * R) continue; // keep the forehead clear
+          const q = new THREE.Quaternion().setFromUnitVectors(V(0, 0, 1), dir);
+          add(G.sphere(6, 4), col2, new THREE.Matrix4().compose(p, q, V(0.16 * R, 0.16 * R, 0.07 * R)));
+          add(G.sphere(5, 3), h.pom || '#fff8ee', new THREE.Matrix4().compose(p.clone().addScaledVector(dir, 0.05 * R), q, V(0.06 * R, 0.06 * R, 0.04 * R)));
+        }
+      }
+      top = 0.8 * R;
+      break;
+    }
+    case 'sailor': // white "Dixie cup" sailor hat, worn at a jaunty angle
+      add(G.cyl(0.8 * R, 0.92 * R, 0.44 * R, 12), col, { y: 0.2 * R, rx: -0.2, rz: 0.12 });
+      add(G.torus(0.95 * R, 0.13 * R, 4, 14), shade(col, 0.95), { y: 0.02 * R, rx: Math.PI / 2 - 0.2, ry: 0, rz: 0.12, order: 'ZYX' });
+      if (h.band) add(G.cyl(0.82 * R, 0.84 * R, 0.08 * R, 12), h.band, { y: 0.28 * R, rx: -0.2, rz: 0.12 });
+      top = 0.5 * R;
+      break;
+    case 'boater': // flat-topped straw boater with a ribbon
+      add(G.cyl(0.98 * R, 1.02 * R, 0.42 * R, 12), col, { y: 0.2 * R, sz: 1.04 });
+      add(G.cyl(1.035 * R, 1.045 * R, 0.15 * R, 12), h.band || '#243056', { y: 0.07 * R, sz: 1.05 });
+      add(G.cyl(1.6 * R, 1.6 * R, 0.045 * R, 16), (x, y, z, c) => c.set(Math.hypot(x, z) > 1.5 * R ? shade(col, 0.88) : col), { y: -0.01 * R, sz: 1.04 });
+      top = 0.42 * R;
+      break;
     default:
       add(G.hemi(12, 4), col, { sx: R, sy: 0.7 * R, sz: R });
   }
@@ -830,6 +931,18 @@ function buildWorn(rb, b, d, cfg, C) {
         const k = smooth01((y - hand.y) / len);
         return [b.handL, 1 - k, b.prop, k];
       });
+    } else if (a === 'whistle') { // lifeguard whistle on a lanyard
+      const cord = cfg.lanyardColor || '#ff5a4e';
+      const r = profR(0.9, cfg.build.belly) * d.bodyR * 1.02;
+      rb.add(G.torus(r, 0.009, 3, 16), cord, { y: d.bodyBottom + 0.86 * d.bodyH, z: 0.02, rx: Math.PI / 2 - 0.55, sz: d.bodyD }, b.spine);
+      const p = V(0, d.bodyBottom + 0.7 * d.bodyH, profR(0.7, cfg.build.belly) * d.bodyR * d.bodyD + 0.02);
+      rb.add(G.capsule(0.017, 0.04, 2, 6), '#d9e0e8', { x: p.x + 0.015, y: p.y, z: p.z, rz: Math.PI / 2 }, b.spine);
+      rb.add(G.cyl(0.018, 0.018, 0.02, 6), '#b8c2cc', { x: p.x - 0.022, y: p.y + 0.012, z: p.z }, b.spine);
+    } else if (a === 'watch') {
+      const wy = d.shY - d.armLen + 0.04;
+      rb.add(G.cyl(0.024, 0.024, 0.014, 8), '#ffd23c', { x: d.shX + d.armR * 0.95, y: wy, rz: Math.PI / 2 }, b.foreL);
+      rb.add(G.cyl(0.018, 0.018, 0.016, 8), '#fbf7f0', { x: d.shX + d.armR * 0.95 + 0.002, y: wy, rz: Math.PI / 2 }, b.foreL);
+      rb.add(G.torus(d.armR * 1.02, 0.008, 3, 10), '#5a3a22', { x: d.shX, y: wy, rx: Math.PI / 2 }, b.foreL);
     } else if (a === 'scarf') {
       const col = cfg.scarfColor || P.tomato;
       rb.add(G.torus(profR(0.93, cfg.build.belly) * d.bodyR * 1.02, 0.042, 4, 12), col, { y: d.bodyBottom + 0.93 * d.bodyH, rx: Math.PI / 2, sz: d.bodyD }, b.spine);

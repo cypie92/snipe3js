@@ -20,7 +20,7 @@ const params = new URLSearchParams(location.search);
 const set = params.get('set') || 'village';
 try { await document.fonts.load('700 48px Fredoka'); } catch (e) { /* fallback font */ }
 
-const stage = await createStage({ ground: true });
+const stage = await createStage({ ground: set !== 'harbour', preset: set === 'harbour' ? 'golden' : undefined });
 const info = [];
 const put = (obj, x, z, ry = 0, label) => {
   stage.add(obj, x, z, ry, label);
@@ -120,7 +120,24 @@ function backdropSet() {
   stage.extent = 90;
 }
 
-({ village, houses, shops, civic, small, ground, backdrop: backdropSet })[set]?.();
+function harbour() {
+  const sea = B.SEA_LEVEL;
+  put(B.lighthouse({ lit: params.get('lit') === '1' }), 14, -58, 0, 'lighthouse');                     // 0
+  put(B.breakwater({ points: [[10, 8], [16, -20], [14, -52]], seed: 2 }), 0, 0, 0, 'breakwater');         // 1
+  put(B.quay({ points: [[-46, 10], [-10, 10], [8, 10]], steps: [18], ladders: [6, 30], seed: 3 }), 0, 0, 0, 'quay (south)'); // 2
+  put(B.quay({ points: [[-46, -40], [-46, 10]], side: 1, ladders: 1, seed: 4 }), 0, 0, 0, 'quay (west)');      // 3
+  put(B.slipway({}), -30, 10, Math.PI, 'slipway');                                                        // 4
+  put(B.beach({ width: 34, depth: 18 }), 40, 4, Math.PI, 'beach');                                        // 5
+  put(B.harbourLand([[-90, 10], [26, 10], [26, 60], [-90, 60]], { top: 'paved' }), 0, 0, 0);            // 6
+  put(B.harbourLand([[-90, -60], [-46, -60], [-46, 10], [-90, 10]], { top: 'paved' }), 0, 0, 0);        // 7
+  put(B.harbourLand([[23, 4], [90, 4], [90, 60], [23, 60]], { top: 'grass' }), 0, 0, 0);               // 8
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#3aa7d8', roughness: 0.25 }));
+  water.position.y = sea;
+  stage.scene.add(water);
+  stage.extent = 70;
+}
+
+({ village, houses, shops, civic, small, ground, backdrop: backdropSet, harbour })[set]?.();
 
 stage.onUpdate(() => { window.__frames = (window.__frames || 0) + 1; });
 stage.frame();

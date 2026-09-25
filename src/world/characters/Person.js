@@ -9,11 +9,13 @@ import { instantiate } from './rig.js';
 import { buildPerson } from './personBuild.js';
 import { resolveConfig, lookKey, PRESET_NAMES } from './personConfig.js';
 import {
-  PersonPose, ACTIONS, ACTION_NAMES, ACTION_PROPS, GAIT_ACTIONS, reactPose, celebratePose, REACT_DURATION, CELEBRATE_DURATION,
+  PersonPose, ACTIONS, ACTION_NAMES, ACTION_PROPS, GAIT_ACTIONS, WATER_ACTIONS, SEATED_ACTIONS, ACTION_ICONS,
+  reactPose, celebratePose, REACT_DURATION, CELEBRATE_DURATION,
 } from './personActions.js';
 import { Blender, clamp, damp, dampAngle, lerp, bump, wrapAngle, TAU, smooth } from './anim.js';
 import { IconPop, Snore, blobShadow, makeFlash } from './icons.js';
-import { makeProp, FishLine, ROD_TIP, PROP_TYPES } from './props.js';
+import { makeProp, makeOar, FishLine, ROD_TIP, PROP_TYPES } from './props.js';
+import { setWet } from './wet.js';
 
 const BLUEPRINTS = new Map();
 const _v = new THREE.Vector3();
@@ -22,8 +24,16 @@ const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _m = new THREE.Matrix4();
 const _m2 = new THREE.Matrix4();
+const _qa = new THREE.Quaternion();
 const warned = new Set();
-const SEATED = new Set(['sit', 'sleep']);
+const FOODS = ['chips', 'icecream'];
+
+/** Is this action (with these options) sitting on something? (bad hits keep them on it) */
+function seated(name, opts = {}) {
+  if (name === 'sleep') return !opts.stand;
+  return SEATED_ACTIONS.has(name) || (name === 'lie' && opts.pose === 'deckchair') ||
+    ((name === 'fish' || name === 'lookout') && !!(opts.sit || opts.height));
+}
 
 function blueprintFor(cfg) {
   const key = lookKey(cfg);
@@ -82,7 +92,7 @@ export class Person {
       energy: m.energy, tempo: m.tempo, phase: m.phase, stoop: m.stoop || 0, idle: m.idle, kid: cfg.kid,
       seed: Math.floor(m.phase * 1000) % 997, legLen: d.hipY, bodyBottom: d.bodyBottom, scale: cfg.scale,
       armBase: this._armBase(), smile: cfg.face.smile ?? 0.8, gait: this.rng.range(0, TAU), talkPhase: 0,
-      seat: 0.45, reactSpin: 1, reactFace: 0, pointYaw: 0.35, pointPitch: 0.25,
+      seat: 0.45, reactSpin: 1, reactFace: 0, pointYaw: 0.35, pointPitch: 0.25, d, belly: cfg.build.belly, food: null,
       lookYaw: 0, lookPitch: 0, bodyTurn: 0, blinkT: this.rng.range(0.5, 3), blinkAge: 9, eyeX: 0, eyeY: 0, eyeTX: 0, eyeTY: 0, eyeT: 1,
     };
     this.rest = {
@@ -103,7 +113,10 @@ export class Person {
     this._celebrate = null;
     this.hatState = null;
     this.fixedProps = { L: null, R: null };
-    this.autoProp = null;
+    this.autoProps = [];
+    this.oars = null;
+    this._perform = null;
+    this._iconT = 0;
     this.fishLine = null;
     this.balloon = [].concat(cfg.accessory || []).includes('balloon') ? { pos: null, vel: new THREE.Vector3() } : null;
     for (const a of [].concat(cfg.accessory || [])) if (PROP_TYPES.includes(a)) this.hold(a);
@@ -144,12 +157,32 @@ export class Person {
     }
     if (opts.at) this.pointAt(opts.at);
     if (opts.height != null) this.s.seat = opts.height;
-    this.blender.set(name, opts, fade);
-    this._syncProps(ACTION_PROPS[name]);
+    if (name === 'eat') this.s.food = opts.food || FOODS.find((f) => this.fixedProps.L?.type === f || this.fixedProps.R?.type === f) || 'icecream';
+    const changed = this.blender.set(name, opts, fade);
+    const need = ACTION_PROPS[name];
+    this._syncProps(typeof need === 'function' ? need(this.s, opts) : need);
     this.snore.set(name === 'sleep');
     if (name === 'fish') this._fishOpts = { waterY: opts.waterY ?? 0, cast: opts.cast ?? 2.4 };
+    if (name === 'row' && opts.oars !== false) this._showOars(opts);
+    else if (this.oars) for (const m of this.oars) m.visible = false;
+    if (changed) this._iconT = 0;
+    if (!opts._perform) this._perform = null;
     return this;
   }
+
+  /**
+   * Play an action for `seconds`, then go back to whatever it was doing before (keeps its options).
+   * e.g. fred.perform('shakeFist', 3); kid.perform('cheer', 2). Returns seconds.
+   */
+  perform(name, seconds = 2, opts = {}, fade = 0.25) {
+    const back = this._perform?.back || { name: this.action, opts: this.blender.cur.opts };
+    this.setAction(name, { ...opts, _perform: true }, fade);
+    this._perform = { t: 0, dur: seconds, back };
+    return seconds;
+  }
+
+  /** In water? (swim / tread): the root is on the surface and the body below it is hidden. */
+  get inWater() { return WATER_ACTIONS.has(this.action); }
 
   /** Aim the 'point' action at a world position (or Object3D). */
   pointAt(target) { this._pointTarget = target; return this; }
@@ -182,27 +215,29 @@ export class Person {
     return this;
   }
 
-  // Action props: reuse a held one when possible, otherwise attach a temporary one (to a hand, or to
-  // the chest/head for two-handed props like the newspaper and camera).
-  _syncProps(need) {
-    const a = this.autoProp;
-    if (a && (!need || a.type !== need.type)) { a.mesh.removeFromParent(); this.autoProp = null; }
-    if (need && !this.autoProp) {
-      const fixed = this.fixedProps.L?.type === need.type || this.fixedProps.R?.type === need.type;
-      if (!fixed || need.bone) {
-        const pr = makeProp(need.type, this.config.icecream || 0);
-        if (pr) {
-          if (need.bone) this._placeOnBone(pr, need.bone);
-          else this.bones['hand' + pr.hand].add(pr.mesh);
-          pr.bone = need.bone;
-          this.autoProp = pr;
-        }
-      }
+  // Action props: reuse a held one when possible, otherwise attach temporary ones (to a hand, or to
+  // the chest/head for two-handed props like the newspaper, camera and binoculars).
+  _syncProps(need = []) {
+    need = [].concat(need || []);
+    this.autoProps = this.autoProps.filter((a) => {
+      if (need.some((n) => n.type === a.type)) return true;
+      a.mesh.removeFromParent();
+      return false;
+    });
+    for (const n of need) {
+      if (this.autoProps.some((a) => a.type === n.type)) continue;
+      const fixed = this.fixedProps.L?.type === n.type || this.fixedProps.R?.type === n.type;
+      if (fixed && !n.bone) continue;
+      const pr = makeProp(n.type, this.config.icecream || 0);
+      if (!pr) continue;
+      if (n.bone) this._placeOnBone(pr, n.bone);
+      else this.bones['hand' + pr.hand].add(pr.mesh);
+      pr.bone = n.bone;
+      this.autoProps.push(pr);
     }
-    const ap = this.autoProp;
     for (const h of ['L', 'R']) {
       const f = this.fixedProps[h];
-      if (f) f.mesh.visible = !(ap && ((!ap.bone && ap.hand === h) || ap.type === f.type));
+      if (f) f.mesh.visible = !this.autoProps.some((a) => (!a.bone && a.hand === h) || a.type === f.type);
     }
   }
 
@@ -215,14 +250,15 @@ export class Person {
       m.rotation.set(-0.25, 0, 0);
     } else if (pr.type === 'camera') {
       m.position.set(-e.ex, d.headC - d.neckY + e.ey, d.Rz * 0.9 + 0.075);
+    } else if (pr.type === 'binoculars') {
+      m.position.set(0, d.headC - d.neckY + e.ey, d.Rz + 0.06);
     }
     this.bones[bone].add(m);
   }
 
   heldProp(hand = 'R') {
-    const ap = this.autoProp;
-    if (ap && !ap.bone && ap.hand === hand) return ap;
-    return this.fixedProps[hand];
+    const ap = this.autoProps.find((a) => !a.bone && a.hand === hand);
+    return ap || this.fixedProps[hand];
   }
 
   /**
@@ -231,16 +267,17 @@ export class Person {
    */
   react(hit = {}) {
     const s = this.s;
-    const seated = SEATED.has(this.action) && !this.blender.cur.opts.stand;
-    s.reactSpin = seated ? 0 : (this.rng.chance(0.5) ? 1 : -1);
-    s.reactSeated = seated;
+    const cur = this.blender.cur;
+    const keep = WATER_ACTIONS.has(cur.name) ? 'water' : cur.name === 'lie' && cur.opts.pose !== 'deckchair' ? 'lie' : seated(cur.name, cur.opts) ? 'seat' : null;
+    s.reactSpin = keep ? 0 : (this.rng.chance(0.5) ? 1 : -1);
+    s.reactKeep = keep;
     s.reactFace = 0;
     const from = hit.origin || hit.from || (hit.ray && hit.ray.origin) || (hit.direction && hit.point ? _v.copy(hit.point).addScaledVector(hit.direction, -40) : null);
     if (from) {
       this.root.updateWorldMatrix(true, false);
       _v2.copy(from);
       this.root.worldToLocal(_v2);
-      s.reactFace = seated ? 0 : clamp(wrapAngle(Math.atan2(_v2.x, _v2.z)), -2.6, 2.6);
+      s.reactFace = keep && keep !== 'water' ? 0 : clamp(wrapAngle(Math.atan2(_v2.x, _v2.z)), -2.6, 2.6);
     }
     this._react = { t: 0, hatPopped: false, angry: false };
     this._celebrate = null;
@@ -262,6 +299,11 @@ export class Person {
     dt = Math.min(dt || 0, 0.1);
     this.time += dt;
     const s = this.s;
+    if (this._perform && !this._react && (this._perform.t += dt) >= this._perform.dur) {
+      const { back } = this._perform;
+      this._perform = null;
+      this.setAction(back.name, back.opts, 0.3);
+    }
     if (this.controller) this.controller.update(dt, t);
 
     const cur = this.blender.cur.name, prev = this.blender.prev?.name;
@@ -283,7 +325,9 @@ export class Person {
       const c = this._celebrate;
       c.t += dt;
       const w = celebratePose(this._ov.reset(), c.t, s);
-      this._ov.by += o.by;
+      const keep = WATER_ACTIONS.has(cur) ? 'water' : cur === 'lie' ? 'lie' : seated(cur, this.blender.cur.opts) ? 'seat' : null;
+      if (keep) this._keepBase(o, this._ov, keep, 0.5);
+      else this._ov.by += o.by;
       o.mixIn(this._ov, w);
       if (c.t >= CELEBRATE_DURATION) this._celebrate = null;
     }
@@ -296,20 +340,99 @@ export class Person {
       if (bt > 0.8) this.hatState = null;
     }
     this._apply(o);
+    const wet = WATER_ACTIONS.has(cur) || (WATER_ACTIONS.has(prev) && this.blender.w < 1);
+    if (wet !== !!this.mesh.userData.wet) setWet(this.mesh, wet);
     this._updateHat(dt);
     if (this.balloon) this._updateBalloon(dt);
     this._updateFish();
     this._updateFlash(dt);
+    this._updateHeld();
+    if (this.oars && this.oars[0].visible) this._updateOars();
+    this._updateActionIcon(dt, cur);
+    if (this.icon.active || this.snore.on) {
+      const hp = this._headInBody(_v);
+      this.icon.base.set(hp.x, hp.y - this.meta.d.headC, hp.z);
+      this.snore.base.set(hp.x, hp.y - this.meta.d.headC, hp.z);
+    }
     this.icon.update(dt);
     this.snore.update(this.time);
-    const k = 1 - clamp((o.by - (SEATED.has(cur) ? o.by : 0)) * 0.9, 0, 0.5);
+    // contact shadow: none in water, long and centred when lying down
+    const lying = cur === 'lie' && this.blender.cur.opts.pose !== 'deckchair';
+    const k = 1 - clamp((o.by - (seated(cur, this.blender.cur.opts) || lying ? o.by : 0)) * 0.9, 0, 0.5);
     const sc = this.config.scale;
     const ss = this.shadowState || (this.shadowState = {});
-    ss.x = o.bx * sc; ss.z = o.bz * sc; ss.size = this.shadowSize * k * sc; ss.visible = this.root.visible;
+    const size = this.shadowSize * k * (lying ? 1.15 : 1);
+    ss.x = lying ? 0 : o.bx * sc; ss.z = lying ? 0 : o.bz * sc; ss.size = size * sc; ss.sz = lying ? 2.3 : 1;
+    ss.visible = this.root.visible && !wet;
     if (this.shadow) {
-      this.shadow.scale.set(this.shadowSize * k, 1, this.shadowSize * k);
-      this.shadow.position.set(o.bx, 0.012 / sc, o.bz);
+      this.shadow.visible = !wet;
+      this.shadow.scale.set(size, 1, size * ss.sz);
+      this.shadow.position.set(ss.x / sc, 0.012 / sc, ss.z / sc);
     }
+  }
+
+  /** Keep a pose's base/legs from `from` when an overlay would stand the character up (seat/lie/water). */
+  _keepBase(from, ov, keep, hop = 0.35) {
+    const keys = keep === 'seat' ? ['lFL', 'lFR', 'kL', 'kR', 'lOL', 'lOR', 'hrx', 'hy']
+      : ['lFL', 'lFR', 'kL', 'kR', 'lOL', 'lOR', 'hrx', 'hy', 'brx', 'bz', 'bx', 'lTL', 'lTR'];
+    for (const k of keys) ov[k] = from[k];
+    ov.by = from.by + ov.by * (keep === 'water' ? 0.4 : hop);
+    if (keep !== 'seat') ov.bsq *= 0.4;
+    if (keep === 'lie') { ov.srx = from.srx; ov.nrx = from.nrx - 0.3; }
+  }
+
+  _headInBody(out) { // head centre, in body space (follows sitting, lying, swimming...)
+    const h = this.bones.head;
+    h.updateWorldMatrix(true, false);
+    out.set(0, this.meta.d.headC - this.meta.d.neckY, 0).applyMatrix4(h.matrixWorld);
+    return this.body.worldToLocal(out);
+  }
+
+  _updateActionIcon(dt, cur) {
+    const ic = ACTION_ICONS[cur];
+    if (!ic || this._react || this._celebrate) return;
+    this._iconT -= dt;
+    if (this._iconT <= 0 && !this.icon.active) {
+      this.icon.show(ic[0], ic[2], this.icon.size * 0.8);
+      this._iconT = ic[1] * (0.85 + this.rng.random() * 0.3);
+    }
+  }
+
+  // props flagged `upright` (chip cone, a fish held by the tail) stay level whatever the arm does
+  _updateHeld() {
+    for (const pr of [this.fixedProps.L, this.fixedProps.R, ...this.autoProps]) {
+      if (!pr?.upright || !pr.mesh.visible || pr.bone) continue;
+      const hand = pr.mesh.parent;
+      hand.updateWorldMatrix(true, false);
+      hand.getWorldQuaternion(_q);
+      this.root.getWorldQuaternion(_qa);
+      pr.mesh.quaternion.copy(_q.invert()).multiply(_qa);
+    }
+  }
+
+  _showOars(opts) {
+    if (!this.oars) {
+      this.oars = [makeOar(), makeOar()];
+      for (const m of this.oars) { m.raycast = () => {}; this.body.add(m); }
+    }
+    const sc = this.config.scale;
+    const lock = opts.oarlock || [0.62, (opts.height ?? 0.34) + 0.16, 0.25];
+    this._oarlock = [lock[0] / sc, lock[1] / sc, lock[2] / sc];
+    for (const m of this.oars) m.visible = true;
+  }
+
+  // Oars are levers: handle in the hand, shaft through the rowlock, blade beyond it.
+  _updateOars() {
+    const [lx, ly, lz] = this._oarlock;
+    this.oars.forEach((m, i) => {
+      const hand = this.bones[i ? 'handR' : 'handL'];
+      hand.updateWorldMatrix(true, false);
+      _v.set(0, -0.05, 0.02).applyMatrix4(hand.matrixWorld);
+      this.body.worldToLocal(_v);
+      _v2.set(i ? -lx : lx, ly, lz).sub(_v).normalize();
+      m.position.copy(_v);
+      m.quaternion.setFromUnitVectors(Y_UP, _v2);
+    });
   }
 
   _updateReact(o, dt) {
@@ -317,10 +440,9 @@ export class Person {
     const s = this.s;
     r.t += dt;
     const w = reactPose(this._ov.reset(), r.t, s);
-    if (s.reactSeated) { // keep the seated legs/hips, add a hop
-      for (const k of ['lFL', 'lFR', 'kL', 'kR', 'lOL', 'lOR', 'hrx', 'hy']) this._ov[k] = o[k];
-      this._ov.by = o.by + this._ov.by * 0.35;
-      this._ov.srx -= 0.1;
+    if (s.reactKeep) { // stay seated / lying / in the water, with a little jolt
+      this._keepBase(o, this._ov, s.reactKeep);
+      if (s.reactKeep === 'seat') this._ov.srx -= 0.1;
     }
     o.mixIn(this._ov, w);
     if (!r.hatPopped && r.t > 0.1) { r.hatPopped = true; this._popHat(); }
@@ -355,7 +477,7 @@ export class Person {
       this.lookW = damp(this.lookW, 1, 5, dt);
     } else this.lookW = damp(this.lookW, 0, 3, dt);
     const w = this.lookW;
-    const canTurn = !this.controller && !GAIT_ACTIONS.has(this.action) && !SEATED.has(this.action) && !this._react;
+    const canTurn = !this.controller && !GAIT_ACTIONS.has(this.action) && !seated(this.action, this.blender.cur.opts) && this.action !== 'lie' && !this._react;
     if (w < 1e-3) { s.bodyTurn = damp(s.bodyTurn, 0, 2, dt); o.bry += s.bodyTurn; return; }
     const yaw = s.lookYaw;
     const head = clamp(yaw, -1.0, 1.0);
@@ -544,8 +666,8 @@ export class Person {
   }
 
   _updateFlash(dt) {
-    const ap = this.autoProp;
-    if (!ap || ap.type !== 'camera') { if (this.flash) this.flash.visible = false; return; }
+    const ap = this.autoProps.find((a) => a.type === 'camera');
+    if (!ap) { if (this.flash) this.flash.visible = false; return; }
     const T = this.blender.cur.t * this.s.tempo + this.s.phase;
     const k = (T % 3.6) - 1.62;
     if (!this.flash) { this.flash = makeFlash(); ap.mesh.add(this.flash); }
@@ -562,3 +684,4 @@ export class Person {
     this.fishLine?.dispose();
   }
 }
+const Y_UP = new THREE.Vector3(0, 1, 0);

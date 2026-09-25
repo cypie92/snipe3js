@@ -260,6 +260,7 @@ export class IconPop {
     this.parent = parent;
     this.height = height;
     this.size = size;
+    this.base = new THREE.Vector3(); // anchor in parent space (the owner can keep it on the head)
     this.sprite = null;
     this.t = 0;
     this.dur = 0;
@@ -293,7 +294,7 @@ export class IconPop {
     const k = clamp(Math.min(inK, outK), 0, 2);
     const s = this.curSize * k * (1 + Math.sin(t * 9) * 0.04);
     this.sprite.scale.set(s, s, 1);
-    this.sprite.position.set(Math.sin(t * 3.1) * 0.04, this.height + Math.sin(t * 4.2) * 0.05 + (1 - Math.min(1, inK)) * -0.2, 0);
+    this.sprite.position.set(Math.sin(t * 3.1) * 0.04, this.height + Math.sin(t * 4.2) * 0.05 + (1 - Math.min(1, inK)) * -0.2, 0).add(this.base);
     this.sprite.material.rotation = 0;
     if (t >= this.dur) { this.active = false; this.sprite.visible = false; }
   }
@@ -306,6 +307,7 @@ export class Snore {
     this.sprites = null;
     this.on = false;
     this.origin = new THREE.Vector3(0.2, 1.6, 0.1);
+    this.base = new THREE.Vector3(); // added to origin (owner may track the head)
   }
 
   set(on) {
@@ -329,7 +331,7 @@ export class Snore {
       const k = (((t / per) + i / 3) % 1 + 1) % 1;
       const size = (0.14 + 0.3 * k) * Math.min(1, (1 - k) * 4) * Math.min(1, k * 8);
       s.scale.set(size, size, 1);
-      s.position.set(this.origin.x + k * 0.35 + Math.sin(k * 7 + i) * 0.07, this.origin.y + k * 0.75, this.origin.z);
+      s.position.set(this.origin.x + k * 0.35 + Math.sin(k * 7 + i) * 0.07, this.origin.y + k * 0.75, this.origin.z).add(this.base);
       s.material.rotation = 0;
     });
   }

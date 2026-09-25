@@ -358,6 +358,35 @@ export function resample(points, step = 1, { smooth = true, closed = false, y = 
   return out;
 }
 
+/**
+ * Frames along a polyline of XZ points: { p, t (unit tangent), left (unit, Y-up left of travel), s (arc length) }.
+ * `left` matches sweep()'s +x profile axis.
+ */
+export function pathFrames(points, { closed = false, y = 0 } = {}) {
+  const P = points.map((p) => (p.isVector3 ? p.clone() : new THREE.Vector3(p[0], p.length > 2 ? p[1] : y, p.length > 2 ? p[2] : p[1])));
+  const n = P.length;
+  let s = 0;
+  return P.map((p, i) => {
+    const prev = P[closed ? (i - 1 + n) % n : Math.max(0, i - 1)];
+    const next = P[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
+    const t = next.clone().sub(prev).setY(0).normalize();
+    if (i > 0) s += p.distanceTo(P[i - 1]);
+    return { p, t, left: new THREE.Vector3(t.z, 0, -t.x), s };
+  });
+}
+
+/** Point + tangent at arc length `s` along frames from pathFrames(). */
+export function alongPath(frames, s) {
+  s = clamp(s, 0, frames[frames.length - 1].s);
+  let i = 1;
+  while (i < frames.length - 1 && frames[i].s < s) i++;
+  const a = frames[i - 1], b = frames[i];
+  const k = (s - a.s) / Math.max(1e-6, b.s - a.s);
+  const p = a.p.clone().lerp(b.p, k);
+  const t = b.p.clone().sub(a.p).setY(0).normalize();
+  return { p, t, left: new THREE.Vector3(t.z, 0, -t.x), ry: Math.atan2(t.x, t.z) };
+}
+
 // ---------------------------------------------------------------- the Kit accumulator
 /**
  * Collects vertex-coloured parts per material under a transform stack, then merges them into
@@ -382,6 +411,32 @@ export class Kit {
   /** Add a vertex-coloured part (colour: hex | [bottom, top] | fn) to material bucket `mat`. */
   add(geo, color, t, mat = materials.toy) {
     const g = part(geo, color, this.mat(t));
+    if (!this.buckets.has(mat)) this.buckets.set(mat, []);
+    this.buckets.get(mat).push(g);
+    return g;
+  }
+
+  /**
+   * Add geometry coloured per triangle: faceFn(cx, cy, cz, colour, i) gets each face centroid (local
+   * space, before `t`) and sets the colour. Gives crisp bands / blocks (masonry, slabs, fields).
+   */
+  addFaces(geo, faceFn, t, mat = materials.toy) {
+    let g = geo.index ? geo.toNonIndexed() : geo.clone();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    if (!g.attributes.normal) g.computeVertexNormals();
+    const pos = g.attributes.position;
+    const col = new Float32Array(pos.count * 3);
+    const c = new THREE.Color();
+    for (let i = 0; i < pos.count; i += 3) {
+      const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
+      const cy = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
+      const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
+      c.set(0xffffff);
+      faceFn(cx, cy, cz, c, i / 3);
+      for (let k = 0; k < 3; k++) { col[(i + k) * 3] = c.r; col[(i + k) * 3 + 1] = c.g; col[(i + k) * 3 + 2] = c.b; }
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.applyMatrix4(this.mat(t));
     if (!this.buckets.has(mat)) this.buckets.set(mat, []);
     this.buckets.get(mat).push(g);
     return g;
@@ -509,4 +564,44 @@ export function addCollider(obj, radius = 0.5, offset = [0, 0, 0]) {
   c.position.set(...offset);
   obj.add(c);
   return c;
+}
+
+// ---------------------------------------------------------------- tiny animation helper
+export const ease = {
+  linear: (t) => t,
+  outCubic: (t) => 1 - (1 - t) ** 3,
+  inOutSine: (t) => -(Math.cos(Math.PI * t) - 1) / 2,
+  outBack: (t) => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2; },
+  outElastic: (t) => (t === 0 || t === 1 ? t : 2 ** (-10 * t) * Math.sin((t * 10 - 0.75) * ((2 * Math.PI) / 3)) + 1),
+  outBounce: (t) => {
+    const n = 7.5625, d = 2.75;
+    if (t < 1 / d) return n * t * t;
+    if (t < 2 / d) return n * (t -= 1.5 / d) * t + 0.75;
+    if (t < 2.5 / d) return n * (t -= 2.25 / d) * t + 0.9375;
+    return n * (t -= 2.625 / d) * t + 0.984375;
+  },
+};
+
+/**
+ * Promise-based tweens advanced by a builder's userData.update(dt). Starting a tween on a `key`
+ * that is already running cancels the old one (its promise resolves false).
+ */
+export class Tweens {
+  constructor() { this.list = []; }
+  run(key, duration, step, easing = ease.outCubic) {
+    for (const tw of this.list) if (tw.key === key && !tw.done) { tw.done = true; tw.resolve(false); }
+    return new Promise((resolve) => {
+      this.list.push({ key, t: 0, duration: Math.max(1e-3, duration), step, easing, resolve, done: false });
+    });
+  }
+  update(dt) {
+    for (const tw of this.list) {
+      if (tw.done) continue;
+      tw.t = Math.min(tw.duration, tw.t + dt);
+      const k = tw.t / tw.duration;
+      tw.step(tw.easing(k), k);
+      if (k >= 1) { tw.done = true; tw.resolve(true); }
+    }
+    if (this.list.length > 16) this.list = this.list.filter((tw) => !tw.done);
+  }
 }

@@ -10,12 +10,13 @@
 // URL params (plus stage.js ones: cam, dist, zoom, yaw, preset, quality, labels, focus):
 //   set=all|presets|random|animals|crowd   action=<name> (everyone)   t=<sec> freeze clock at t
 //   react=<sec> trigger react() at that time   celebrate=<sec>   look=1 (everyone looks at camera)
-//   n=<count> random villagers   seed=<n>   only=<index> show one item   bench=1 add benches for sit/sleep
+//   n=<count> random villagers   seed=<n>   only=<index> show one item   theme=beach|harbour (random villagers)
+//   aopt=k:v,k2:v2 action options (e.g. action=lie&aopt=pose:deckchair)   set=harbourline|harbour (Barnacle Bay)
 import * as THREE from 'three';
 import { createStage } from './stage.js';
 import { Person, Crowd, Walker, ANIMALS, PigeonFlock } from '../src/world/characters/index.js';
 import { Rng } from '../src/core/rng.js';
-import { part, merge, rbox, meshOf } from '../src/world/geo.js';
+import { part, merge, rbox, meshOf, cyl, cone, sphere, box } from '../src/world/geo.js';
 import { materials } from '../src/gfx/materials.js';
 import { P } from '../src/gfx/palette.js';
 
@@ -24,6 +25,11 @@ const params = new URLSearchParams(location.search);
 const num = (k, d) => (params.has(k) ? Number(params.get(k)) : d);
 const set = params.get('set') || 'all';
 const action = params.get('action');
+const theme = params.get('theme') || undefined;
+const aopt = Object.fromEntries((params.get('aopt') || '').split(',').filter(Boolean).map((kv) => {
+  const [k, v] = kv.split(':');
+  return [k, v === 'true' ? true : v === 'false' ? false : Number.isNaN(Number(v)) ? v : Number(v)];
+}));
 const T = params.has('t') ? num('t', 0) : null;
 const stage = await createStage({ cam: 'front', yaw: 0 });
 const rng = new Rng(num('seed', 7));
@@ -40,6 +46,83 @@ function bench(x, z, h = 0.45) {
   stage.scene.add(m);
 }
 
+// ---- set dressing for harbour/beach actions (mock props; the real ones come from the props kit)
+const WATER_Y = 0.03;
+const add = (m, x, y, z, ry = 0) => { m.position.set(x, y, z); m.rotation.y = ry; stage.scene.add(m); m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } }); return m; };
+const waterMat = materials.solid(P.water, { roughness: 0.15 });
+function pool(x, z, rx = 1.3, rz = rx) {
+  const m = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), waterMat);
+  m.scale.set(rx, 1, rz); m.receiveShadow = true;
+  return add(m, x, WATER_Y, z);
+}
+function towel(x, z, col = P.bubblegum) {
+  return add(meshOf([part(rbox(0.85, 0.03, 1.85, 0.012), (px, py, pz, c) => c.set(Math.floor((pz + 1) * 5) % 2 ? col : '#fff8ee'), {})], materials.toy), x, 0.015, z);
+}
+function deckchair(x, z) {
+  const stripe = (px, py, pz, c) => c.set(Math.floor((px + 1) * 9) % 2 ? P.tomato : '#fff8ee');
+  return add(meshOf([
+    part(rbox(0.62, 0.03, 0.62, 0.01), stripe, { y: 0.26, z: 0.05, rx: -0.12 }),
+    part(rbox(0.62, 0.03, 0.72, 0.01), stripe, { y: 0.52, z: -0.38, rx: -1.05 }),
+    ...[-0.34, 0.34].flatMap((sx) => [
+      part(rbox(0.04, 0.04, 1.0, 0.01), P.woodLight, { x: sx, y: 0.36, z: -0.25, rx: -0.95 }),
+      part(rbox(0.04, 0.04, 0.9, 0.01), P.woodLight, { x: sx, y: 0.2, z: 0.12, rx: 0.45 }),
+      part(rbox(0.04, 0.04, 0.46, 0.01), P.woodLight, { x: sx, y: 0.34, z: 0.22 }),
+    ]),
+  ], materials.toy), x, 0, z);
+}
+function rowboat(x, z, oarlockY) {
+  const hull = meshOf([
+    part(rbox(1.3, 0.42, 2.3, 0.18), [P.woodDark, P.wood], { y: 0.21 }),
+    part(rbox(1.36, 0.08, 2.36, 0.04), P.tomato, { y: 0.4 }),
+    part(rbox(1.18, 0.05, 0.3, 0.02), P.woodLight, { y: 0.44, z: -0.08 }),
+    ...[-1, 1].map((sd) => part(cyl(0.025, 0.025, oarlockY - 0.4, 6), P.metalDark, { x: sd * 0.62, y: (oarlockY + 0.4) / 2 + 0.12, z: 0.25 })),
+  ], materials.toy);
+  pool(x, z, 2.6, 2.0);
+  return add(hull, x, 0, z);
+}
+function dinghy(x, z) {
+  pool(x, z, 1.8, 1.5);
+  return add(meshOf([part(rbox(1.0, 0.36, 1.7, 0.16), [P.cobalt, '#fff8ee'], { y: 0.18 }), part(rbox(0.9, 0.05, 0.25, 0.02), P.woodLight, { y: 0.4, z: -0.05 })], materials.toy), x, 0, z);
+}
+function ropePost(x, z, h = 0.95) {
+  add(meshOf([part(cyl(0.16, 0.2, 0.9, 10), P.metalDark, { y: 0.45 }), part(cyl(0.24, 0.24, 0.08, 10), P.metalDark, { y: 0.92 })], materials.toy), x, 0, z + 2.2);
+  const a = new THREE.Vector3(x, 0.7, z + 2.1), b = new THREE.Vector3(x, h, z + 0.55);
+  const d = b.clone().sub(a);
+  const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, d.length(), 6), materials.solid('#e3c28a'));
+  rope.position.copy(a).add(b).multiplyScalar(0.5);
+  rope.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  stage.scene.add(rope);
+}
+function sandcastle(x, z) {
+  add(new THREE.Mesh(new THREE.CircleGeometry(1.1, 24).rotateX(-Math.PI / 2), materials.solid(P.sand, { roughness: 0.95 })), x, 0.012, z);
+  return add(meshOf([
+    part(cyl(0.2, 0.24, 0.22, 10), P.sand, { y: 0.11 }), part(cone(0.16, 0.16, 10), P.sand, { y: 0.3 }),
+    part(cyl(0.1, 0.12, 0.14, 8), P.pathDark, { x: 0.3, y: 0.07, z: 0.1 }), part(cone(0.03, 0.12, 4), P.tomato, { y: 0.42 }),
+    part(cyl(0.1, 0.08, 0.16, 10), P.cobalt, { x: -0.35, y: 0.08, z: 0.15 }),
+  ], materials.toy), x + 0.05, 0, z + 0.55);
+}
+function lifeguardChair(x, z, h) {
+  return add(meshOf([
+    ...[-1, 1].flatMap((sx) => [-1, 1].map((sz) => part(rbox(0.07, h, 0.07, 0.02), '#fff8ee', { x: sx * 0.3, y: h / 2, z: sz * 0.28 - 0.1, rx: sz * 0.08, rz: sx * 0.06 }))),
+    part(rbox(0.7, 0.06, 0.6, 0.02), P.tomato, { y: h, z: -0.05 }), part(rbox(0.7, 0.5, 0.05, 0.02), P.tomato, { y: h + 0.3, z: -0.33 }),
+  ], materials.toy), x, 0, z);
+}
+/** Place props for the actor's current action; may move the actor (e.g. onto the water). */
+function dress(a, x, z) {
+  if (a.kind !== 'person') return;
+  const o = a.blender.cur.opts;
+  switch (a.action) {
+    case 'tread': case 'swim': pool(x, z, a.action === 'swim' ? 1.1 : 0.9, a.action === 'swim' ? 1.5 : 0.9); a.root.position.y = WATER_Y; break;
+    case 'lie': if (o.pose === 'deckchair') deckchair(x, z); else towel(x, z, [P.bubblegum, P.teal, P.sunflower][Math.abs(Math.round(x)) % 3]); break;
+    case 'row': rowboat(x, z, 0.62); a.root.position.y = 0.12; break;
+    case 'paddle': dinghy(x, z); a.root.position.y = 0.12; break;
+    case 'pull': ropePost(x, z, o.height ?? 0.95); break;
+    case 'dig': sandcastle(x, z); break;
+    case 'lookout': if (o.height) lifeguardChair(x, z, o.height); break;
+    default:
+  }
+}
+
 // range=a-b keeps only items a..b of each set; cols=<n> wraps rows into a grid (rows go back in -z)
 const [ra, rb] = (params.get('range') || '0-999').split('-').map(Number);
 function placeRow(list, z, spacing, label = true, cols = num('cols', 0), rowGap = 2.3) {
@@ -54,6 +137,7 @@ function placeRow(list, z, spacing, label = true, cols = num('cols', 0), rowGap 
     stage.add(obj, x, zz, 0, label ? it.label : undefined);
     items.push({ object: obj, x, z: zz });
     actors.push(it.actor);
+    dress(it.actor, x, zz);
     if (it.actor.kind === 'person' && (it.actor.action === 'sit' || it.actor.action === 'sleep') && !it.actor.blender?.cur.opts.stand) bench(x, zz);
     if (it.actor.action === 'fish') {
       const w = new THREE.Mesh(new THREE.CircleGeometry(0.9, 24).rotateX(-Math.PI / 2), materials.solid(P.water, { roughness: 0.2 }));
@@ -62,7 +146,7 @@ function placeRow(list, z, spacing, label = true, cols = num('cols', 0), rowGap 
   });
 }
 
-const apply = (p) => { if (action) p.setAction(action, {}, 0); return p; };
+const apply = (p) => { if (action) p.setAction(action, aopt, 0); return p; };
 const all = set === 'all';
 
 // "group photo" for set=all: animals in front, presets in two rows, random villagers behind
@@ -91,11 +175,17 @@ if (all || set === 'random') {
   for (let r = 0; r < 2; r++) {
     const row = [];
     for (let i = 0; i < per && r * per + i < n; i++) {
-      const p = apply(Person.random(rng));
+      const p = apply(Person.random(rng, { theme }));
       row.push({ root: p.root, actor: p, label: `#${r * per + i}` });
     }
     placeRow(row, set === 'random' ? -r * 2.6 : -3.1 - r * 1.7, set === 'random' ? 1.35 : 1.3, !all);
   }
+}
+const HARBOUR_PRESETS = ['docker', 'captain', 'lifeguard', 'fishmonger', 'swimmer', 'sunbather', 'sailorKid'];
+if (set === 'harbourline') {
+  const row = HARBOUR_PRESETS.map((name, i) => ({ p: apply(Person.preset(name, { seed: 301 + i * 41 })), name }))
+    .map(({ p, name }) => ({ root: p.root, actor: p, label: name }));
+  placeRow(row, 0, 1.7);
 }
 if (set === 'crowd') {
   const crowd = new Crowd({ seed: num('seed', 3), area: { x: 0, z: 0, w: 22, d: 14 }, count: num('n', 36), groups: 5,

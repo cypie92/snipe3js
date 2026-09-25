@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Perch — Jack's van + crow's nest</title>
+<style>
+  #info { position: fixed; top: 8px; left: 8px; font: 12px/1.4 monospace; color: #fff8ee; background: rgba(43,43,58,.78);
+    padding: 6px 9px; border-radius: 8px; pointer-events: none; white-space: pre; }
+</style>
+</head>
+<body>
+<div id="info"></div>
+<script type="module">
+// Jack's van + telescopic crow's-nest preview (real renderer / post / lighting via stage.js).
+// URL params (plus stage.js ones: preset, quality):
+//   raise=0..1          mast state (default 1)            anim=1   loop raise / lower
+//   fp=1                first-person: camera at the eye, FOV 58; pitch=<deg> yaw=<deg>; gun=0 hides the rifle
+//   view=hero|front|side|back|top|low|close   third-person framing   dist=<m> scale the framing distance
+//   scene=0             no village dressing in front of the perch   speed=<m/s> roll the wheels
+//   stats=1             triangle / draw-call readout
+import '@fontsource/fredoka/600.css';
+import '@fontsource/fredoka/700.css';
+import '@fontsource/patrick-hand/400.css';
+import * as THREE from 'three';
+import { createStage } from './stage.js';
+import { createPerch } from '../src/world/perch/index.js';
+import { whenFontsReady } from '../src/world/perch/paint.js';
+import * as B from '../src/world/kit/buildings/index.js';
+import { forest, bush } from '../src/world/kit/nature/index.js';
+import { Viewmodel } from '../src/gameplay/Viewmodel.js';
+
+const params = new URLSearchParams(location.search);
+const num = (k, d) => (params.has(k) ? Number(params.get(k)) : d);
+const fp = params.get('fp') === '1';
+const DEG = Math.PI / 180;
+await whenFontsReady();
+
+const stage = await createStage({ labels: false });
+const { scene, camera, env } = stage;
+const perch = createPerch({ seed: 1, raise: num('raise', 1) });
+scene.add(perch.root);
+perch.setSpeed(num('speed', 0));
+stage.onUpdate((dt, t) => perch.update(dt, t));
+window.__perch = perch;
+
+// A little village ahead (-Z) so the first-person view has something to look at.
+if (params.get('scene') !== '0') {
+  const put = (o, x, z, ry = 0) => { o.position.set(x, 0, z); o.rotation.y = ry; scene.add(o); stage.onUpdate((dt, t) => o.userData.update?.(dt, t)); };
+  put(B.fountain({ flowing: true }), 0, -46);
+  put(B.house({ seed: 3, floors: 2 }), -22, -70, 0.1);
+  put(B.house({ seed: 8, floors: 2, roofStyle: 'hip' }), -9, -74, -0.05);
+  put(B.shop({ kind: 'bakery', seed: 2, floors: 2 }), 7, -73, 0);
+  put(B.pub({ crooked: true }), 25, -66, -0.25);
+  put(B.church({ graves: 3 }), -44, -92, 0.2);
+  put(B.cobbleSquare({ width: 34, depth: 26, radius: 6 }), 0, -48);
+  const pts = [];
+  for (let i = 0; i < 70; i++) pts.push([(i % 14) * 11 - 72 + (i * 37 % 7), -100 - Math.floor(i / 14) * 10 - (i * 13 % 5)]);
+  scene.add(forest(pts, { seed: 4 }));
+  for (let i = 0; i < 8; i++) { const b = bush({ seed: i, size: 1.2 }); b.position.set(-30 + i * 8.5, 0, -30 - (i % 3) * 4); scene.add(b); }
+}
+
+let view = params.get('view') || 'hero';
+if (fp) {
+  stage.controls.enabled = false;
+  stage.controls.update = () => {};
+  camera.fov = 58;
+  camera.near = 0.1;
+  camera.updateProjectionMatrix();
+  camera.rotation.order = 'YXZ';
+  env.setShadowFocus(new THREE.Vector3(0, 0, -30), 70);
+  scene.add(camera);
+  let vm = null;
+  if (params.get('gun') !== '0') vm = new Viewmodel(camera);
+  const rig = { scopeT: 0, override: null };
+  const rifle = { state: 'idle', progress: 0 };
+  stage.onUpdate((dt) => {
+    perch.getEyePosition(camera.position);
+    camera.rotation.set(num('pitch', 0) * DEG, num('yaw', 0) * DEG, 0);
+    vm?.update(dt, rig, rifle);
+  });
+} else {
+  const r = Math.max(0, perch.raise);
+  const h = 3 + r * 9.5; // rough rig height
+  const d = num('dist', 1);
+  const V = {
+    hero: [[-10.5, 4 + r * 4, -13], [0, 1.8 + r * 3.8, -1.6]],
+    front: [[0, 2.6 + r * 3, -15], [0, 1.6 + r * 4.5, -1.5]],
+    side: [[16, 3 + r * 3.5, -1.8], [0, 1.6 + r * 4.6, -1.6]],
+    back: [[7, 4 + r * 3, 12], [0, 2 + r * 4.3, -1]],
+    top: [[-6, 14 + r * 8, -8], [0, 2 + r * 5, -1.5]],
+    low: [[-7, 1.2, -9], [0, 2.4 + r * 5, -1]],
+    close: [[-3.2, 12.6, 3.4], [0, 10.6, -0.2]],
+  }[view] || [[-10, 5, -13], [0, 2, -1.6]];
+  const [p, tgt] = V;
+  const target = new THREE.Vector3(...tgt);
+  camera.position.set(...p).sub(target).multiplyScalar(view === 'close' ? 1 : d * (0.85 + r * 0.55)).add(target);
+  camera.fov = 38;
+  camera.updateProjectionMatrix();
+  stage.controls.target.copy(target);
+  camera.lookAt(target);
+  stage.controls.update();
+  env.setShadowFocus(new THREE.Vector3(0, h * 0.4, -1.5), 14 + r * 4);
+}
+
+if (params.get('anim') === '1') {
+  const loop = async () => {
+    for (;;) {
+      await perch.raiseTo(1, 5);
+      await new Promise((r) => setTimeout(r, 2500));
+      await perch.raiseTo(0, 4);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  };
+  loop();
+}
+
+const info = document.getElementById('info');
+if (params.get('stats') === '1') {
+  const s = perch.stats();
+  info.textContent = `perch  tris ${s.tris}  meshes ${s.calls}`;
+  console.log('[perch] stats', JSON.stringify(s));
+} else info.remove();
+</script>
+</body>
+</html>

@@ -131,8 +131,72 @@ export function randomConfig(rng, opts = {}) {
       phase: rng.range(0, 100),
     },
   };
+  if (opts.theme && THEMES[opts.theme]) THEMES[opts.theme](cfg, rng.fork('theme:' + opts.theme));
   return fill(over(cfg, norm(opts)), rng);
 }
+
+// ------------------------------------------------------------------------------ themes
+// Re-dress a random villager for a location (runs on a forked rng, so un-themed seeds are unchanged).
+const SWIM = [P.bubblegum, P.teal, P.tomato, P.cobalt, P.tangerine, P.sunflower, P.violet];
+export const THEMES = {
+  beach(c, r) {
+    const swim = r.chance(c.elder ? 0.25 : 0.55);
+    if (swim) {
+      const col = r.pick(SWIM);
+      const trunksOnly = r.chance(0.45) && !['pigtails', 'bun', 'long', 'bob', 'ponytail'].includes(c.hair.style);
+      c.top = trunksOnly ? { type: 'bare', color: c.skin, sleeves: 'none' } : { type: 'swimsuit', color: col, color2: r.pick(['#fff8ee', '#fff8ee', P.sunflower]), sleeves: 'none', stripes: r.chance(0.6) };
+      c.bottom = { type: 'trunks', color: trunksOnly ? r.pick(SWIM) : col };
+      c.shoes = c.skin; c.socks = null; c.belt = null; c.boots = null;
+      if (c.accessory && !['icecream', 'chips', 'balloon'].includes(c.accessory)) c.accessory = null;
+      if (r.chance(0.12)) { c.hat = { type: 'swimcap', color: r.pick(['#fff8ee', P.sunflower, P.bubblegum, P.teal]), color2: r.pick([P.bubblegum, P.sunflower, P.teal]) }; c.glasses = r.chance(0.5) ? 'goggles' : null; }
+    } else {
+      const t = r.pick(['hawaiian', 'tee', 'stripes', 'sport', 'dress', 'tee']);
+      c.top = { ...c.top, type: t, sleeves: t === 'dress' ? 'none' : 'short' };
+      if (t === 'hawaiian') { c.top.color = r.pick([P.teal, P.cobalt, P.tomato, P.tangerine]); c.top.color2 = r.pick([P.bubblegum, P.lime]); }
+      c.bottom = { type: t === 'dress' ? 'skirt' : 'shorts', color: t === 'dress' ? c.top.color : r.pick(['#c8b27a', '#3d5a8a', '#fff1d6', P.teal]) };
+      c.shoes = r.pick(['#fff8ee', P.tomato, P.cobalt, c.skin]);
+      if (!c.accessory || r.chance(0.5)) c.accessory = r.pick(['icecream', 'chips', 'chips', 'camera', 'balloon', 'bag', null]);
+    }
+    if (!c.hat || r.chance(0.5)) c.hat = r.chance(0.65) ? { type: r.pick(['sunhat', 'sunhat', 'bucket', 'cap', 'straw']), color: r.pick(['#f2d27a', '#fff1d6', '#ffb8c2', P.teal]), band: r.pick([P.bubblegum, P.teal, P.tomato]), color2: '#fff8ee' } : c.hat?.type === 'swimcap' ? c.hat : null;
+    if (r.chance(0.3) && c.glasses !== 'goggles') c.glasses = 'shades';
+    if (r.chance(0.15)) { c.skin = r.pick(['#ffb9a6', '#ffc2a8']); c.face.blush = true; } // a touch too much sun
+  },
+  harbour(c, r) {
+    const job = r.pick(['fisher', 'fisher', 'sailor', 'docker', 'local', 'local', 'tourist']);
+    const navy = r.pick(['#243056', '#2f3f6b', '#34384a']);
+    if (job === 'fisher') {
+      const oil = r.pick(['#ffd23c', '#ff8a1c', P.tomato, '#ffd23c']);
+      c.top = r.chance(0.5) ? { type: 'raincoat', color: oil, sleeves: 'long' } : { type: 'overalls', color: r.pick(['#fff1d6', navy, '#7d8595']), sleeves: 'long', bib: oil };
+      c.bottom = { type: 'trousers', color: c.top.type === 'overalls' ? oil : navy };
+      c.boots = r.pick(['#34384a', '#ffd23c', '#4f9a3c', '#fbf7f0']);
+      c.hat = r.chance(0.6) ? { type: r.pick(['fisherman', 'beanie', 'beanie']), color: r.pick([oil, navy, P.tomato]) } : null;
+      if (c.hat?.type === 'beanie') { c.hat.color2 = shade(c.hat.color, 0.8); c.hat.pom = null; }
+      c.accessory = r.pick(['rod', 'fish', null, null]);
+    } else if (job === 'sailor') {
+      c.top = { type: r.pick(['stripes', 'jumper']), color: r.pick([navy, '#fbf7f0', P.tomato]), color2: r.pick(['#fbf7f0', navy]), sleeves: 'long' };
+      c.bottom = { type: 'trousers', color: navy };
+      c.hat = r.chance(0.5) ? { type: r.pick(['beanie', 'captain', 'flatcap']), color: r.pick([navy, P.tomato, '#fbf7f0']) } : null;
+      if (c.hat?.type === 'beanie') c.hat.color2 = shade(c.hat.color, 0.8);
+    } else if (job === 'docker') {
+      c.top = { type: 'hivis', color: r.pick(['#ffd23c', '#ff8a1c', '#d4f02a']), sleeveColor: navy, sleeves: 'long' };
+      c.bottom = { type: 'trousers', color: navy };
+      c.boots = r.pick(['#34384a', '#5a3a22']);
+      c.gloves = r.chance(0.6) ? '#e3b56b' : null;
+      c.hat = { type: r.chance(0.6) ? 'hardhat' : 'beanie', color: r.pick(['#fbf7f0', '#ffd23c', '#ff8a1c', navy]) };
+      if (c.hat.type === 'beanie') c.hat.color2 = shade(c.hat.color, 0.8);
+      c.accessory = null;
+    } else if (job === 'tourist') {
+      c.top = { ...c.top, type: r.pick(['hawaiian', 'tee', 'stripes']), sleeves: 'short' };
+      c.bottom = { type: 'shorts', color: r.pick(['#c8b27a', '#3d5a8a']) };
+      c.accessory = r.pick(['chips', 'chips', 'camera', 'icecream']);
+      if (r.chance(0.5)) c.hat = { type: r.pick(['bucket', 'sunhat', 'cap']), color: r.pick(['#fff1d6', '#f2d27a', P.teal]) };
+    } else if (r.chance(0.5)) {
+      c.top = { ...c.top, type: r.pick(['jumper', 'raincoat', 'stripes', 'cardigan']), sleeves: 'long' };
+      if (!c.accessory || r.chance(0.5)) c.accessory = r.pick(['chips', 'shopping', 'newspaper', null]);
+    }
+    if (!c.kid && ['fisher', 'sailor'].includes(job) && !['pigtails', 'bun', 'long', 'bob', 'ponytail'].includes(c.hair.style) && r.chance(0.5)) c.facial = r.pick(['beard', 'bigbeard', 'moustache', 'stubble']);
+  },
+};
 
 // Fill in derived defaults & sanity after overrides.
 function fill(cfg, rng) {
@@ -225,6 +289,43 @@ export const PRESETS = {
     hat: { type: 'beret', color: P.tomato }, facial: 'handlebar', hair: { style: 'short', color: HAIR[0] }, glasses: null,
     accessory: 'palette', age: 'adult', action: 'paint',
   },
+  // ---- Barnacle Bay (harbour) ----
+  docker: {
+    top: { type: 'hivis', color: '#ffd23c', sleeveColor: '#2f3f6b', sleeves: 'long' }, bottom: { type: 'trousers', color: '#2f3f6b' },
+    boots: '#34384a', gloves: '#e3b56b', hat: { type: 'hardhat', color: '#ff8a1c' }, facial: 'stubble', glasses: null, accessory: null,
+    age: 'adult', build: { belly: 0.7, width: 1.25 }, action: 'idle', motion: { idle: 'hips' },
+  },
+  captain: {
+    top: { type: 'reefer', color: '#243056', sleeves: 'long', cuff: '#ffd23c', button: '#ffd23c' }, bottom: { type: 'trousers', color: '#243056' },
+    shoes: '#2b2b3a', hat: { type: 'captain', color: '#fbf7f0', band: '#243056' }, hair: { style: 'short', color: '#eeeae2' },
+    facial: 'bigbeard', facialColor: '#f4f1ea', pipe: true, glasses: null, accessory: 'watch', age: 'elder',
+    face: { brows: 'bushy', blush: true }, build: { belly: 0.9, width: 1.2 }, action: 'idle', motion: { idle: 'behind', stoop: 0.08, energy: 0.8 },
+  },
+  lifeguard: {
+    top: { type: 'lifeguard', color: '#ffd23c', color2: P.tomato, sleeves: 'short' }, bottom: { type: 'shorts', color: P.tomato },
+    hat: { type: 'cap', color: P.tomato, color2: '#ffd23c' }, face: { zinc: true, brows: 'thick' }, accessory: 'whistle',
+    facial: null, glasses: null, age: 'adult', build: { belly: 0, width: 1.05 }, action: 'lookout',
+  },
+  fishmonger: {
+    top: { type: 'apron', color: '#fbf7f0', color2: '#fbf7f0', apronStripe: '#3a6ee8', sleeves: 'short' }, bottom: { type: 'trousers', color: '#2f3f6b' },
+    boots: '#f4f6f8', hat: { type: 'boater', color: '#f2d27a', band: '#3a6ee8' }, facial: 'moustache', glasses: null,
+    accessory: 'fish', age: 'adult', build: { belly: 0.85, width: 1.2 }, action: 'talk',
+  },
+  swimmer: {
+    top: { type: 'swimsuit', color: P.bubblegum, color2: '#fff8ee', sleeves: 'none' }, bottom: { type: 'trunks', color: P.bubblegum },
+    hat: { type: 'swimcap', color: '#fff8ee', color2: P.bubblegum, pom: P.sunflower }, glasses: 'goggles', facial: null, accessory: null,
+    face: { blush: true }, age: 'adult', build: { belly: 0.2 }, action: 'tread',
+  },
+  sunbather: {
+    top: { type: 'swimsuit', color: P.tangerine, color2: '#fff8ee', sleeves: 'none' }, bottom: { type: 'trunks', color: P.tangerine },
+    hat: { type: 'sunhat', color: '#f2d27a', band: P.bubblegum, flower: P.tomato }, glasses: 'shades', facial: null, accessory: null,
+    skin: '#ffc2a8', face: { blush: true }, age: 'adult', build: { belly: 0.3 }, action: 'lie',
+  },
+  sailorKid: {
+    age: 'kid', top: { type: 'sailor', color: '#fbf7f0', collar: '#243056', scarf: P.tomato, sleeves: 'short' }, bottom: { type: 'shorts', color: '#243056' },
+    hat: { type: 'sailor', color: '#fbf7f0', band: '#243056' }, hair: { style: 'short', color: HAIR[6] }, socks: '#fbf7f0', shoes: '#243056',
+    face: { blush: true, eyeSize: 1.16 }, facial: null, glasses: null, accessory: null, action: 'jig',
+  },
 };
 export const PRESET_NAMES = Object.keys(PRESETS);
 
@@ -242,11 +343,12 @@ export function resolveConfig(opts = {}) {
   }
   const cfg = randomConfig(rng, o);
   if (cfg.facial && !cfg.facialColor && cfg.hair.style === 'bald') cfg.facialColor = cfg.hair.color;
+  if (!cfg.defaultAction && [].concat(cfg.accessory || []).includes('chips')) cfg.defaultAction = 'eat';
   return cfg;
 }
 
 /** Cache key for geometry (look only). */
 export function lookKey(cfg) {
-  const { motion, seed, defaultAction, preset, name, scale, ...look } = cfg;
+  const { motion, seed, defaultAction, preset, name, scale, theme, ...look } = cfg;
   return JSON.stringify(look);
 }
