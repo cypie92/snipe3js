@@ -6,6 +6,30 @@ import * as THREE from 'three';
 import { P } from '../../../gfx/palette.js';
 import { materials } from '../../../gfx/materials.js';
 
+/** Demo only: a stub of garden wall behind a wall-mounted prop. */
+function onWall(obj) {
+  const g = new THREE.Group();
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.3, 0.3), materials.solid('#d9785c'));
+  wall.position.set(0, 0.65, -0.15);
+  wall.castShadow = true;
+  g.add(wall, obj);
+  g.name = obj.name;
+  g.userData = obj.userData;
+  return g;
+}
+
+/** Demo only: hang the kite's knot in a round tree's canopy edge. */
+function inTree(obj) {
+  const g = new THREE.Group();
+  const t = N.tree({ type: 'round', seed: 9 });
+  g.add(t);
+  obj.position.set(1.6, 4.2, 1.4);
+  g.add(obj);
+  g.name = obj.name;
+  g.userData = obj.userData;
+  return g;
+}
+
 /** Demo only: plant two wooden poles under the ends of a line prop so it isn't floating. */
 function onPosts(obj, a, b) {
   const g = new THREE.Group();
@@ -58,6 +82,7 @@ export function catalog() {
     add('bin', 'street', () => K.bin({ seed: 1 }));
     add('bin overflowing', 'street', () => K.bin({ seed: 2, overflow: true }));
   }
+  if (has(K.wheelieBin)) add('wheelieBin', 'street', () => K.wheelieBin({ seed: 1 }));
   if (has(K.bollard)) add('bollard', 'street', () => K.bollard({ seed: 1 }));
   if (has(K.planter)) add('planter', 'street', () => K.planter({ seed: 1 }));
   if (has(K.signpost)) add('signpost', 'street', () => K.signpost({ seed: 1 }));
@@ -67,7 +92,10 @@ export function catalog() {
   if (has(K.picnicTable)) add('picnicTable', 'street', () => K.picnicTable({ seed: 1 }));
   if (has(K.parasolTable)) add('parasolTable', 'street', () => K.parasolTable({ seed: 1 }));
   if (has(K.hydrant)) add('hydrant', 'street', () => K.hydrant({ seed: 1 }));
-  if (has(K.gardenTap)) add('gardenTap', 'street', () => K.gardenTap({ seed: 1, dripping: true }));
+  if (has(K.gardenTap)) {
+    add('gardenTap', 'street', () => K.gardenTap({ seed: 1, dripping: true }));
+    add('gardenTap wall', 'street', () => onWall(K.gardenTap({ seed: 2, mount: 'wall', under: 'none', dripping: true })));
+  }
   if (has(K.trafficCone)) add('trafficCone', 'street', () => K.trafficCone({ seed: 1 }));
   // yard
   if (has(K.crate)) {
@@ -94,6 +122,7 @@ export function catalog() {
   if (has(K.washingLine)) add('washingLine', 'festive', () => K.washingLine({ from: [-3, 2, 0], to: [3, 2, 0], seed: 1 }));
   if (has(K.flagPole)) add('flagPole', 'festive', () => K.flagPole({ color: P.cobalt }));
   if (has(K.weathervane)) add('weathervane', 'festive', () => K.weathervane({ seed: 1 }));
+  if (has(K.kite)) add('kite (stuck)', 'festive', () => inTree(K.kite({ seed: 1 })));
   // vehicles
   if (has(K.car)) {
     add('car hatch', 'vehicles', () => K.car({ style: 'hatch', color: P.tomato, seed: 1 }));
@@ -118,5 +147,6 @@ export function catalog() {
   if (has(K.fireworkRocket)) add('fireworkRocket', 'gags', () => K.fireworkRocket({ seed: 1 }));
   if (has(K.trophy)) add('trophy', 'gags', () => K.trophy({ seed: 1 }));
   if (has(K.goldenSpanner)) add('goldenSpanner', 'gags', () => K.goldenSpanner({ seed: 1 }));
+  if (has(K.easel)) add('easel', 'gags', () => K.easel({ seed: 1, painting: 'landscape' }));
   return list;
 }

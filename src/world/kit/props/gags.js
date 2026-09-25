@@ -279,14 +279,14 @@ export function cameraOnTripod({ seed = 1, color } = {}) {
     const start = new THREE.Vector3(0, H + 0.45, 0);
     const dir = new THREE.Vector3(Math.sin(cam.rotation.y), 0, Math.cos(cam.rotation.y));
     const end = start.clone().addScaledVector(dir, 0.8).setY(0.012);
-    photo.visible = true;
     return anims.play(1.8, (k) => {
+      photo.visible = true;
       const up = Math.sin(Math.min(1, k * 2.2) * Math.PI) * 0.45;
       photo.position.lerpVectors(start, end, ease.inQuad(k));
       photo.position.y = Math.max(0.012, lerp(start.y, end.y, ease.inQuad(k)) + up);
       photo.position.x += Math.sin(k * 14) * 0.12 * (1 - k);
       photo.rotation.set(-Math.PI / 2 * ease.outCubic(k) + Math.sin(k * 11) * 0.4 * (1 - k), k * 2.5, Math.sin(k * 9) * 0.5 * (1 - k));
-    }, { delay: 0.18, key: 'photo' });
+    }, { delay: 0.24, key: 'photo' });
   };
   g.userData.aim = (yaw = 0, pitch = 0) => {
     const y0 = cam.rotation.y, p0 = cam.rotation.x;

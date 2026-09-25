@@ -181,7 +181,8 @@ Paths are arrays of `[x, z]` (or `[x, y, z]` / `Vector3`) in the group's local s
   CatmullRom ribbon with kerbs and dashed centre line (1 draw call). `userData.path`, `surfaceY` (0.07).
 - `pavement({ points, width = 2.2, kerbSide: 1 | -1 | 0, closed, color })` along a path, or
   `pavement({ width, depth })` as a rectangle. Raised 0.15 m, paving-slab colour variation. 1 draw call.
-- `lowWall(points, { height = 0.9, thick = 0.45, style: 'stone' | 'brick', color, capColor, closed })`
+- `lowWall(points, { height = 0.9, thick = 0.45, style: 'stone' | 'brick', color, capColor, closed, round })`
+  (`round: true` = pillowy rounded stones, ~4x the triangles; use for hero close-ups only)
 - `picketFence(points, { height = 1.0, color, postColor, spacing = 0.17, closed })` - wonky pickets.
 - `hedgeRow(points, { height = 1.2, width = 1.0, color, flowers = 0.25, flowerColor, closed })` - clipped,
   faceted hedge (`materials.foliage`).
@@ -230,13 +231,30 @@ const kiosk = kit.build();
 
 | asset | draw calls | triangles |
 |---|---|---|
-| house | 3 (4 with gnome) | <= 5,000 (median ~4,000) |
-| terrace(5) | 3-4 | ~18,000-22,000 |
-| shop | 4 | 4,500-7,300 |
-| pub | 7-8 (incl. hinged sign, chain, bolt) | ~9,000 |
-| church | 10 (incl. bell, clock, hands, vane) | ~10,100 |
-| fountain | 7-8 (surfaces, streams, points, valve, duck) | ~8,000-9,200 |
+| house | 3 (4 with a gnome) | <= 5,000 guaranteed (300-seed sweep: median ~4,000, max 4,936) |
+| terrace(4) / terrace(5) | 3-4 | ~14,000 / ~18,700 |
+| shop | 4 (5 with `awningObject`) | 4,300-7,300 |
+| pub | 8 (static 3 + sign 3 + loose chain + bolt) | ~9,000 |
+| church | 10 (static 4 + bell 2 + clock 2 + hands + vane) | ~10,100 |
+| fountain | 7 dry / 8 flowing (surfaces, streams, droplets, valve, duck, drip) | ~8,000 / ~9,200 |
 | phone box / post box / bus stop | 3 / 2 / 3 | ~1,000 / 600 / 900 |
 | bandstand / wishing well | 2 / 4 | ~3,000 / 1,900 |
-| cobble square / road / pavement | 2 / 1 / 1 | ~800 / ~2,500 per 80 m / ~2,000 per 80 m |
-| backdrop | 7 | ~120,000 |
+| cobble square | 2 | ~800 |
+| road / pavement | 1 / 1 | ~70 / ~55 per metre |
+| lowWall / picketFence / hedgeRow | 1 each | ~52 (190 round) / ~45 / ~30 per metre |
+| backdrop | 7 | ~118,000 |
+| the whole sandbox village (24 items incl. backdrop) | 83 | ~217,000 |
+
+## Integration notes
+
+- **Shared, cached materials:** sign, digit, label, clock, stained-glass, cobble and pub-atlas materials
+  are cached module-wide and shared between buildings. When unloading a level dispose geometries, not
+  these materials (or dispose them once, globally).
+- **Lighting:** the current presets put the sun behind the diorama (toward -Z), so facades facing the
+  perch (+Z) are in soft shade. Colours were tuned to stay bright in shade; a sun from the perch side
+  would make fronts pop even more.
+- **Hittables:** attach `userData.hit` to the part you want (`pub.userData.parts.bolt`,
+  `fountain.userData.parts.valve`, `church.userData.parts.bell`...); their `collider` children make
+  them easy to hit at 90 m.
+- **Smoke / birds / characters:** use the anchors (`chimneyTops`, `ridge`, `door`, `windows`,
+  `bench`, `stage`, `tables`) rather than hard-coded offsets; they include the house's lean.

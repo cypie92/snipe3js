@@ -118,7 +118,11 @@ if (params.get('demo') === '1') {
       if (u.spill && step === 1) u.spill();
       if (u.flash && step % 2) u.flash();
       if (u.bonk && step % 2) u.bonk();
-      if (u.setOpen && b.name.startsWith('bin')) u.setOpen(step % 2 === 1);
+      if (u.setOpen && /bin|wheelie/i.test(b.name)) u.setOpen(step % 2 === 1);
+      if (u.free && step === 1) u.free();
+      if (u.snap && step % 3 === 2) u.snap();
+      if (u.splat && step % 2) u.splat();
+      if (u.avalanche && step === 3) u.avalanche();
     }
   });
 }

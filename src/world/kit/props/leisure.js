@@ -190,3 +190,92 @@ export function parasolTable({ seed = 1, colors, chairs = 2, open = true } = {})
   if (!open) { pm.scale.set(0.16, 1 + 0.84 * 1.6, 0.16); pm.position.y = -0.42; }
   return g;
 }
+
+// ---------------------------------------------------------------- easel
+
+const PAINTINGS = {
+  landscape: (L, P2) => {
+    L.push(part(new THREE.BoxGeometry(0.64, 0.3, 0.012), '#8fd3f4', { y: 0.12 }));
+    L.push(part(new THREE.IcosahedronGeometry(0.3, 1), '#7cc653', { y: -0.1, sy: 0.4, sz: 0.04 }));
+    L.push(part(new THREE.IcosahedronGeometry(0.2, 1), '#5fae44', { x: 0.18, y: -0.14, sy: 0.4, sz: 0.045 }));
+    L.push(part(new THREE.IcosahedronGeometry(0.065, 0), P2.sunflower, { x: 0.2, y: 0.18, sz: 0.3 }));
+    L.push(part(new THREE.BoxGeometry(0.1, 0.08, 0.016), '#fff4e0', { x: -0.14, y: -0.05 }));
+    L.push(part(new THREE.ConeGeometry(0.08, 0.06, 4), P2.tomato, { x: -0.14, y: 0.02, ry: Math.PI / 4, sz: 0.3 }));
+  },
+  portrait: (L, P2) => {
+    L.push(part(new THREE.BoxGeometry(0.64, 0.54, 0.012), P2.sunflower));
+    L.push(part(new THREE.IcosahedronGeometry(0.15, 1), '#ffd9bd', { y: 0.02, sz: 0.2 }));
+    L.push(part(new THREE.IcosahedronGeometry(0.17, 1), '#5a3a22', { y: 0.1, sy: 0.6, sz: 0.18 }));
+    L.push(part(new THREE.IcosahedronGeometry(0.022, 0), INK2, { x: -0.05, y: 0.03, z: 0.03 }));
+    L.push(part(new THREE.IcosahedronGeometry(0.022, 0), INK2, { x: 0.05, y: 0.03, z: 0.03 }));
+    L.push(part(new THREE.TorusGeometry(0.05, 0.012, 3, 8, Math.PI), P2.tomato, { y: -0.04, z: 0.03, rz: Math.PI }));
+  },
+  abstract: (L, P2) => {
+    const cols = [P2.tomato, P2.cobalt, P2.sunflower, P2.teal, P2.bubblegum];
+    cols.forEach((c, i) => L.push(part(new THREE.IcosahedronGeometry(0.09 + (i % 2) * 0.05, 0), c, { x: -0.22 + i * 0.11, y: (i % 3 - 1) * 0.12, sz: 0.1, rz: i })));
+  },
+};
+const INK2 = '#2b2b3a';
+
+function splatShape() {
+  const s = new THREE.Shape();
+  for (let i = 0; i <= 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const r = i % 2 ? 0.07 : 0.13 + (i % 4 === 0 ? 0.04 : 0);
+    if (i === 0) s.moveTo(Math.cos(a) * r, Math.sin(a) * r); else s.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  return s;
+}
+
+/**
+ * easel({ seed, painting: 'landscape'|'portrait'|'abstract' }) — artist's easel with a painting and palette.
+ * parts: { canvas (pivot at the canvas centre + collider) }. userData: splat(color) -> Promise (paint splat
+ * pops onto the canvas: fun hit), clean(). 1-2 draw calls.
+ */
+export function easel({ seed = 1, painting } = {}) {
+  const rng = new Rng(`easel-${seed}`);
+  const kind = painting || rng.pick(Object.keys(PAINTINGS));
+  const wood = P.woodLight;
+  const L = [
+    part(rod([-0.36, 0, 0.14], [-0.05, 1.74, 0], 0.03, 6), wood),
+    part(rod([0.36, 0, 0.14], [0.05, 1.74, 0], 0.03, 6), wood),
+    part(rod([0, 1.62, -0.02], [0, 0, -0.58], 0.028, 6), shade(wood, -0.1)),
+    part(rod([-0.29, 0.55, 0.1], [0.29, 0.55, 0.1], 0.022, 5), wood),
+    part(bev(0.84, 0.05, 0.13, 0.02), shade(wood, -0.08), { y: 0.82, z: 0.15 }),
+    part(bev(0.16, 0.06, 0.09, 0.02), shade(wood, -0.08), { y: 1.46, z: 0.07 }),
+  ];
+  // canvas + painting (tilted back with the legs)
+  const C = [part(bev(0.74, 0.6, 0.04, 0.012), '#fff8ee')];
+  const pic = [];
+  (PAINTINGS[kind] || PAINTINGS.landscape)(pic, P);
+  for (const g2 of pic) g2.translate(0, 0, 0.026);
+  const canvasG = merge([...C, ...pic]).applyMatrix4(xform({ y: 1.14, z: 0.1, rx: -0.1 }));
+  L.push(canvasG);
+  // palette hanging on the ledge
+  L.push(part(new THREE.CylinderGeometry(0.13, 0.13, 0.02, 10), '#e8c898', { x: 0.3, y: 0.72, z: 0.24, rx: Math.PI / 2 - 0.2 }));
+  [P.tomato, P.cobalt, P.sunflower, P.teal].forEach((c, i) => L.push(part(new THREE.IcosahedronGeometry(0.025, 0), c, { x: 0.3 + Math.cos(i * 1.4) * 0.07, y: 0.72 + Math.sin(i * 1.4) * 0.07, z: 0.26, sz: 0.5 })));
+  const g = new THREE.Group();
+  g.add(mesh(L, materials.toy, 'easel'));
+  const canvas = pivot('canvas', 0, 1.14, 0.1);
+  canvas.rotation.x = -0.1;
+  canvas.add(boxCollider(0.9, 0.8, 0.25, {}));
+  g.add(canvas);
+  const splatGeo = new THREE.ShapeGeometry(splatShape());
+  const splat = new THREE.Mesh(splatGeo, materials.solid(P.tomato, { roughness: 0.3 }));
+  splat.name = 'splat';
+  splat.visible = false;
+  splat.position.set(0, 0, 0.034);
+  canvas.add(splat);
+  const anims = new Anims();
+  finish(g, { name: 'easel', parts: { canvas }, surface: 'wood', anims });
+  g.userData.splat = (color = rng.pick([P.tomato, P.cobalt, P.bubblegum, P.teal])) => {
+    splat.material = materials.solid(color, { roughness: 0.3 });
+    splat.visible = true;
+    splat.position.x = rng.range(-0.15, 0.15);
+    splat.position.y = rng.range(-0.12, 0.12);
+    splat.rotation.z = rng.range(0, Math.PI * 2);
+    return anims.play(0.35, (k) => splat.scale.setScalar(Math.max(0.001, ease.outBack(k) * 1.3)), { key: 'splat' });
+  };
+  g.userData.clean = () => { splat.visible = false; };
+  return g;
+}

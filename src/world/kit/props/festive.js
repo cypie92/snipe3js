@@ -663,16 +663,15 @@ export function kite({ seed = 1, colors, stuck = true } = {}) {
   for (let i = 0; i < 4; i++) {
     const a = pts[i], b = pts[(i + 1) % 4];
     const cc = i % 2 ? ca : cb;
-    pos.push(0, cy, 0.006, a[0], a[1], 0.006, b[0], b[1], 0.006);
-    pos.push(0, cy, -0.006, b[0], b[1], -0.006, a[0], a[1], -0.006);
+    pos.push(0, cy, 0.006, b[0], b[1], 0.006, a[0], a[1], 0.006); // corners run clockwise: (c, b, a) faces +Z
+    pos.push(0, cy, -0.006, a[0], a[1], -0.006, b[0], b[1], -0.006);
     for (let k = 0; k < 6; k++) col.push(cc.r * (k < 3 ? 1 : 0.85), cc.g * (k < 3 ? 1 : 0.85), cc.b * (k < 3 ? 1 : 0.85));
   }
   const sail = new THREE.BufferGeometry();
   sail.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   sail.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   sail.computeVertexNormals();
-  // fix winding so the front faces +Z (quads listed clockwise when seen from the front)
-  const sailG = sail.index ? sail.toNonIndexed() : sail;
+  const sailG = sail;
   const knotLocal = new THREE.Vector3().copy(home).negate().applyAxisAngle(new THREE.Vector3(0, 0, 1), -tilt0);
   const K = [
     sailG,

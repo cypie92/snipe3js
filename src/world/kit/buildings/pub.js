@@ -90,11 +90,16 @@ export function pubAtlas(name = 'The Wonky Pint', { ground = PUB_GREEN, gold = P
     ctx.strokeStyle = '#fff8ee';
     ctx.stroke();
     ctx.restore();
-    // lettering
-    const s1 = fitFont(ctx, 'THE WONKY', W - 200, 120);
-    toyText(ctx, 'THE WONKY', W / 2, 128, { fill: '#2b5d49', outline: '#fff8ee', size: s1, stroke: 0.1, shadow: 'rgba(43,43,58,0.25)' });
-    const s2 = fitFont(ctx, 'PINT', W - 300, 130);
-    toyText(ctx, 'PINT', W / 2, sh - 118, { fill: P.tomato, outline: '#fff8ee', size: s2, stroke: 0.1, shadow: 'rgba(43,43,58,0.25)' });
+    // lettering: every word but the last on top, the last word big at the bottom
+    const words = up.split(/\s+/);
+    const line2 = words.length > 1 ? words.pop() : '';
+    const line1 = words.join(' ');
+    const s1 = fitFont(ctx, line1, W - 200, 120);
+    toyText(ctx, line1, W / 2, 128, { fill: '#2b5d49', outline: '#fff8ee', size: s1, stroke: 0.1, shadow: 'rgba(43,43,58,0.25)' });
+    if (line2) {
+      const s2 = fitFont(ctx, line2, W - 300, 130);
+      toyText(ctx, line2, W / 2, sh - 118, { fill: P.tomato, outline: '#fff8ee', size: s2, stroke: 0.1, shadow: 'rgba(43,43,58,0.25)' });
+    }
     ctx.restore();
   });
   const mat = decalMaterial(tex, ground, 'pubAtlas');

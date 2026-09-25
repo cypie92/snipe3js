@@ -11,6 +11,7 @@ import {
 } from './lib.js';
 
 const TYRE = '#3b3f4f';
+const INK = '#2b2b3a';
 const lerp = THREE.MathUtils.lerp;
 
 // ---------------------------------------------------------------- lamp post
@@ -530,5 +531,66 @@ export function gardenTap({ seed = 1, mount = 'post', under = 'bucket', dripping
   };
   g.userData.fall = fall;
   g.userData.setDripping(dripping);
+  return g;
+}
+
+// ---------------------------------------------------------------- wheelie bin
+
+/**
+ * wheelieBin({ seed, color, lidColor, open = false, number }) — tall two-wheeled bin (great for the
+ * "man stuck in a bin" gag). parts: { lid (pivot at the back hinge; rotation.x < 0 opens), body,
+ * mouth (Object3D at the opening, +Y up: seat a character here) }. userData: setOpen(bool), pop(). 2 dc.
+ */
+export function wheelieBin({ seed = 1, color, lidColor, open = false, number } = {}) {
+  const rng = new Rng(`wheelie-${seed}`);
+  const c = color || rng.pick(['#3f9a4e', P.cobalt, '#4a5566', P.teal]);
+  const lc = lidColor || (rng.chance(0.5) ? shade(c, 0.12) : rng.pick([P.sunflower, P.tomato, '#3f9a4e']));
+  const body = bev(0.6, 1.0, 0.7, 0.07);
+  const bp = body.attributes.position;
+  for (let i = 0; i < bp.count; i++) {
+    const k = 1 + 0.08 * (bp.getY(i) + 0.5);
+    bp.setX(i, bp.getX(i) * k);
+    bp.setZ(i, bp.getZ(i) * k);
+  }
+  const L = [
+    part(body, c, { y: 0.54 }),
+    part(bev(0.72, 0.06, 0.82, 0.025), shade(c, 0.15), { y: 1.05 }),
+    part(rod([-0.3, 1.03, -0.45], [0.3, 1.03, -0.45], 0.032, 6), shade(c, -0.25)),
+    part(rod([-0.26, 0.97, -0.4], [-0.26, 1.03, -0.45], 0.025, 5), shade(c, -0.25)),
+    part(rod([0.26, 0.97, -0.4], [0.26, 1.03, -0.45], 0.025, 5), shade(c, -0.25)),
+    part(rod([-0.36, 0.11, -0.34], [0.36, 0.11, -0.34], 0.025, 5), '#3a3e4c'),
+    part(bev(0.28, 0.18, 0.02, 0.01), '#fff8ee', { y: 0.74, z: 0.385, rx: -0.08 }),
+    part(lettering(0.14, 0.08, 1, INK, {}, rng, 0.01), INK, { y: 0.74, z: 0.4, rx: -0.08 }),
+    part(bev(0.66, 0.05, 0.78, 0.02), shade(c, -0.12), { y: 0.3 }),
+  ];
+  for (const sx of [-1, 1]) {
+    L.push(part(puck(0.12, 0.08, 0.025, 10), '#3a3e4c', { x: sx * 0.35, y: 0.12, z: -0.34, rz: Math.PI / 2 }));
+    L.push(part(puck(0.05, 0.09, 0.015, 8), '#c9d2de', { x: sx * 0.35, y: 0.12, z: -0.34, rz: Math.PI / 2 }));
+  }
+  const g = new THREE.Group();
+  const bodyMesh = mesh(L, materials.toy, 'body');
+  g.add(bodyMesh);
+  const lid = pivot('lid', 0, 1.08, -0.42);
+  lid.add(mesh([
+    part(bev(0.74, 0.07, 0.84, 0.03), lc, { y: 0.035, z: 0.42 }),
+    part(bev(0.34, 0.06, 0.06, 0.02), shade(lc, -0.15), { y: 0.0, z: 0.85 }),
+  ], materials.toy, 'lidMesh'));
+  lid.add(boxCollider(0.8, 0.2, 0.9, { y: 0.05, z: 0.42 }));
+  g.add(lid);
+  const mouth = pivot('mouth', 0, 1.05, 0.02);
+  g.add(mouth);
+  const anims = new Anims();
+  const closed = 0;
+  if (open) lid.rotation.x = -1.95;
+  finish(g, { name: 'wheelieBin', parts: { lid, body: bodyMesh, mouth }, surface: 'soft', anims });
+  g.userData.setOpen = (on) => {
+    const from = lid.rotation.x;
+    const to = on ? -1.95 : closed;
+    return anims.play(on ? 0.5 : 0.6, (k) => { lid.rotation.x = lerp(from, to, k); }, { ease: on ? ease.outBack : ease.outBounce, key: 'lid' });
+  };
+  g.userData.pop = () => anims.play(0.9, (k) => {
+    const up = Math.sin(Math.min(1, k * 1.6) * Math.PI);
+    lid.rotation.x = -up * 0.8 + Math.sin(k * 30) * (1 - k) * 0.08;
+  }, { key: 'lid' });
   return g;
 }
