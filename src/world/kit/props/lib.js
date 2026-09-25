@@ -533,12 +533,12 @@ export function vec(p, def = [0, 0, 0]) {
   return new THREE.Vector3(p.x || 0, p.y || 0, p.z || 0);
 }
 
-/** Triangle / draw-call stats of an object tree (visible, non-collider meshes). */
+/** Triangle / draw-call stats of an object tree (visible, non-collider, non-demo-scaffold meshes). */
 export function stats(root) {
   let tris = 0;
   let calls = 0;
   root.traverseVisible((o) => {
-    if (!o.isMesh || o.userData.collider) return;
+    if (!o.isMesh || o.userData.collider || o.userData.scaffold) return;
     const g = o.geometry;
     const n = (g.index ? g.index.count : g.attributes.position?.count || 0) / 3;
     tris += n * (o.isInstancedMesh ? o.count : 1);

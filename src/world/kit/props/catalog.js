@@ -12,6 +12,7 @@ function onWall(obj) {
   const wall = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.3, 0.3), materials.solid('#d9785c'));
   wall.position.set(0, 0.65, -0.15);
   wall.castShadow = true;
+  wall.userData.scaffold = true;
   g.add(wall, obj);
   g.name = obj.name;
   g.userData = obj.userData;
@@ -22,6 +23,7 @@ function onWall(obj) {
 function inTree(obj) {
   const g = new THREE.Group();
   const t = N.tree({ type: 'round', seed: 9 });
+  t.traverse((m) => { if (m.isMesh) m.userData.scaffold = true; });
   g.add(t);
   obj.position.set(2.6, 3.3, 1.9);
   g.add(obj);
@@ -37,6 +39,7 @@ function onPosts(obj, a, b) {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, p[1] + 0.25, 8), materials.solid('#9a6236'));
     pole.position.set(p[0], (p[1] + 0.25) / 2, p[2]);
     pole.castShadow = true;
+    pole.userData.scaffold = true;
     g.add(pole);
   }
   g.add(obj);

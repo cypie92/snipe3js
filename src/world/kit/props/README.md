@@ -204,7 +204,8 @@ fun hit); `gnome({ pose: 'fishing' })` on a roof; `giantMarrow()` at the fête; 
 `/sandbox/props.html` shows every asset (nature + props) with labels, using the real renderer/post/lighting.
 - `set=nature,street,yard,market,festive,vehicles,gags` - categories; `only=<name>,<name>` - substring filter.
 - `stats=1` - triangle / draw-call table (over-budget rows in red); `colliders=1` - show hit colliders.
-- `demo=1` - pokes every interactive prop every 2.5 s (unfurl, pop, launch, ring, raise, spill...).
+- `demo=1` - pokes every interactive prop every 2.5 s (unfurl, pop, launch, ring, raise, spill, snap, splat...).
+- `gap=<m>` spacing between items, `row=<m>` max row width (layout wraps per category).
 - stage.js params: `cam=close|scope|top|wide`, `dist`, `zoom`, `yaw`, `focus=<index>`, `quality`, `labels=0`.
 - Gameplay check: `?cam=scope&dist=80&zoom=4&focus=<index>` (indices are listed in the stats panel and
   logged to the console as `[props] i:name(tris/dc)`; `window.__catalog` has the table).

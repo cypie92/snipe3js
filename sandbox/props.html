@@ -16,7 +16,7 @@
 // Props & Nature kit preview. Extra URL params (besides stage.js ones):
 //   set=nature,street,yard,market,festive,vehicles,gags   only=<name>,<name>   (substring match)
 //   stats=1 (triangle / draw-call table)   colliders=1 (show hit colliders)
-//   demo=1 (periodically trigger animations: unfurl, pop, launch, ring...)   gap=<m>
+//   demo=1 (periodically trigger animations: unfurl, pop, launch, ring...)   gap=<m>   row=<max row width m>
 import * as THREE from 'three';
 import { createStage } from './stage.js';
 import { catalog } from '../src/world/kit/props/catalog.js';
@@ -32,7 +32,7 @@ let list = catalog();
 if (sets) list = list.filter(([, cat]) => sets.includes(cat));
 if (only) list = list.filter(([name]) => only.some((o) => name.includes(o)));
 
-// Build everything, then lay out one row per category, items left->right by footprint.
+// Build everything, then lay out rows per category (wrapping), items left->right by footprint.
 const built = [];
 for (const [name, cat, fn] of list) {
   try {
