@@ -233,7 +233,7 @@ function segmentsOf(points, closed) {
   return segs;
 }
 
-/** Dry-stone / brick garden wall with rounded coping. opts: height (0.9), thick (0.45), style, color. */
+/** Dry-stone / brick garden wall with rounded coping. opts: height (0.9), thick (0.45), style, color, round (pillowy stones, 4x tris). */
 export function lowWall(points, opts = {}) {
   const rng = rngOf(opts.seed ?? 'wall', 'wall');
   const H = opts.height ?? 0.9, T = opts.thick ?? 0.45;
@@ -253,7 +253,8 @@ export function lowWall(points, opts = {}) {
           const bl = style === 'brick' ? 0.5 : rng.range(0.5, 0.95);
           const z0 = Math.max(0, z), z1 = Math.min(len, z + bl);
           if (z1 - z0 > 0.08) {
-            kit.add(cbox(T - rng.range(0, 0.05), ch + 0.02, z1 - z0 - 0.03, style === 'brick' ? 0.02 : 0.06), wobbleColor(rng, base, style === 'brick' ? 0.03 : 0.06, 0.04), {
+            const sw = T - rng.range(0, 0.05), sl = z1 - z0 - 0.03;
+            kit.add(opts.round ? cbox(sw, ch + 0.02, sl, 0.06) : box(sw, ch - 0.01, sl), wobbleColor(rng, base, style === 'brick' ? 0.03 : 0.06, 0.04), {
               x: rng.range(-0.015, 0.015), y: ch * (c + 0.5) - 0.04, z: (z0 + z1) / 2,
             });
           }

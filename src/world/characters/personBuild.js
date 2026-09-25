@@ -652,7 +652,7 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
     }
   } else if (fh === 'beard' || fh === 'bigbeard') {
     const big = fh === 'bigbeard';
-    rb.add(G.sphere(14, 10), hc, M(hm, { y: -0.42 * R, z: 0.3 * R, sx: 0.78 * R, sy: (big ? 0.62 : 0.46) * R, sz: 0.62 * R }), b.head);
+    rb.add(G.sphere(10, 7), hc, M(hm, { y: -0.42 * R, z: 0.3 * R, sx: 0.78 * R, sy: (big ? 0.62 : 0.46) * R, sz: 0.62 * R }), b.head);
     for (const s of [1, -1]) rb.add(G.sphere(8, 6), hc, M(hm, { x: s * 0.72 * R, y: -0.25 * R, z: 0.05 * R, sx: 0.22 * R, sy: 0.42 * R, sz: 0.4 * R }), b.head);
     const y = meta.mouthY + 0.038 * HS;
     for (const s of [1, -1]) {
@@ -661,7 +661,7 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
       rb.add(G.sphere(8, 6), hc, new THREE.Matrix4().compose(p, qFromNormal(n, 0.9), V(1, 1, 1)).multiply(tf({ rz: s * -0.25, sx: 0.05 * HS, sy: 0.022 * HS, sz: 0.022 })), b.head);
     }
   } else if (fh === 'stubble') {
-    rb.add(G.sphere(12, 8), shade(C.skin, 0.8, -0.1), M(hm, { y: -0.36 * R, z: 0.08 * R, sx: 0.9 * R, sy: 0.55 * R, sz: 0.86 * R }), b.head);
+    rb.add(G.sphere(10, 7), shade(C.skin, 0.8, -0.1), M(hm, { y: -0.36 * R, z: 0.08 * R, sx: 0.9 * R, sy: 0.55 * R, sz: 0.86 * R }), b.head);
   }
   if (cfg.straw) {
     const p = V(0.04 * HS, meta.mouthY, surf.z(0.04, meta.mouthY)).applyMatrix4(hm);

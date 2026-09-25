@@ -12,6 +12,7 @@ import {
 } from './lib.js';
 
 const ROPE = '#f4ead2';
+const INK = '#2b2b3a';
 const UP = new THREE.Vector3(0, 1, 0);
 const _m4 = new THREE.Matrix4();
 const _x = new THREE.Vector3();
@@ -623,5 +624,120 @@ export function weathervane({ seed = 1, windYaw = 0, base = 'plinth' } = {}) {
     },
   });
   g.userData.spin = (impulse = 8) => { vel += impulse; };
+  return g;
+}
+
+// ---------------------------------------------------------------- kite
+
+/**
+ * kite({ seed, colors: [c1, c2], stuck = true }) — smiley diamond kite with a bow tail, tangled by its
+ * string on a branch. The group origin IS the tangled knot: place it in the tree canopy.
+ * parts: { knot (job target, enlarged collider), kite (pivot + collider), tail }.
+ * userData: free() -> Promise (knot unties, kite floats up and hovers), flyAway() -> Promise (drifts off,
+ * hides), freed. 1 draw call (LiveMesh).
+ */
+export function kite({ seed = 1, colors, stuck = true } = {}) {
+  const rng = new Rng(`kite-${seed}`);
+  const [c1, c2] = colors || rng.pick([[P.tomato, P.sunflower], [P.cobalt, P.sunflower], [P.bubblegum, P.teal], [P.violet, P.tangerine]]);
+  const g = new THREE.Group();
+  const live = new LiveMesh(materials.toy);
+  const knot = pivot('knot');
+  g.add(knot);
+  live.addPiece(knot, merge([
+    part(ball(0.075, 0), ROPE),
+    part(arc(0.065, 0.016, Math.PI * 1.6, 4, 8), ROPE, { x: 0.03, rx: 1.1 }),
+    part(arc(0.05, 0.014, Math.PI * 1.4, 4, 8), ROPE, { x: -0.02, y: 0.03, ry: 1.2 }),
+  ]));
+  knot.add(ballCollider(0.32));
+  const home = new THREE.Vector3(0.5, 0.8, 0.05);
+  const kp = pivot('kite', home.x, home.y, home.z);
+  const tilt0 = stuck ? -0.55 : 0.1;
+  kp.rotation.z = tilt0;
+  g.add(kp);
+  // sail: four coloured quadrants, double sided
+  const W = 0.38, T = 0.56, Bt = 0.52, cy = 0.14;
+  const pts = [[0, T], [W, cy], [0, -Bt], [-W, cy]];
+  const pos = [];
+  const col = [];
+  const ca = new THREE.Color(c1), cb = new THREE.Color(c2);
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4];
+    const cc = i % 2 ? ca : cb;
+    pos.push(0, cy, 0.006, a[0], a[1], 0.006, b[0], b[1], 0.006);
+    pos.push(0, cy, -0.006, b[0], b[1], -0.006, a[0], a[1], -0.006);
+    for (let k = 0; k < 6; k++) col.push(cc.r * (k < 3 ? 1 : 0.85), cc.g * (k < 3 ? 1 : 0.85), cc.b * (k < 3 ? 1 : 0.85));
+  }
+  const sail = new THREE.BufferGeometry();
+  sail.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  sail.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  sail.computeVertexNormals();
+  // fix winding so the front faces +Z (quads listed clockwise when seen from the front)
+  const sailG = sail.index ? sail.toNonIndexed() : sail;
+  const knotLocal = new THREE.Vector3().copy(home).negate().applyAxisAngle(new THREE.Vector3(0, 0, 1), -tilt0);
+  const K = [
+    sailG,
+    part(rod([0, -Bt, -0.02], [0, T, -0.02], 0.014, 5), P.woodDark),
+    part(rod([-W, cy, -0.02], [W, cy, -0.02], 0.014, 5), P.woodDark),
+    part(ball(0.035, 0), INK, { x: -0.1, y: 0.24, z: 0.02, sz: 0.35 }),
+    part(ball(0.035, 0), INK, { x: 0.1, y: 0.24, z: 0.02, sz: 0.35 }),
+    part(arc(0.1, 0.018, Math.PI, 4, 8), INK, { y: 0.14, z: 0.018, rz: Math.PI }),
+    part(tube([new THREE.Vector3(0, 0.02, 0.03), knotLocal.clone().multiplyScalar(0.5).add(new THREE.Vector3(0, -0.12, 0.02)), knotLocal], 0.012, 10, 4), ROPE),
+  ];
+  live.addPiece(kp, merge(K));
+  kp.add(boxCollider(0.9, 1.2, 0.3, { y: 0.05 }));
+  // bow tail hanging from the bottom tip, waving
+  const tail = pivot('tail', 0, -Bt, 0);
+  kp.add(tail);
+  const TL = [part(new THREE.BoxGeometry(0.018, 1.4, 0.018, 1, 8, 1), ROPE, { y: -0.7 })];
+  for (let i = 0; i < 5; i++) {
+    const y = -0.25 - i * 0.26;
+    const bc = [c1, c2, '#fff8ee'][i % 3];
+    TL.push(part(new THREE.ConeGeometry(0.06, 0.12, 3), bc, { x: 0.06, y, rz: Math.PI / 2 }));
+    TL.push(part(new THREE.ConeGeometry(0.06, 0.12, 3), bc, { x: -0.06, y, rz: -Math.PI / 2 }));
+  }
+  live.addPiece(tail, merge(TL), (v, t) => {
+    const d = Math.min(1, Math.max(0, -v.y / 1.4));
+    v.x += Math.sin(t * 4.4 + v.y * 3.5) * 0.16 * d;
+    v.z += Math.cos(t * 3.1 + v.y * 2.2) * 0.06 * d;
+  });
+  g.add(live);
+  const anims = new Anims();
+  let state = stuck ? 'stuck' : 'hover';
+  const base = home.clone();
+  let tiltBase = tilt0;
+  finish(g, {
+    name: 'kite', parts: { knot, kite: kp, tail }, surface: 'soft', anims,
+    tick: (dt, t) => {
+      if (state !== 'flying') {
+        const amp = state === 'stuck' ? 1 : 0.6;
+        kp.rotation.z = tiltBase + (Math.sin(t * 2.6) * 0.1 + Math.sin(t * 6.1) * 0.04) * amp;
+        kp.rotation.x = Math.sin(t * 3.3) * 0.12 * amp;
+        if (state === 'hover') kp.position.set(base.x + Math.sin(t * 0.9) * 0.15, base.y + Math.sin(t * 1.3) * 0.12, base.z);
+      }
+      live.sync(t);
+    },
+  });
+  g.userData.free = () => {
+    if (state !== 'stuck') return Promise.resolve(false);
+    state = 'rising';
+    g.userData.freed = true;
+    knot.visible = false;
+    const from = kp.position.clone();
+    const to = from.clone().add(new THREE.Vector3(0.8, 2.6, 0.3));
+    const t0 = tiltBase;
+    return anims.play(2.4, (k) => {
+      kp.position.lerpVectors(from, to, ease.outCubic(k));
+      tiltBase = lerp(t0, 0.12, ease.outCubic(k));
+    }, { key: 'kite' }).then((d) => { if (d) { base.copy(to); state = 'hover'; } return d; });
+  };
+  g.userData.flyAway = () => {
+    state = 'flying';
+    const from = kp.position.clone();
+    return anims.play(6, (k) => {
+      kp.position.set(from.x + k * 6, from.y + ease.inQuad(k) * 9, from.z + Math.sin(k * 5) * 0.6);
+      kp.rotation.z = 0.12 + Math.sin(k * 20) * 0.15;
+    }, { key: 'kite' }).then((d) => { if (d) kp.visible = false; return d; });
+  };
+  live.build();
   return g;
 }
