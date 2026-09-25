@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Buildings kit</title>
+</head>
+<body>
+<script type="module">
+import '@fontsource/fredoka/600.css';
+import '@fontsource/fredoka/700.css';
+import * as THREE from 'three';
+import { createStage } from './stage.js';
+import * as B from '../src/world/kit/buildings/index.js';
+
+// ?set=houses|civic|small|ground|backdrop|village (default village = everything as a little town)
+const params = new URLSearchParams(location.search);
+const set = params.get('set') || 'village';
+try { await document.fonts.load('700 48px Fredoka'); } catch (e) { /* fallback font */ }
+
+const stage = await createStage({ ground: set !== 'backdrop' });
+const info = [];
+const put = (obj, x, z, ry = 0, label) => {
+  stage.add(obj, x, z, ry, label);
+  const s = B.stats(obj);
+  info.push({ label: label || obj.name, ...s });
+  return obj;
+};
+
+if (set === 'houses') {
+  const specs = [
+    { seed: 11, label: 'cottage (gable, dormers)', floors: 1, roofStyle: 'gable', gableFront: false },
+    { seed: 22, label: 'townhouse (sash)', floors: 2, roofStyle: 'gable', windowStyle: 'sash' },
+    { seed: 33, label: 'front gable (round-top)', floors: 2, roofStyle: 'gable', gableFront: true, windowStyle: 'roundtop' },
+    { seed: 44, label: 'hip (shuttered)', floors: 2, roofStyle: 'hip', windowStyle: 'shuttered' },
+    { seed: 55, label: 'mansard', floors: 2, roofStyle: 'mansard' },
+    { seed: 66, label: 'tudor', floors: 2, style: 'tudor', roofStyle: 'gable' },
+    { seed: 77, label: 'brick 3-floor', floors: 3, style: 'brick' },
+    { seed: 88, label: 'random seed 88' },
+  ];
+  specs.forEach((s, i) => {
+    const h = B.house(s);
+    put(h, (i % 4 - 1.5) * 16, Math.floor(i / 4) * -20, 0, s.label);
+  });
+  put(B.terrace(5, { seed: 5 }), 0, -42, 0, 'terrace(5)');
+  stage.extent = 60;
+} else {
+  const h = B.house({ seed: 1 });
+  put(h, 0, 0, 0, 'house');
+  stage.extent = 14;
+}
+
+stage.onUpdate(() => { window.__frames = (window.__frames || 0) + 1; });
+stage.frame();
+window.__info = info;
+console.log('[game] stats', JSON.stringify(info));
+</script>
+</body>
+</html>
