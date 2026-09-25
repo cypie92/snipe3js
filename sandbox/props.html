@@ -14,7 +14,8 @@
 <div id="panel"></div>
 <script type="module">
 // Props & Nature kit preview. Extra URL params (besides stage.js ones):
-//   set=nature,street,yard,market,festive,vehicles,gags   only=<name>,<name>   (substring match)
+//   set=nature,street,yard,market,festive,vehicles,gags,boats,dockside,beach (harbour = the last three)
+//   only=<name>,<name>   (substring match)
 //   stats=1 (triangle / draw-call table)   colliders=1 (show hit colliders)
 //   demo=1 (periodically trigger animations: unfurl, pop, launch, ring...)   gap=<m>   row=<max row width m>
 import * as THREE from 'three';
@@ -24,7 +25,7 @@ import { stats } from '../src/world/kit/props/lib.js';
 
 const params = new URLSearchParams(location.search);
 const stage = await createStage();
-const sets = params.get('set')?.split(',');
+const sets = params.get('set')?.split(',').flatMap((x) => (x === 'harbour' ? ['boats', 'dockside', 'beach'] : [x]));
 const only = params.get('only')?.split(',');
 const gap = Number(params.get('gap') || 1.6);
 
@@ -123,6 +124,14 @@ if (params.get('demo') === '1') {
       if (u.snap && step % 3 === 2) u.snap();
       if (u.splat && step % 2) u.splat();
       if (u.avalanche && step === 3) u.avalanche();
+      if (u.dropAnchor && step === 1) u.dropAnchor();
+      if (u.hoistSail && step === 1) u.hoistSail();
+      if (u.openChest && step === 2) u.openChest();
+      if (u.lowerCrate && step === 2) u.lowerCrate();
+      if (u.blast && step % 2) u.blast();
+      if (u.slamLid && step === 2) u.slamLid();
+      if (u.bounce && step % 2) u.bounce();
+      if (u.toot && step % 3 === 0) u.toot();
     }
   });
 }

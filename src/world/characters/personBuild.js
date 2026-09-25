@@ -134,7 +134,7 @@ function resolveColours(cfg) {
 function buildLegs(rb, b, d, cfg, C) {
   const bottom = cfg.bottom.type;
   const hemY = bottom === 'shorts' ? d.kneeY + 0.02 : bottom === 'trunks' ? d.hipY - 0.035 : bottom === 'skirt' || bottom === 'long' ? 99 : -1;
-  const legCol = cfg.bottom.legs || (bottom === 'skirt' || bottom === 'long' ? (cfg.bottom.tights || C.skin) : C.bottom);
+  const legCol = cfg.bottom.legs || (['skirt', 'long', 'shorts', 'trunks'].includes(bottom) ? (cfg.bottom.tights || C.skin) : C.bottom);
   const sock = cfg.socks;
   const bootTop = cfg.boots ? d.kneeY - 0.01 : -1;
   const top = d.hipY + 0.05;
@@ -152,8 +152,8 @@ function buildLegs(rb, b, d, cfg, C) {
       rb.add(G.cyl(d.legR * 1.2, d.legR * 1.12, 0.035, 8, true), cfg.boots, { x: s * d.legX, y: bootTop - 0.01 }, b['shin' + S]);
     }
     const sh = cfg.shoeSize || 1;
-    const shoeCol = cfg.boots || C.shoes;
-    const sole = cfg.boots ? shade(cfg.boots, 0.6) : C.sole;
+    const shoeCol = cfg.boots || (cfg.barefoot ? C.skin : C.shoes);
+    const sole = cfg.boots ? shade(cfg.boots, 0.6) : cfg.barefoot ? C.skinDark : C.sole;
     rb.add(G.sphere(...Q.shoe), (x, y, z, c) => c.set(y < -0.42 ? sole : shoeCol),
       { x: s * (d.legX + 0.004), y: 0.052 * sh, z: 0.03, sx: 0.076 * sh, sy: 0.058 * sh, sz: 0.112 * sh }, b['shin' + S]);
   }
@@ -274,7 +274,7 @@ function buildBody(rb, b, d, cfg, C) {
         rb.add(lathe(pr, 14, [], -1.0, 2.0), colFn, { y: d.bodyBottom, sz: d.bodyD }, bw);
         skirtFront(rb, b, d, belly, colFn, 1.0);
         collar(col, 0.9, 0.012);
-        rb.add(G.torus(profR(waistT + 0.02, belly) * d.bodyR * 1.03, 0.012, 4, 18), col, { y: d.bodyBottom + (waistT + 0.02) * H, rx: Math.PI / 2, sz: d.bodyD }, bw);
+        rb.add(G.torus(profR(waistT + 0.08, belly) * d.bodyR * 1.0, 0.012, 3, 14), shade(col, 0.92), { y: d.bodyBottom + (waistT + 0.08) * H, rx: Math.PI / 2, sz: d.bodyD }, bw);
       } else {
         front(0.26, 0.66, 0.6, 0.008, col);
         for (const s of [1, -1]) {
@@ -720,12 +720,13 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
     rb.add(G.sphere(10, 7), shade(C.skin, 0.8, -0.1), M(hm, { y: -0.36 * R, z: 0.08 * R, sx: 0.9 * R, sy: 0.55 * R, sz: 0.86 * R }), b.head);
   }
   if (cfg.pipe) { // sailor's pipe in the corner of the mouth
-    const x0 = 0.045 * HS, y0 = meta.mouthY + 0.004;
-    const p = V(x0, y0, surf.z(x0, y0) + 0.01).applyMatrix4(hm);
-    const tip = p.clone().add(V(0.07, -0.035, 0.07));
+    const x0 = 0.05 * HS, y0 = meta.mouthY + 0.004;
+    const beard = cfg.facial === 'beard' || cfg.facial === 'bigbeard' ? 0.03 : 0;
+    const p = V(x0, y0, surf.z(x0, y0) + 0.01 + beard).applyMatrix4(hm);
+    const tip = p.clone().add(V(0.15, -0.02, 0.1));
     const dir = tip.clone().sub(p);
-    rb.add(G.cyl(0.009, 0.009, dir.length(), 5), '#3a2a20', new THREE.Matrix4().compose(p.clone().add(tip).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir.normalize()), V(1, 1, 1)), b.head);
-    rb.add(G.cyl(0.024, 0.019, 0.05, 8), (px, py, pz, c) => c.set(py > 0.02 ? '#2b2b3a' : '#9a6a3a'), { x: tip.x, y: tip.y + 0.02, z: tip.z }, b.head);
+    rb.add(G.cyl(0.011, 0.011, dir.length(), 5), '#3a2a20', new THREE.Matrix4().compose(p.clone().add(tip).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir.normalize()), V(1, 1, 1)), b.head);
+    rb.add(G.cyl(0.03, 0.024, 0.065, 8), (px, py, pz, c) => c.set(py > 0.026 ? '#2b2b3a' : '#9a6a3a'), { x: tip.x, y: tip.y + 0.028, z: tip.z }, b.head);
   }
   if (cfg.straw) {
     const p = V(0.04 * HS, meta.mouthY, surf.z(0.04, meta.mouthY)).applyMatrix4(hm);
@@ -748,6 +749,10 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
   b.hat = rb.bone('hat', b.head, pivot.toArray());
   const hb = new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z).multiply(new THREE.Matrix4().makeRotationX(-0.08));
   const add = (g, c, t) => rb.add(g, c, M(hb, t), b.hat);
+  // closed shapes so a hat still looks solid from below (lying down, tumbling through the air)
+  const lining = shade(col, 0.62);
+  const dome = (c, t, seg = [12, 4]) => { add(G.hemi(...seg), c, t); add(G.disc(seg[0]), lining, t); };
+  const brim = (pts, seg, c, t, th = 0.035 * R) => add(lathe([...pts.slice().reverse().map(([r, y]) => [r, y - th]), ...pts], seg), c, t);
   let top = 0.6 * R;
   switch (h.type) {
     case 'flatcap':
@@ -757,7 +762,7 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       top = 0.55 * R;
       break;
     case 'bowler':
-      add(G.hemi(12, 4), col, { y: -0.06 * R, sx: 1.02 * R, sy: 0.84 * R, sz: 1.06 * R });
+      dome(col, { y: -0.06 * R, sx: 1.02 * R, sy: 0.84 * R, sz: 1.06 * R }, [12, 4]);
       add(G.cyl(1.03 * R, 1.03 * R, 0.1 * R, 12), col2, { y: 0.02 * R, sz: 1.04 });
       add(G.cyl(1.32 * R, 1.36 * R, 0.05 * R, 12), col, { y: -0.04 * R, sz: 1.08 });
       top = 0.78 * R;
@@ -769,14 +774,14 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       top = 1.15 * R;
       break;
     case 'beanie':
-      add(G.hemi(12, 4), col, { y: -0.28 * R, sx: 1.1 * R, sy: 1.14 * R, sz: 1.14 * R });
+      dome(col, { y: -0.28 * R, sx: 1.1 * R, sy: 1.14 * R, sz: 1.14 * R }, [12, 4]);
       add(G.cyl(1.12 * R, 1.14 * R, 0.24 * R, 12), col2, { y: -0.2 * R, sz: 1.04 });
       add(G.sphere(8, 6), h.pom || '#fff8ee', { y: 0.92 * R, s: 0.2 * R });
       top = 1.05 * R;
       break;
     case 'hardhat':
-      add(G.hemi(12, 4), col, { y: -0.12 * R, sx: 1.06 * R, sy: 0.9 * R, sz: 1.1 * R });
-      add(lathe([[1.42 * R, 0], [1.3 * R, 0.03 * R], [1.0 * R, 0.07 * R], [0.9 * R, 0.06 * R]], 14), col, { y: -0.14 * R, sz: 1.06 });
+      dome(col, { y: -0.12 * R, sx: 1.06 * R, sy: 0.9 * R, sz: 1.1 * R }, [12, 4]);
+      brim([[1.42 * R, 0], [1.3 * R, 0.03 * R], [1.0 * R, 0.07 * R], [0.9 * R, 0.06 * R]], 14, col, { y: -0.14 * R, sz: 1.06 });
       add(G.capsule(0.08 * R, 1.0 * R, 2, 6), shade(col, 0.9), { y: 0.66 * R, rx: Math.PI / 2, sy: 1, sx: 1, sz: 1 });
       top = 0.8 * R;
       break;
@@ -790,24 +795,25 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       top = 1.6 * R;
       break;
     case 'sunhat': case 'straw':
-      add(G.hemi(12, 4), col, { y: -0.05 * R, sx: 1.01 * R, sy: 0.84 * R, sz: 1.05 * R });
-      add(lathe([[2.0 * R, -0.16 * R], [1.6 * R, -0.03 * R], [1.0 * R, 0.02 * R], [0.9 * R, 0.03 * R]], 14), (x, y, z, c) => c.set(Math.hypot(x, z) > 1.93 * R && h.type === 'straw' ? shade(col, 0.85) : col), { y: -0.02 * R });
+      dome(col, { y: -0.05 * R, sx: 1.01 * R, sy: 0.84 * R, sz: 1.05 * R }, [12, 4]);
+      brim([[2.0 * R, -0.16 * R], [1.6 * R, -0.03 * R], [1.0 * R, 0.02 * R], [0.9 * R, 0.03 * R]], 14, (x, y, z, c) => c.set(Math.hypot(x, z) > 1.93 * R && h.type === 'straw' ? shade(col, 0.85) : col), { y: -0.02 * R });
       add(G.cyl(1.02 * R, 1.03 * R, 0.16 * R, 12), h.band || P.bubblegum, { y: 0.06 * R, sz: 1.04 });
       if (h.type === 'sunhat') add(G.sphere(8, 6), h.flower || P.sunflower, { x: 0.6 * R, y: 0.1 * R, z: 0.72 * R, s: 0.16 * R });
       top = 0.75 * R;
       break;
     case 'fisherman':
-      add(G.hemi(12, 4), col, { y: -0.18 * R, sx: 1.08 * R, sy: 0.95 * R, sz: 1.1 * R });
-      add(lathe([[1.5 * R, -0.3 * R], [1.3 * R, -0.12 * R], [1.02 * R, 0.0], [0.98 * R, 0.01 * R]], 14), col, { y: -0.14 * R, z: -0.12 * R, rx: -0.18, sz: 1.08 });
+      dome(col, { y: -0.18 * R, sx: 1.08 * R, sy: 0.95 * R, sz: 1.1 * R }, [12, 4]);
+      brim([[1.5 * R, -0.3 * R], [1.3 * R, -0.12 * R], [1.02 * R, 0.0], [0.98 * R, 0.01 * R]], 14, col, { y: -0.14 * R, z: -0.12 * R, rx: -0.18, sz: 1.08 });
       top = 0.78 * R;
       break;
     case 'bucket':
       add(G.cyl(0.86 * R, 1.03 * R, 0.72 * R, 12), col, { y: 0.3 * R, sz: 1.04 });
-      add(lathe([[1.46 * R, -0.22 * R], [1.2 * R, -0.08 * R], [0.98 * R, 0]], 14), col2, { y: -0.04 * R, sz: 1.04 });
+      brim([[1.46 * R, -0.22 * R], [1.2 * R, -0.08 * R], [0.98 * R, 0]], 14, col2, { y: -0.04 * R, sz: 1.04 });
       top = 0.66 * R;
       break;
     case 'police':
       add(lathe([[1.0 * R, 0], [1.02 * R, 0.3 * R], [0.92 * R, 0.7 * R], [0.7 * R, 1.05 * R], [0.4 * R, 1.26 * R], [0, 1.32 * R]], 14), col, { y: -0.25 * R, s: 1.08, sz: 1.12 });
+      add(G.disc(12), lining, { y: -0.25 * R, sx: 1.08 * R, sy: 1, sz: 1.12 * 1.08 * R });
       add(G.cyl(1.12 * R, 1.16 * R, 0.07 * R, 12), col, { y: -0.24 * R, sz: 1.06 });
       add(G.sphere(8, 6), '#dfe5ee', { y: 1.1 * R, s: 0.11 * R });
       add(G.cyl(0.2 * R, 0.2 * R, 0.05 * R, 8), '#e8edf4', { y: 0.28 * R, z: 1.0 * R, rx: Math.PI / 2 - 0.2 });
@@ -822,7 +828,7 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       top = 0.62 * R;
       break;
     case 'cap':
-      add(G.hemi(12, 4), col, { y: -0.16 * R, sx: 1.06 * R, sy: 0.94 * R, sz: 1.1 * R });
+      dome(col, { y: -0.16 * R, sx: 1.06 * R, sy: 0.94 * R, sz: 1.1 * R }, [12, 4]);
       add(G.sphere(12, 6), col2, { y: -0.14 * R, z: 0.98 * R, sx: 0.7 * R, sy: 0.06 * R, sz: 0.58 * R, rx: 0.1 });
       add(G.sphere(6, 4), col2, { y: 0.74 * R, s: 0.08 * R });
       top = 0.76 * R;
@@ -862,7 +868,7 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       break;
     }
     case 'swimcap': { // rubber swim cap with a few flower bumps
-      add(G.hemi(12, 5), col, { y: -0.3 * R, rx: -0.42, sx: 1.08 * R, sy: 1.05 * R, sz: 1.1 * R });
+      dome(col, { y: -0.3 * R, rx: -0.42, sx: 1.08 * R, sy: 1.05 * R, sz: 1.1 * R }, [12, 5]);
       if (h.flowers !== false) {
         for (const [yaw, el] of [[0.5, 0.9], [-0.9, 0.6], [2.2, 0.8], [-2.4, 0.45], [1.3, 0.35], [3.0, 0.2]]) {
           const dir = V(Math.sin(yaw) * Math.cos(el), Math.sin(el), Math.cos(yaw) * Math.cos(el));
@@ -889,7 +895,7 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       top = 0.42 * R;
       break;
     default:
-      add(G.hemi(12, 4), col, { sx: R, sy: 0.7 * R, sz: R });
+      dome(col, { sx: R, sy: 0.7 * R, sz: R }, [12, 4]);
   }
   meta.hatTop = baseY + top;
 }

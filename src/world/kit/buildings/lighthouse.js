@@ -192,10 +192,12 @@ export function lighthouse(opts = {}) {
   // switch box for the lever (the lever itself is a part)
   const leverPos = new THREE.Vector3(-0.95, gy + 0.36, r1 + 0.62);
   kit.at({ x: leverPos.x, y: leverPos.y, z: leverPos.z }, () => {
-    kit.add(cyl(0.07, 0.09, 0.55, 8), ink, { y: 0.27 });
-    kit.add(cbox(0.62, 0.5, 0.42, 0.06), P.tomato, { y: 0.75 });
-    kit.add(box(0.14, 0.14, 0.05), '#6cd66b', { x: -0.16, y: 0.86, z: 0.22 }, materials.glossy);
-    kit.add(box(0.14, 0.14, 0.05), '#ff6b5e', { x: 0.16, y: 0.86, z: 0.22 }, materials.glossy);
+    kit.add(cyl(0.08, 0.1, 0.5, 8), ink, { y: 0.25 });
+    kit.add(cbox(0.8, 0.62, 0.5, 0.07), P.sunflower, { y: 0.78 });
+    kit.add(cbox(0.86, 0.1, 0.56, 0.03), ink, { y: 1.1 });
+    for (let k = 0; k < 3; k++) kit.add(box(0.12, 0.5, 0.02), ink, { x: -0.25 + k * 0.25, y: 0.76, z: 0.26, rz: 0.6 });
+    kit.add(box(0.16, 0.16, 0.05), '#6cd66b', { x: -0.22, y: 0.98, z: 0.27 }, materials.glossy);
+    kit.add(box(0.16, 0.16, 0.05), '#ff6b5e', { x: 0.22, y: 0.98, z: 0.27 }, materials.glossy);
   });
 
   const group = kit.build(new THREE.Group());
@@ -245,13 +247,13 @@ export function lighthouse(opts = {}) {
   const L = opts.beamLength ?? 36;
   const beamMat = new THREE.ShaderMaterial({
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
-      uColor: { value: new THREE.Color(opts.beamColor ?? '#ffe6a8').multiplyScalar(1.6) }, uIntensity: { value: 0 }, uLength: { value: L },
+      uColor: { value: new THREE.Color(opts.beamColor ?? '#ffe6a8').multiplyScalar(2.3) }, uIntensity: { value: 0 }, uLength: { value: L },
     }]),
     vertexShader: beamVert, fragmentShader: beamFrag, fog: true, transparent: true, depthWrite: false,
     blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   });
   beamMat.name = 'lighthouseBeam';
-  const beamGeo = new THREE.ConeGeometry(3.4, L, 20, 1, true).translate(0, -L / 2, 0);
+  const beamGeo = new THREE.ConeGeometry(4.2, L, 20, 1, true).translate(0, -L / 2, 0);
   const beams = [];
   const beam = new THREE.Group();
   beam.name = 'beam';
@@ -273,12 +275,12 @@ export function lighthouse(opts = {}) {
   const lever = new THREE.Group();
   lever.name = 'lever';
   const vk = new Kit('lever');
-  vk.add(cyl(0.05, 0.05, 0.85, 6), '#c9ced6', { y: 0.42 });
-  vk.add(sphere(0.14, 10, 8), P.sunflower, { y: 0.88 }, materials.glossy);
-  vk.add(cyl(0.09, 0.09, 0.24, 8), ink, { rx: Math.PI / 2 });
+  vk.add(cyl(0.06, 0.06, 1.0, 6), '#fff8ee', { y: 0.5 });
+  vk.add(sphere(0.2, 12, 8), P.tomato, { y: 1.04 }, materials.glossy);
+  vk.add(cyl(0.1, 0.1, 0.3, 8), ink, { rx: Math.PI / 2 });
   vk.build(lever);
-  lever.position.set(leverPos.x, leverPos.y + 1.0, leverPos.z + 0.05);
-  addCollider(lever, 0.75, [0, 0.45, 0]);
+  lever.position.set(leverPos.x, leverPos.y + 1.15, leverPos.z + 0.05);
+  addCollider(lever, 0.8, [0, 0.5, 0]);
   group.add(lever);
 
   Object.assign(parts, { lamp, lens, beam, glow, lever, door });

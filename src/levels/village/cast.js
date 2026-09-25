@@ -20,14 +20,14 @@ export class Cast {
   }
 
   /** Create + register a villager. opts: Person options (preset allowed). */
-  person(opts, x, z, ry = 0, action, actionOptions, { y = 0, name, lines } = {}) {
+  person(opts, x, z, ry = 0, action, actionOptions, { y = 0, name, lines, blob = true } = {}) {
     const p = new Person({ ...opts, shadow: false });
     p.root.position.set(x, y, z);
     p.root.rotation.y = ry;
     if (action) p.setAction(action, actionOptions || {}, 0);
     if (name) p.root.name = name;
     this.ctx.actor(p, { name: name || opts.preset || 'villager' });
-    this.shadows.attach(p);
+    if (blob) this.shadows.attach(p);
     this.people.push(p);
     if (lines) this.talkers.push({ p, lines, i: 0 });
     return p;

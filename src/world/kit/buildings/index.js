@@ -17,3 +17,5 @@ export { quay, breakwater, slipway, beach, harbourLand, addBoulder, addMooringBo
 export { lighthouse } from './lighthouse.js';
 export { harbourCottage, beachHut, kiosk, chipShop, HARBOUR_WALLS, HARBOUR_ROOFS } from './seaside.js';
 export { makeWashing, makeGnome } from './house.js';
+export { fishMarket } from './fishmarket.js';
+export { harbourBackdrop } from './harbourBackdrop.js';

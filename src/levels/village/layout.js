@@ -12,7 +12,8 @@ import { gravelPad } from './custom.js';
 // ---------------------------------------------------------------- key coordinates (x, z)
 export const SQUARE = [[-30, -44.5], [30, -44.5], [35, -10], [37, 14.5], [-50.5, 14.5], [-44.6, -3], [-33, -29], [-31, -38]];
 export const FOUNTAIN = [0, -12];
-export const ROAD_PTS = [[-104, 26], [-88, 41], [-66, 46.4], [-20, 47], [20, 47], [40, 46.4], [50.5, 41.5], [55.5, 30], [56.5, 0], [56, -40], [57.5, -72], [63, -96]];
+export const ROAD_PTS = [[-104, 26], [-88, 41], [-66, 46.4], [-20, 47], [20, 47], [58, 46.6], [82, 44.2], [100, 37]];
+export const LANE_PTS = [[53.2, 43.2], [55.6, 34], [56.5, 10], [56.4, -40], [57.6, -72], [62, -96]];
 export const ROAD_Z = 47;
 export const ALLOT = [[-53, 18.5], [-17, 18.5], [-17, 39], [-53, 39]];
 export const FETE = [[13, 18.5], [49, 18.5], [49, 39], [13, 39]];
@@ -111,7 +112,7 @@ function cobblePlaza(poly, { seed = 3, base = P.cobble, name = 'square' } = {}) 
 // ---------------------------------------------------------------- the layout
 export function buildLayout(ctx, S) {
   const root = ctx.root;
-  const L = { anchors: {} };
+  const L = { anchors: {}, rotW: ROT_W, rotE: ROT_E };
   const batch = S.batch;
   const add = (obj, x, z, ry = 0, y = 0) => put(root, obj, x, z, ry, y);
 
@@ -126,9 +127,16 @@ export function buildLayout(ctx, S) {
   root.add(road);
   ctx.surface(road, 'stone');
   L.roadPath = road.userData.path;
-  const paveS = B.pavement({ points: [[-86, 38.2], [-66, 42.2], [-20, 42.8], [20, 42.8], [38, 42.3], [45.5, 39.6]], width: 2.6, kerbSide: 1, seed: 3 });
-  const paveE = B.pavement({ points: [[46.5, 38.5], [50.9, 29.5], [51.9, 0], [51.4, -40], [52.7, -72]], width: 2.6, kerbSide: -1, seed: 4 });
-  const paveSouth = B.pavement({ points: [[-60, 51.4], [-20, 51.2], [20, 51.2], [44, 50.6]], width: 1.8, kerbSide: -1, seed: 6 });
+  const lane = B.road({ points: LANE_PTS, width: 6, kerbs: false, dashes: true, seed: 3 });
+  lane.position.y = -0.012;
+  root.add(lane);
+  ctx.surface(lane, 'stone');
+  L.lanePath = lane.userData.path;
+  batch.add(road, 'stone');
+  batch.add(lane, 'stone');
+  const paveS = B.pavement({ points: [[-86, 38.2], [-66, 42.2], [-20, 42.8], [20, 42.8], [44, 42.5], [50.4, 42.3]], width: 2.6, kerbSide: 1, seed: 3 });
+  const paveE = B.pavement({ points: [[50.9, 40.6], [52.3, 29.5], [52.3, 0], [52.1, -40], [53.4, -72]], width: 2.4, kerbSide: -1, seed: 4 });
+  const paveSouth = B.pavement({ points: [[-60, 51.4], [-20, 51.2], [20, 51.2], [58, 50.9], [80, 48.6]], width: 1.8, kerbSide: -1, seed: 6 });
   for (const p of [paveS, paveE, paveSouth]) { root.add(p); ctx.surface(p, 'stone'); batch.add(p, 'stone'); }
   // paths: square -> road, church door, allotments, fête field
   const paths = [
@@ -166,6 +174,7 @@ export function buildLayout(ctx, S) {
   ctx.onUpdate((dt, t) => church.userData.update(dt, t));
   batch.addMeshes(church, 'stone');
   L.church = church;
+  L.churchAt = { x: CH[0], z: CH[1], ry: CHR };
   // churchyard wall + yews + gate
   const cw = (lx, lz) => local(CH[0], CH[1], CHR, lx, lz);
   const wall = B.lowWall([cw(-12, 10.2), cw(-12, -11), cw(12, -11), cw(12, 10.2), cw(3.2, 10.2)], { seed: 4, height: 0.85 });
@@ -288,7 +297,7 @@ export function buildLayout(ctx, S) {
   const clear = (x, z) => {
     if (inPoly(x, z, SQUARE) || inPoly(x, z, ALLOT) || inPoly(x, z, FETE)) return false;
     if (Math.abs(z - ROAD_Z) < 9 && x > -80 && x < 50) return false;
-    if (x > 47 && x < 62 && z < 40 && z > -80) return false; // east road
+    if (x > 49 && x < 62 && z < 42 && z > -100) return false; // east lane
     if (Math.hypot(x - CH[0], z - CH[1]) < 16) return false;
     if (Math.hypot(x - OAK[0], z - OAK[1]) < 9) return false;
     if (z > 44) return false;
@@ -312,6 +321,7 @@ export function buildLayout(ctx, S) {
   // copses hiding the road ends
   for (let i = 0; i < 12; i++) treePts.push({ x: -96 + rng.range(-9, 9), z: 32 + rng.range(-9, 7), type: rng.pick(['round', 'conifer']) });
   for (let i = 0; i < 10; i++) treePts.push({ x: 60 + rng.range(-8, 8), z: -86 + rng.range(-8, 8), type: rng.pick(['round', 'tall']) });
+  for (let i = 0; i < 12; i++) treePts.push({ x: 96 + rng.range(-9, 9), z: 40 + rng.range(-8, 6), type: rng.pick(['round', 'conifer', 'tall']) });
   // gaps between buildings + yews in the churchyard + a few in the square's corners
   const accents = [
     { x: -28, z: -53, type: 'round' }, { x: -15, z: -56, type: 'tall' }, { x: 15.5, z: -56, type: 'round' }, { x: 28, z: -60, type: 'fruit' },

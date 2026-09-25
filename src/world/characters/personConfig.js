@@ -146,7 +146,7 @@ export const THEMES = {
       const trunksOnly = r.chance(0.45) && !['pigtails', 'bun', 'long', 'bob', 'ponytail'].includes(c.hair.style);
       c.top = trunksOnly ? { type: 'bare', color: c.skin, sleeves: 'none' } : { type: 'swimsuit', color: col, color2: r.pick(['#fff8ee', '#fff8ee', P.sunflower]), sleeves: 'none', stripes: r.chance(0.6) };
       c.bottom = { type: 'trunks', color: trunksOnly ? r.pick(SWIM) : col };
-      c.shoes = c.skin; c.socks = null; c.belt = null; c.boots = null;
+      c.barefoot = true; c.socks = null; c.belt = null; c.boots = null;
       if (c.accessory && !['icecream', 'chips', 'balloon'].includes(c.accessory)) c.accessory = null;
       if (r.chance(0.12)) { c.hat = { type: 'swimcap', color: r.pick(['#fff8ee', P.sunflower, P.bubblegum, P.teal]), color2: r.pick([P.bubblegum, P.sunflower, P.teal]) }; c.glasses = r.chance(0.5) ? 'goggles' : null; }
     } else {
@@ -309,17 +309,17 @@ export const PRESETS = {
   fishmonger: {
     top: { type: 'apron', color: '#fbf7f0', color2: '#fbf7f0', apronStripe: '#3a6ee8', sleeves: 'short' }, bottom: { type: 'trousers', color: '#2f3f6b' },
     boots: '#f4f6f8', hat: { type: 'boater', color: '#f2d27a', band: '#3a6ee8' }, facial: 'moustache', glasses: null,
-    accessory: 'fish', age: 'adult', build: { belly: 0.85, width: 1.2 }, action: 'talk',
+    accessory: 'fish', age: 'adult', build: { belly: 0.85, width: 1.2 }, action: 'hawk',
   },
   swimmer: {
     top: { type: 'swimsuit', color: P.bubblegum, color2: '#fff8ee', sleeves: 'none' }, bottom: { type: 'trunks', color: P.bubblegum },
     hat: { type: 'swimcap', color: '#fff8ee', color2: P.bubblegum, pom: P.sunflower }, glasses: 'goggles', facial: null, accessory: null,
-    face: { blush: true }, age: 'adult', build: { belly: 0.2 }, action: 'tread',
+    face: { blush: true }, barefoot: true, age: 'adult', build: { belly: 0.2 }, action: 'tread',
   },
   sunbather: {
     top: { type: 'swimsuit', color: P.tangerine, color2: '#fff8ee', sleeves: 'none' }, bottom: { type: 'trunks', color: P.tangerine },
     hat: { type: 'sunhat', color: '#f2d27a', band: P.bubblegum, flower: P.tomato }, glasses: 'shades', facial: null, accessory: null,
-    skin: '#ffc2a8', face: { blush: true }, age: 'adult', build: { belly: 0.3 }, action: 'lie',
+    skin: '#ffc2a8', face: { blush: true }, barefoot: true, age: 'adult', build: { belly: 0.3 }, action: 'lie',
   },
   sailorKid: {
     age: 'kid', top: { type: 'sailor', color: '#fbf7f0', collar: '#243056', scarf: P.tomato, sleeves: 'short' }, bottom: { type: 'shorts', color: '#243056' },

@@ -6,6 +6,38 @@ import * as THREE from 'three';
 import { P } from '../../../gfx/palette.js';
 import { materials } from '../../../gfx/materials.js';
 
+/** Demo only: a patch of sea under a floating prop (waterline 3 cm above the stage ground). */
+function onWater(obj, pad = 1.6) {
+  const g = new THREE.Group();
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const w = box.max.x - box.min.x + pad * 2, d = box.max.z - box.min.z + pad * 2;
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), materials.solid('#3aa6dc', { roughness: 0.22 }));
+  water.position.set((box.min.x + box.max.x) / 2, 0.03, (box.min.z + box.max.z) / 2);
+  water.receiveShadow = true;
+  water.userData.scaffold = true;
+  obj.position.y += 0.03;
+  g.add(water, obj);
+  g.name = obj.name;
+  g.userData = obj.userData;
+  return g;
+}
+
+/** Demo only: raise a quayside prop onto a stone quay block whose edge drops to the sea at z = edge. */
+function onQuay(obj, h = 1.4, edge = 0.9) {
+  const g = new THREE.Group();
+  const quay = new THREE.Mesh(new THREE.BoxGeometry(3.4, h, 2.6), materials.solid('#cfc6b8'));
+  quay.position.set(0, h / 2, edge - 1.3);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 3.2).rotateX(-Math.PI / 2), materials.solid('#3aa6dc', { roughness: 0.22 }));
+  water.position.set(0, 0.03, edge + 1.6);
+  for (const m of [quay, water]) { m.castShadow = m === quay; m.receiveShadow = true; m.userData.scaffold = true; }
+  obj.position.y += h;
+  g.add(quay, water, obj);
+  g.name = obj.name;
+  g.userData = obj.userData;
+  return g;
+}
+
 /** Demo only: a stub of garden wall behind a wall-mounted prop. */
 function onWall(obj) {
   const g = new THREE.Group();
@@ -151,5 +183,39 @@ export function catalog() {
   if (has(K.trophy)) add('trophy', 'gags', () => K.trophy({ seed: 1 }));
   if (has(K.goldenSpanner)) add('goldenSpanner', 'gags', () => K.goldenSpanner({ seed: 1 }));
   if (has(K.easel)) add('easel', 'gags', () => K.easel({ seed: 1, painting: 'landscape' }));
+  // Barnacle Bay: boats (float on demo water), dockside, beach
+  if (has(K.fishingBoat)) {
+    add('fishingBoat', 'boats', () => onWater(K.fishingBoat({ seed: 1 })));
+    add('rowboat', 'boats', () => onWater(K.rowboat({ seed: 1 })));
+    add('dinghy', 'boats', () => onWater(K.dinghy({ seed: 1 })));
+    add('ferry', 'boats', () => onWater(K.ferry({ seed: 1 })));
+    add('cargoBoat', 'boats', () => onWater(K.cargoBoat({ seed: 1 })));
+    add('wreckedGalleon', 'boats', () => onWater(K.wreckedGalleon({ seed: 1 }), 0.6));
+  }
+  if (has(K.dockCrane)) {
+    add('dockCrane', 'dockside', () => K.dockCrane({ seed: 1 }));
+    add('foghorn', 'dockside', () => K.foghorn({ seed: 1 }));
+    add('bellBuoy', 'dockside', () => onWater(K.bellBuoy({ seed: 1 })));
+    add('lobsterPot', 'dockside', () => K.lobsterPot({ seed: 1 }));
+    add('fishBox', 'dockside', () => K.fishBox({ seed: 1 }));
+    add('netPile', 'dockside', () => K.netPile({ seed: 1 }));
+    add('snaggedNet', 'dockside', () => onQuay(K.snaggedNet({ seed: 1 })));
+    add('mooringBollard', 'dockside', () => K.mooringBollard({ seed: 1, rope: true }));
+    add('ropeCoil', 'dockside', () => K.ropeCoil({ seed: 1 }));
+    add('lifebuoy', 'dockside', () => K.lifebuoy({ seed: 1 }));
+    add('lifebuoy wall', 'dockside', () => onWall(K.lifebuoy({ seed: 2, mount: 'wall' })));
+    add('anchorProp', 'dockside', () => K.anchorProp({ seed: 1 }));
+  }
+  if (has(K.deckchair)) {
+    add('deckchair', 'beach', () => K.deckchair({ seed: 1 }));
+    add('deckchair b', 'beach', () => K.deckchair({ seed: 4 }));
+    add('windbreak', 'beach', () => K.windbreak({ seed: 1 }));
+    add('sandcastle', 'beach', () => K.sandcastle({ seed: 1 }));
+    add('beachBall', 'beach', () => K.beachBall({ seed: 1 }));
+    add('lifeguardChair', 'beach', () => K.lifeguardChair({ seed: 1 }));
+    add('bucketSpade', 'beach', () => K.bucketSpade({ seed: 1 }));
+    add('surfboard', 'beach', () => K.surfboard({ seed: 1 }));
+    add('crab', 'beach', () => K.crab({ seed: 1 }));
+  }
   return list;
 }

@@ -39,6 +39,8 @@ export const G = {
   torus: (r, tube, rs = 4, ts = 10, arc = Math.PI * 2) => proto(`t${r}.${tube}.${rs}.${ts}.${arc}`, () => new THREE.TorusGeometry(r, tube, rs, ts, arc)),
   box: (w, h, d) => proto(`b${w}.${h}.${d}`, () => new THREE.BoxGeometry(w, h, d)),
   ico: (detail = 1) => proto(`i${detail}`, () => new THREE.IcosahedronGeometry(1, detail)),
+  /** Unit disc facing DOWN (-Y): closes the bottom of hemispheres (hat linings). */
+  disc: (seg = 12) => proto(`d${seg}`, () => new THREE.CircleGeometry(1, seg).rotateX(Math.PI / 2)),
 };
 
 /** Lathe from (r, y) pairs; `cuts` inserts extra rings so colour bands get crisp edges. */

@@ -105,14 +105,17 @@ function build(type, variant = 0) {
       part(box(0.07, 0.02, 0.03), P.tomato, { y: 0.1 }),
       part(box(0.1, 0.12, 0.012), P.sunflower, { y: -0.25, rx: 0.2 }),
     ]);
-    case 'fish': { // a big fish, held by the tail (hangs down from the grip)
-      const body = (x, y, z, c) => c.set(z > 0.3 ? '#dfe9f2' : y > 0.2 ? '#5f86b0' : '#8fb5d6');
+    case 'fish': { // a big cartoon fish, held by the tail (hangs head-down, flat side to the front)
+      const body = (x, y, z, c) => c.set(x > 0.45 ? '#3f6a96' : x < -0.45 ? '#eef4f8' : '#8fb5d6');
       return merge([
-        part(sphere(1, 10, 8), body, { y: -0.2, sx: 0.045, sy: 0.17, sz: 0.075 }),
-        part(cone(0.07, 0.09, 4), '#5f86b0', { y: -0.01, sx: 0.4 }),
-        part(sphere(0.016, 6, 4), '#262634', { x: 0.035, y: -0.3, z: 0.02 }),
-        part(sphere(0.016, 6, 4), '#262634', { x: -0.035, y: -0.3, z: 0.02 }),
-        part(cone(0.03, 0.05, 4), '#5f86b0', { z: -0.06, y: -0.2, rx: -Math.PI / 2, sx: 0.4 }),
+        part(sphere(1, 12, 8), body, { y: -0.24, sx: 0.085, sy: 0.2, sz: 0.042 }),
+        part(cone(0.085, 0.1, 4), '#3f6a96', { y: -0.015, sz: 0.3, ry: Math.PI / 4 }),
+        part(cone(0.035, 0.08, 4), '#ff9f1c', { x: 0.085, y: -0.22, rz: -Math.PI / 2, sz: 0.3 }),
+        part(sphere(0.022, 6, 4), '#fbfaf4', { x: 0.02, y: -0.36, z: 0.035, sz: 0.5 }),
+        part(sphere(0.022, 6, 4), '#fbfaf4', { x: 0.02, y: -0.36, z: -0.035, sz: 0.5 }),
+        part(sphere(0.012, 6, 4), '#262634', { x: 0.02, y: -0.365, z: 0.045, sz: 0.5 }),
+        part(sphere(0.012, 6, 4), '#262634', { x: 0.02, y: -0.365, z: -0.045, sz: 0.5 }),
+        part(sphere(0.02, 6, 4), '#5b2333', { x: -0.01, y: -0.44, sz: 0.6 }),
       ]);
     }
     default: return null;

@@ -34,6 +34,25 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
       limit at ~22:00 UTC and resumed at 23:45 UTC.
 - [ ] Iteration 1 review — first harsh review once Puddleby Green is playable.
 
+## ⏸ PAUSED (2026-09-26 ~00:00 UTC, at the user's request)
+Everything is committed. The game builds and runs with no console errors.
+State of each unfinished stream, and how to resume:
+- **Puddleby Green** (`src/levels/village/`): wired up and playable: 12 jobs, about 465 draw calls,
+  1.3M tris. The designer was mid-polish. Resume: finish the job verification pass and 3 critique
+  rounds, then run `node tools/capture.mjs --level village`.
+- **Tech art**: unfinished renderer/environment changes are parked in `src/core/Renderer.wip.js` and
+  `src/gfx/Environment.wip.js`. They had a post-processing shader compile error
+  (`e2MainImage` overload), so the live files are the last good versions. `src/gfx/post.js`,
+  `src/gfx/water.js` and `sandbox/lookdev.html` are also WIP. Resume: fix the custom effect
+  signature, then move the sun to the perch side.
+- **Hub & perch**: `src/world/perch/` (van + crow's nest) is mostly done; `src/hub/` (3D office) is
+  partial (corkboard/trophy shelf were next). Not yet integrated into Game.js.
+- **Harbour kit** (Barnacle Bay): partial builders exist in kit/buildings (harbour, lighthouse,
+  seaside, fishmarket, harbourBackdrop), kit/props (boats, harbour, beach) and characters (wet.js,
+  new presets/actions). Mid-way through their visual critique rounds.
+- To resume: re-run `/loop` with the prompt in this file's header, and re-brief or resume the six
+  specialists (level designer, tech artist, hub/perch, buildings, props, characters).
+
 ## Backlog (prioritised)
 1. Puddleby Green level: dense, gag-filled, 8–10 jobs + 2 secret jobs + 3 golden spanners.
 2. 3D office hub navigated by shooting (job board flyers, workshop bench, trophy shelf, radio).

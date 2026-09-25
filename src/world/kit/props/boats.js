@@ -143,9 +143,9 @@ export function fishingBoat({ seed = 1, color, number, bob = 1 } = {}) {
 /**
  * rowboat({ seed, color, bob = 1 }) — clinker-style rowing boat with seats and resting oars.
  * The anchor hangs over the bow on its rope. parts: { float, anchor (pivot), anchorRope (pivot, collider),
- * splash (Object3D where the anchor hits the water), seat (Object3D for a rower/snoozer), oars }.
- * userData: dropAnchor() -> Promise (rope pays out, anchor drops, sinks; onSplash(worldPos) fires),
- * anchored.
+ * splash (Object3D where the anchor hits the water), seat (Object3D for a rower/snoozer), oars [L, R]
+ * (pivots at the oarlocks) }. userData: dropAnchor() -> Promise (anchor drops, sinks; onSplash(worldPos)
+ * fires), anchored, rowing (bool: oars sweep in a rowing stroke).
  */
 export function rowboat({ seed = 1, color, bob = 1 } = {}) {
   const rng = new Rng(`rowboat-${seed}`);
@@ -167,19 +167,12 @@ export function rowboat({ seed = 1, color, bob = 1 } = {}) {
     }
   }
   for (const [z, w] of [[-0.95, 1.0], [0.15, 1.24], [1.05, 0.8]]) L.push(part(bev(w, 0.06, 0.26, 0.02), P.woodLight, { y: gw - 0.14, z }));
-  // oarlocks + oars resting in the water
-  const oars = [];
+  // oarlocks (static) - the oars themselves are pivots (see below) so they can row
+  const oarDefs = [];
   for (const side of [-1, 1]) {
-    const lock = [side * 0.68, gw + 0.06, 0.15];
-    L.push(part(arc(0.05, 0.014, Math.PI, 4, 6), '#9aa3b2', { x: lock[0], y: lock[1], z: lock[2], ry: Math.PI / 2 }));
-    const blade = [side * 1.85, -0.02, -0.15];
-    const handle = [side * 0.25, gw + 0.2, 0.28];
-    const oar = [part(rod(handle, blade, 0.03, 6), P.woodLight)];
-    const dir = new THREE.Vector3(...blade).sub(new THREE.Vector3(...handle)).normalize();
-    const yaw = Math.atan2(dir.x, dir.z);
-    oar.push(part(bev(0.16, 0.03, 0.46, 0.012), '#fff8ee', { x: blade[0] - dir.x * 0.15, y: blade[1] - dir.y * 0.15, z: blade[2] - dir.z * 0.15, ry: yaw, rx: -0.15 }));
-    oar.push(part(bev(0.165, 0.035, 0.12, 0.012), P.tomato, { x: blade[0] + dir.x * 0.04, y: blade[1] + dir.y * 0.04, z: blade[2] + dir.z * 0.04, ry: yaw, rx: -0.15 }));
-    L.push(...oar);
+    const lock = new THREE.Vector3(side * 0.68, gw + 0.06, 0.15);
+    L.push(part(arc(0.05, 0.014, Math.PI, 4, 6), '#9aa3b2', { x: lock.x, y: lock.y, z: lock.z, ry: Math.PI / 2 }));
+    oarDefs.push({ side, lock });
   }
   // bow cleat + ring
   const cleatP = new THREE.Vector3(0, h.gunwaleAt(0.93) + 0.03, h.zAt(0.93));
@@ -204,9 +197,26 @@ export function rowboat({ seed = 1, color, bob = 1 } = {}) {
   live.addPiece(rope, part(new THREE.CylinderGeometry(0.018, 0.018, 1, 5, 1, true).translate(0, 0.5, 0), ROPE));
   const ropeCol = collider(new THREE.CylinderGeometry(0.16, 0.16, 1, 6, 1).translate(0, 0.5, 0));
   rope.add(ropeCol);
+  // oars: pivots at the oarlocks, resting with the blades in the water; userData.rowing sweeps them
+  const oars = [];
+  for (const { side, lock } of oarDefs) {
+    const op = pivot(side > 0 ? 'oarR' : 'oarL', lock.x, lock.y, lock.z);
+    const out = new THREE.Vector3(side * 1.25, -0.52, -0.3);
+    const inn = new THREE.Vector3(side * -0.48, 0.16, 0.14);
+    const dir = out.clone().sub(inn).normalize();
+    const yaw = Math.atan2(dir.x, dir.z);
+    const blade = out.clone().addScaledVector(dir, -0.14);
+    live.addPiece(op, merge([
+      part(rod(inn, out, 0.03, 6), P.woodLight),
+      part(bev(0.16, 0.03, 0.46, 0.012), '#fff8ee', { x: blade.x, y: blade.y, z: blade.z, ry: yaw, rx: -0.15 }),
+      part(bev(0.165, 0.035, 0.12, 0.012), P.tomato, { x: out.x, y: out.y, z: out.z, ry: yaw, rx: -0.15 }),
+    ]));
+    op.userData.side = side;
+    oars.push(op);
+  }
   const splash = pivot('splash', anchor.position.x, 0, anchor.position.z);
   const seat = pivot('seat', 0, gw - 0.1, 0.15);
-  g.add(anchor, rope, splash, seat, live);
+  g.add(anchor, rope, splash, seat, ...oars, live);
   g.add(boxCollider(1.5, 0.9, 3.4, { y: 0.2 }));
   const anims = new Anims();
   const ring = new THREE.Vector3();
@@ -220,9 +230,19 @@ export function rowboat({ seed = 1, color, bob = 1 } = {}) {
   aimRope();
   live.build();
   boatFinish(g, { name: 'rowboat', parts: { anchor, anchorRope: rope, splash, seat, oars }, surface: 'wood', bob, seed, anims, heave: 0.045, roll: 0.05 });
+  let stroke = 0;
+  g.userData.rowing = false;
   g.userData.addTick((dt, t) => {
     if (!g.userData.anchored) anchor.rotation.z = 0.12 + Math.sin(t * 1.7 + seed) * 0.08;
     aimRope();
+    if (g.userData.rowing || stroke > 0.001) {
+      stroke = g.userData.rowing ? Math.min(1, stroke + dt * 2) : Math.max(0, stroke - dt * 2);
+      const ph = t * 4.2;
+      for (const op of oars) {
+        op.rotation.y = op.userData.side * Math.sin(ph) * 0.45 * stroke;
+        op.rotation.z = op.userData.side * (Math.cos(ph) * 0.14 - 0.02) * stroke;
+      }
+    }
     live.sync(t);
   });
   g.userData.dropAnchor = () => {
@@ -654,18 +674,39 @@ export function wreckedGalleon({ seed = 1, bob = 0, list = 0.24, coinFloor = 0.3
   });
   const S = [h.geo];
   const gw = h.gunwaleAt(0.5);
-  // castles
+  // castles: planked walls with a gilded band, wooden roof decks behind a low bulwark with gilded
+  // cap rails (open balustrade on the side facing the waist)
+  const GILT = '#e2a93c';
+  const castle = (w, hgt, d, y0, z, bands) => {
+    S.push(part(rbox(w, hgt, d, 0.15, 2), '#8a5530', { y: y0 + hgt / 2, z }));
+    for (const [y, c] of bands) S.push(part(bev(w + 0.06, c === GILT ? 0.1 : 0.05, d + 0.06, 0.02), c, { y: y0 + y, z }));
+    const top = y0 + hgt;
+    S.push(part(bev(w + 0.1, 0.12, d + 0.1, 0.04), '#a8764a', { y: top, z }));
+    const wallH = 0.3;
+    for (const sx of [-1, 1]) {
+      S.push(part(bev(0.1, wallH, d, 0.02), '#8a5530', { x: sx * (w / 2 - 0.02), y: top + wallH / 2, z }));
+      S.push(part(bev(0.16, 0.06, d + 0.06, 0.02), GILT, { x: sx * (w / 2 - 0.02), y: top + wallH + 0.02, z }));
+    }
+    return { top, wallH };
+  };
   const aft = h.zAt(0) + 1.6;
-  S.push(part(rbox(3.5, 1.8, 3.1, 0.15, 2), '#8a5530', { y: gw + 0.65, z: aft }));
-  S.push(part(bev(3.62, 0.18, 3.2, 0.05), '#e2a93c', { y: gw + 1.5, z: aft }));
+  const ac = castle(3.5, 1.8, 3.1, gw - 0.25, aft, [[0.4, '#6e4222'], [1.5, GILT]]);
+  // stern wall + open rail to the waist
+  S.push(part(bev(3.5, ac.wallH, 0.1, 0.02), '#8a5530', { y: ac.top + ac.wallH / 2, z: aft - 1.53 }));
+  S.push(part(bev(3.56, 0.06, 0.16, 0.02), GILT, { y: ac.top + ac.wallH + 0.02, z: aft - 1.53 }));
+  S.push(part(bev(3.56, 0.06, 0.12, 0.02), GILT, { y: ac.top + ac.wallH + 0.02, z: aft + 1.53 }));
+  for (let i = 0; i < 7; i++) S.push(part(new THREE.CylinderGeometry(0.035, 0.05, ac.wallH, 5), '#6e4222', { x: -1.5 + i * 0.5, y: ac.top + ac.wallH / 2, z: aft + 1.53 }));
   for (const x of [-0.9, 0, 0.9]) {
     S.push(part(bev(0.62, 0.72, 0.06, 0.03), '#2e3b52', { x, y: gw + 0.72, z: aft - 1.56 }));
-    S.push(part(bev(0.74, 0.84, 0.04, 0.03), '#e2a93c', { x, y: gw + 0.72, z: aft - 1.54 }));
+    S.push(part(bev(0.74, 0.84, 0.04, 0.03), GILT, { x, y: gw + 0.72, z: aft - 1.54 }));
   }
-  S.push(part(lathe([[0.05, 0], [0.16, 0.08], [0.16, 0.32], [0.08, 0.42], [0.02, 0.5]], 6), '#e2a93c', { x: 1.5, y: gw + 1.6, z: aft - 1.3 }));
+  S.push(part(lathe([[0.05, 0], [0.16, 0.08], [0.16, 0.32], [0.08, 0.42], [0.02, 0.5]], 6), GILT, { x: 1.45, y: ac.top + ac.wallH + 0.05, z: aft - 1.53 }));
   const fore = h.zAt(1) - 1.8;
-  S.push(part(rbox(2.4, 0.8, 1.9, 0.12, 2), '#8a5530', { y: h.gunwaleAt(0.83) + 0.2, z: fore }));
-  S.push(part(bev(2.5, 0.12, 2.0, 0.04), '#e2a93c', { y: h.gunwaleAt(0.83) + 0.62, z: fore }));
+  const fc = castle(2.4, 0.8, 1.9, h.gunwaleAt(0.83) - 0.2, fore, [[0.62, GILT]]);
+  S.push(part(bev(2.1, 0.06, 0.12, 0.02), GILT, { y: fc.top + fc.wallH + 0.02, z: fore + 0.93 }));
+  S.push(part(bev(2.1, fc.wallH, 0.08, 0.02), '#8a5530', { y: fc.top + fc.wallH / 2, z: fore + 0.93 }));
+  for (let i = 0; i < 5; i++) S.push(part(new THREE.CylinderGeometry(0.035, 0.05, fc.wallH, 5), '#6e4222', { x: -0.9 + i * 0.45, y: fc.top + fc.wallH / 2, z: fore - 0.93 }));
+  S.push(part(bev(2.1, 0.06, 0.12, 0.02), GILT, { y: fc.top + fc.wallH + 0.02, z: fore - 0.93 }));
   // gunports along the gold wale
   for (let i = 0; i < 5; i++) {
     const z = -2.6 + i * 1.25;

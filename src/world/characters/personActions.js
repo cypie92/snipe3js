@@ -17,6 +17,7 @@ export const PersonPose = createPoseType([
   'lFL', 'lOL', 'lTL', 'kL',
   'lFR', 'lOR', 'lTR', 'kR',
   'lid', 'lidT', 'browY', 'browT', 'mouth', 'smile', 'eyeX', 'eyeY',
+  'hat', // 0..1: hat tipped forward over the eyes (snoozing, sunbathing)
 ]);
 
 const both = (o, k, v) => { o[k + 'L'] = v; o[k + 'R'] = v; };
@@ -217,6 +218,7 @@ export const ACTIONS = {
     }
     // head drooped, bobbing with breath; every ~9s it jerks awake for a moment
     const jerk = win(T % 9.3, 7.6, 8.3, 0.08, 0.4);
+    o.hat = 0.55 * (1 - jerk);
     o.nrx = 0.42 + 0.06 * br - 0.35 * jerk; o.nrz = 0.28 * (1 - jerk);
     o.lid = 1 - 0.55 * jerk; o.mouth = (0.22 + 0.14 * Math.max(0, br)) * (1 - jerk);
     o.smile = -0.2; o.browY = -0.2 + jerk * 0.6;
@@ -422,7 +424,7 @@ export const ACTIONS = {
   tread(o, t, s, opt) {
     const T = t * s.tempo + s.phase;
     const d = s.d;
-    o.by = -(d.shY - 0.06) + 0.03 * Math.sin(T * 2.4);
+    o.by = -(d.shY - 0.03) + 0.03 * Math.sin(T * 2.4);
     const sc = Math.sin(T * 3.1);
     both(o, 'aO', 0.95); both(o, 'aF', 0.4); both(o, 'eB', 0.55);
     o.aTL = 0.25 + 0.4 * sc; o.aTR = 0.25 - 0.4 * sc; o.wWL = 0.4 * sc; o.wWR = -0.4 * sc;
@@ -524,6 +526,7 @@ export const ACTIONS = {
     } else {
       o.brx = -Math.PI / 2; o.by = 0.2; o.bz = d.top * 0.45;
       o.nrx = 0.5; o.nry = 0.15 * noise(T * 0.15, s.seed);
+      o.hat = opt.hatOverFace === false ? 0 : 1;
       both(o, 'aO', 2.3); both(o, 'aF', 0.25); both(o, 'eS', -1.5); both(o, 'eB', 0.25);
       const knee = win(T % 14, 2, 9, 0.8, 0.8);
       o.lFL = -0.22 + 0.9 * knee; o.kL = 0.1 + 1.35 * knee; o.lFR = -0.22; o.kR = 0.08;
@@ -608,8 +611,20 @@ export const ACTIONS = {
     breathe(o, T, s, 0.5);
     const scan = 0.75 * Math.sin(T * 0.33) + 0.15 * Math.sin(T * 0.9);
     o.sry += 0.45 * scan; o.nry = 0.45 * scan; o.nrx = -0.06;
-    both(o, 'aF', 1.3); both(o, 'aT', 0.62); both(o, 'eB', 1.72); both(o, 'aO', 0.32); both(o, 'wB', -0.2);
+    both(o, 'aF', 2.05); both(o, 'aT', 0.5); both(o, 'eB', 0.4); both(o, 'aO', 0.08); both(o, 'wB', 0.3);
     o.lid = 0.05; o.smile = 0.1; o.browY = 0.2;
+  },
+
+  hawk(o, t, s) { // market trader holding up the catch: "Fresh fiiish!" (hand cupped to the mouth)
+    const T = t * s.tempo + s.phase;
+    breathe(o, T, s);
+    const shout = win(T % 3.6, 0.4, 2.1, 0.15, 0.3);
+    const jig = Math.sin(T * 7) * 0.12;
+    o.aFR = 0.8 + jig; o.aOR = 0.85; o.aTR = -0.1; o.eBR = 0.35; o.wBR = 0.2;
+    o.aFL = lerp(0.2, 1.25, shout); o.aTL = lerp(0.1, 0.68, shout); o.eBL = lerp(0.3, 2.0, shout); o.aOL = lerp(0.1, 0.3, shout);
+    o.srx = -0.06 * shout; o.nrx = -0.12 * shout; o.nry = 0.2 * noise(T * 0.3, s.seed) * (1 - shout) - 0.15 * shout;
+    o.mouth = shout * (0.55 + 0.35 * Math.max(0, Math.sin(T * 9))) + 0.1; o.browY = 0.6 * shout; o.smile = 0.5;
+    o.by = 0.02 * Math.abs(Math.sin(T * 3.5)) * shout;
   },
 
   whistle(o, t, s) { // lifeguard blowing the whistle, other arm waving swimmers in

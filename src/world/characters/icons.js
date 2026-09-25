@@ -157,6 +157,33 @@ export function iconMaterial(type) {
   return cache.get(key);
 }
 
+/** Soft white double ring lying on the water (swimmers, floating birds). Uses the blob-shadow quad. */
+export function rippleMaterial() {
+  if (!cache.has('ripple')) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    const ring = (r, w, a) => {
+      const g = ctx.createRadialGradient(64, 64, Math.max(0, r - w), 64, 64, r + w);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.5, `rgba(255,255,255,${a})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(64, 64, r + w, 0, Math.PI * 2); ctx.arc(64, 64, Math.max(0, r - w), 0, Math.PI * 2, true); ctx.fill();
+    };
+    ring(34, 7, 0.95);
+    ring(54, 6, 0.55);
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.MeshBasicMaterial({
+      color: '#f4fbff', alphaMap: tex, transparent: true, opacity: 0.7, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    });
+    mat.name = 'ripple';
+    cache.set('ripple', mat);
+  }
+  return cache.get('ripple');
+}
+
 /** Camera flash burst sprite (additive). */
 export function makeFlash() {
   if (!cache.has('flashMat')) {

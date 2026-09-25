@@ -71,6 +71,33 @@ export function meshFrom(parts, material = materials.toy, name) {
 
 export { part, merge, xform };
 
+// ------------------------------------------------------------------ little behaviour helpers
+/** Cycle a character through [action, seconds, opts] steps (skips while it is reacting). */
+export function routine(ctx, p, steps, start = 0) {
+  const r = { p, steps, i: 0, t: start, on: true };
+  ctx.onUpdate((dt) => {
+    if (!r.on || p.busy) return;
+    r.t -= dt;
+    if (r.t > 0) return;
+    const [name, dur, opts] = r.steps[r.i++ % r.steps.length];
+    if (typeof name === 'function') name(p);
+    else p.setAction(name, opts || {});
+    r.t = dur;
+  });
+  return r;
+}
+
+/** Every `seconds` (number or () => number) while cond() holds, run fn. */
+export function every(ctx, seconds, fn, { cond = () => true, start } = {}) {
+  const next = () => (typeof seconds === 'function' ? seconds() : seconds);
+  let t = start ?? next();
+  ctx.onUpdate((dt) => {
+    if (!cond()) return;
+    t -= dt;
+    if (t <= 0) { t = next(); fn(); }
+  });
+}
+
 // ------------------------------------------------------------------ static batching
 const KEEP = ['position', 'normal', 'color', 'uv'];
 

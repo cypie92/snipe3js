@@ -13,7 +13,7 @@ import {
   reactPose, celebratePose, REACT_DURATION, CELEBRATE_DURATION,
 } from './personActions.js';
 import { Blender, clamp, damp, dampAngle, lerp, bump, wrapAngle, TAU, smooth } from './anim.js';
-import { IconPop, Snore, blobShadow, makeFlash } from './icons.js';
+import { IconPop, Snore, blobShadow, makeFlash, rippleMaterial } from './icons.js';
 import { makeProp, makeOar, FishLine, ROD_TIP, PROP_TYPES } from './props.js';
 import { setWet } from './wet.js';
 
@@ -365,9 +365,16 @@ export class Person {
     ss.x = lying ? 0 : o.bx * sc; ss.z = lying ? 0 : o.bz * sc; ss.size = size * sc; ss.sz = lying ? 2.3 : 1;
     ss.visible = this.root.visible && !wet;
     if (this.shadow) {
-      this.shadow.visible = !wet;
-      this.shadow.scale.set(size, 1, size * ss.sz);
-      this.shadow.position.set(ss.x / sc, 0.012 / sc, ss.z / sc);
+      if (wet) { // the blob quad becomes a ripple ring on the water around the swimmer
+        if (!this._blobMat) { this._blobMat = this.shadow.material; this.shadow.material = rippleMaterial(); }
+        const r = this.shadowSize * (1.45 + 0.1 * Math.sin(this.time * 2.6 + s.phase));
+        this.shadow.scale.set(r, 1, r * (cur === 'swim' ? 1.3 : 1));
+        this.shadow.position.set(o.bx, 0.012 / sc, o.bz + this.meta.d.shY * Math.sin(o.brx) * 0.8);
+      } else {
+        if (this._blobMat) { this.shadow.material = this._blobMat; this._blobMat = null; }
+        this.shadow.scale.set(size, 1, size * ss.sz);
+        this.shadow.position.set(ss.x / sc, 0.012 / sc, ss.z / sc);
+      }
     }
   }
 
@@ -557,6 +564,13 @@ export class Person {
     _q.setFromEuler(_e.set(-o.eyeY * 0.3, o.eyeX * 0.4, 0));
     B.pupilL.quaternion.copy(this.rest.pupilL).multiply(_q);
     B.pupilR.quaternion.copy(this.rest.pupilR).multiply(_q);
+    if (B.hat && B.hat.parent === B.head && (!this.hatState || this.hatState.phase === 'done')) {
+      const k = clamp(o.hat, 0, 1); // tip the hat forward over the eyes
+      B.hat.quaternion.copy(this.rest.hat.quat).multiply(_q.setFromEuler(_e.set(1.15 * k, 0, 0)));
+      B.hat.position.copy(this.rest.hat.pos);
+      B.hat.position.y -= 0.12 * k * this.meta.d.HS;
+      B.hat.position.z += 0.1 * k * this.meta.d.HS;
+    }
   }
 
   // ------------------------------------------------------------------------------ hat flight

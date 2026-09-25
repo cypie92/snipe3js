@@ -32,9 +32,9 @@ export function buildDressing(ctx, S, L) {
   };
   for (const [k, [x, z]] of Object.entries(lampSpots)) {
     const tall = ['NW', 'NE', 'SW', 'SE'].includes(k);
-    const lamp = K.lampPost({ seed: x * 7 + z, height: tall ? 4.6 : 4.2, arms: tall ? 2 : 1, color: tall ? '#2f4858' : undefined });
-    add(lamp, x, z, facePerch(x, z) + (tall ? Math.PI / 2 : 0), { surface: 'metal' });
-    D.lamps[k] = { x, z, top: tall ? 4.45 : 4.1 };
+    const lamp = K.lampPost({ seed: x * 7 + z, height: tall ? 4.6 : 4.2, arms: tall ? 2 : 1, color: tall ? '#2f4858' : undefined, tilt: tall ? 0 : undefined });
+    add(lamp, x, z, facePerch(x, z), { surface: 'metal' });
+    D.lamps[k] = { x, z, top: tall ? 4.62 : 4.4 };
   }
 
   // ------------------------------------------------------------ market (south of the fountain)
@@ -52,7 +52,7 @@ export function buildDressing(ctx, S, L) {
   // crates, sacks and baskets around the stalls
   const clutter = [
     [K.crate({ seed: 71, contents: 'apples' }), -19.6, 2.8, 0.3], [K.crate({ seed: 72, contents: 'oranges' }), -15.4, 3.3, -0.2],
-    [K.sack({ seed: 73, label: true }), -12.6, 4.2, 0.4], [K.crate({ seed: 74 }), -8.2, 3.9, 0.1],
+    [K.sack({ seed: 73, label: P.tomato }), -12.6, 4.2, 0.4], [K.crate({ seed: 74 }), -8.2, 3.9, 0.1],
     [K.crate({ seed: 75, contents: 'apples' }), 8.3, 4.1, -0.3], [K.sack({ seed: 76, color: '#e8d2a0' }), 12.7, 4.3, 0.2],
     [K.crate({ seed: 77 }), 15.1, 3.4, 0.25], [K.crate({ seed: 78, size: 0.7 }), 15.2, 3.4, 0.6],
     [K.barrel({ seed: 79 }), 19.9, 2.4, 0], [K.crate({ seed: 80, size: 0.7, contents: 'oranges' }), -21.4, -0.6, 0.5],
@@ -63,7 +63,7 @@ export function buildDressing(ctx, S, L) {
 
   // ------------------------------------------------------------ benches, bins, planters in the square
   const benches = [
-    [-7.5, -20.5, Math.PI - 0.3], [7.5, -20.5, Math.PI + 0.3], [-24, -12, 1.4], [24, -14, -1.4],
+    [-7.5, -20.5, 0.72], [7.5, -20.5, -0.72], [-24, -12, 1.4], [24, -14, -1.4],
     [-31, 3.5, 0.9], [27.5, 9.5, -0.6], [-4, -38.5, 0.05], [6, -38.5, -0.05],
   ];
   for (const [x, z, ry] of benches) add(K.bench({ seed: x * 3 + z }), x, z, ry, { surface: 'wood' });
@@ -104,7 +104,7 @@ export function buildDressing(ctx, S, L) {
   const bk = L.west[1];
   for (const [lx, lz] of [[2.4, 1.3], [2.9, 1.6]]) {
     const [x, z] = local(bk.front[0], bk.front[1], ROT_W, lx, lz);
-    add(K.sack({ seed: 93 + lx, color: '#f4efe4', label: true }), x, z, ROT_W + lx, { surface: 'soft' });
+    add(K.sack({ seed: 93 + lx, color: '#f4efe4', label: P.cobalt }), x, z, ROT_W + lx, { surface: 'soft' });
   }
   // the post box + phone kiosk in front of the terrace
   add(B.postBox({}), -16.6, -43.1, 0.1, { surface: 'metal' });
@@ -195,7 +195,7 @@ export function buildDressing(ctx, S, L) {
     B.hedgeRow([[48.5, 17.5], [48.5, 38.5]], { seed: 32, height: 1.1, flowers: 0.3 }),
     B.hedgeRow([[-60, 53.5], [-9, 53.5]], { seed: 33, height: 1.0 }),
     B.hedgeRow([[9, 53.5], [44, 53.5]], { seed: 34, height: 1.0 }),
-    B.hedgeRow([[24, -40.6], [24, -64]], { seed: 35, height: 1.0, flowers: 0.5, flowerColor: '#ffb8c2' }),
+    B.hedgeRow([[26.4, -46.5], [26.4, -64]], { seed: 35, height: 1.0, flowers: 0.5, flowerColor: '#ffb8c2' }),
     B.hedgeRow([[-12, 17.5], [-3, 17.5]], { seed: 36, height: 0.8, flowers: 0.6 }),
     B.hedgeRow([[3, 17.5], [11, 17.5]], { seed: 37, height: 0.8, flowers: 0.6 }),
   ];

@@ -9,6 +9,7 @@ import {
   bev, lathe, puck, ball, rod, arc, slab, latheBands, lettering, mesh, pivot, finish,
   boxCollider, ballCollider, Anims, ease, LiveMesh, shade, lean,
 } from './lib.js';
+import { mooringBollard } from './harbour.js';
 
 const TYRE = '#3b3f4f';
 const INK = '#2b2b3a';
@@ -181,8 +182,12 @@ export function bin({ seed = 1, color, overflow = false } = {}) {
 
 // ---------------------------------------------------------------- bollard
 
-/** bollard({ seed, color, band }) — chunky street bollard, 1 draw call. */
-export function bollard({ seed = 1, color, band, tilt = 0.04 } = {}) {
+/**
+ * bollard({ seed, color, band, style: 'street'|'mooring', rope }) — chunky street bollard, 1 draw call.
+ * style 'mooring' = cast-iron harbour bollard (same as mooringBollard(); rope adds a mooring line).
+ */
+export function bollard({ seed = 1, color, band, tilt = 0.04, style = 'street', rope = false } = {}) {
+  if (style === 'mooring') return mooringBollard({ seed, color, rope });
   const rng = new Rng(`bollard-${seed}`);
   const c = color || rng.pick(['#34466e', '#2f6e5c', '#4a5566']);
   const b = band || rng.pick(['#fff4e0', P.gold]);

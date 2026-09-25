@@ -121,20 +121,40 @@ function backdropSet() {
 }
 
 function harbour() {
-  const sea = B.SEA_LEVEL;
-  put(B.lighthouse({ lit: params.get('lit') === '1' }), 14, -58, 0, 'lighthouse');                     // 0
-  put(B.breakwater({ points: [[10, 8], [16, -20], [14, -52]], seed: 2 }), 0, 0, 0, 'breakwater');         // 1
-  put(B.quay({ points: [[-46, 10], [-10, 10], [8, 10]], steps: [18], ladders: [6, 30], seed: 3 }), 0, 0, 0, 'quay (south)'); // 2
-  put(B.quay({ points: [[-46, -40], [-46, 10]], side: 1, ladders: 1, seed: 4 }), 0, 0, 0, 'quay (west)');      // 3
-  put(B.slipway({}), -30, 10, Math.PI, 'slipway');                                                        // 4
-  put(B.beach({ width: 34, depth: 18 }), 40, 4, Math.PI, 'beach');                                        // 5
-  put(B.harbourLand([[-90, 10], [26, 10], [26, 60], [-90, 60]], { top: 'paved' }), 0, 0, 0);            // 6
-  put(B.harbourLand([[-90, -60], [-46, -60], [-46, 10], [-90, 10]], { top: 'paved' }), 0, 0, 0);        // 7
-  put(B.harbourLand([[23, 4], [90, 4], [90, 60], [23, 60]], { top: 'grass' }), 0, 0, 0);               // 8
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#3aa7d8', roughness: 0.25 }));
-  water.position.y = sea;
-  stage.scene.add(water);
-  stage.extent = 70;
+  // Barnacle Bay mock-up: north = -Z, perch at (0, 12, 64). Sea level -1.6, quay tops at 0.
+  const lit = params.get('lit') === '1';
+  const open = params.get('open') === '1';
+  put(B.lighthouse({ lit }), 14, -66, 0.35, 'lighthouse');                                                 // 0
+  put(B.breakwater({ points: [[44, -8], [38, -40], [20, -60]], seed: 2, endRadius: 0 }), 0, 0, 0, 'breakwater'); // 1
+  put(B.fishMarket({}), -64, -22, Math.PI / 2, 'fish market');                                             // 2
+  put(B.chipShop({ open }), -36, 30, 0.25, 'chip shop');                                                   // 3
+  put(B.kiosk({ kind: 'icecream' }), 28, 24, -0.5, 'ice-cream kiosk');                                     // 4
+  put(B.kiosk({ kind: 'tickets' }), -8, 22, 0.1, 'ticket kiosk');                                          // 5
+  put(B.beachHut({ color: '#ff8fab', number: 3, open }), 47, 10, -Math.PI / 2 + 0.2, 'beach hut (pink)');   // 6
+  put(B.beachHut({ color: '#6fd3c7', number: 4 }), 49.5, 14.5, -Math.PI / 2 + 0.15, 'beach hut');           // 7
+  put(B.beachHut({ color: '#ffd23f', number: 5 }), 51.5, 19, -Math.PI / 2 + 0.1, 'beach hut');             // 8
+  put(B.harbourCottage({ seed: 1, floors: 3, balconies: 'top', washing: true }), -58, 34, 0.15, 'harbour cottage'); // 9
+  put(B.quay({ points: [[-46, 16], [-10, 16], [30, 16]], steps: [22], ladders: [8, 44], seed: 3 }), 0, 0, 0, 'quay (south)'); // 10
+  put(B.quay({ points: [[-46, -58], [-46, 16]], side: 1, ladders: 2, seed: 4 }), 0, 0, 0, 'quay (west)');     // 11
+  put(B.slipway({}), -20, 16, Math.PI, 'slipway');                                                          // 12
+  put(B.beach({ width: 30, depth: 20, seed: 5 }), 44, 16, -Math.PI / 2 - 0.05, 'beach');                    // 13
+  put(B.harbourBackdrop({ seed: 11 }), 0, 0, 0);                                                            // 14
+  // land: harbour road (south) + west quay land + east hill behind the beach
+  put(B.harbourLand([[-110, 16], [30, 16], [30, 110], [-110, 110]], { top: 'cobble' }), 0, 0, 0);          // 15
+  put(B.harbourLand([[-110, -80], [-46, -80], [-46, 16], [-110, 16]], { top: 'cobble' }), 0, 0, 0);        // 16
+  put(B.harbourLand([[56, -40], [110, -40], [110, 110], [56, 110]], { top: 'grass' }), 0, 0, 0);          // 17
+  put(B.harbourLand([[30, 16], [56, 16], [56, 110], [30, 110]], { top: 'grass' }), 0, 0, 0);              // 18
+  // stacked cottages up the east and west hillsides (each higher one sits on a taller stone base)
+  const stacks = [
+    [-80, 30, 0, 0.2, 21], [-86, 14, 2.5, 0.35, 22], [-92, -4, 5, 0.5, 23], [-78, -40, 1.5, 0.9, 24],
+    [66, 30, -0.1 + 0, -0.3, 31], [74, 16, 2.5, -0.45, 32], [80, 0, 5, -0.6, 33], [68, -18, 7.5, -0.9, 34],
+  ];
+  stacks.forEach(([x, z, y, ry, seed], i) => {
+    const c = B.harbourCottage({ seed, base: y > 0 ? y : 0, washing: i % 2 === 0 });
+    c.position.y = y;
+    put(c, x, z, ry, i === 2 ? 'stacked cottages' : undefined);
+  });
+  stage.extent = 90;
 }
 
 ({ village, houses, shops, civic, small, ground, backdrop: backdropSet, harbour })[set]?.();

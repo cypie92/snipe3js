@@ -444,20 +444,35 @@ export function fishBox({ seed = 1, propped = true } = {}) {
 
 // ---------------------------------------------------------------- nets, bollards, rope, lifebuoy, anchor
 
-function netPaint(geo, a = '#3d7a6e', b = '#6fae9c', k = 7) {
-  return paintFaces(geo, (x, y, z, nx, ny, nz, c) => c.set((Math.floor((x + z) * k) + Math.floor((x - z) * k)) % 2 ? a : b));
+// dark netting with a lighter diagonal mesh of cords (per-face paint on a finely tessellated blob)
+function netPaint(geo, a = '#2b5d54', b = '#a3d4c0', k = 4.2, w = 0.2) {
+  const fr = (v) => v - Math.floor(v);
+  return paintFaces(geo, (x, y, z, nx, ny, nz, c) => {
+    const f1 = fr((x + z) * k + y * 1.5), f2 = fr((x - z) * k - y * 1.5);
+    c.set(f1 < w || f2 < w ? b : a);
+  });
 }
 
-/** netPile({ seed }) — heap of fishing net with floats and a trailing rope. 1 draw call. */
+/** netPile({ seed }) — heap of folded fishing net with a cork line of floats and a trailing rope. 1 draw call. */
 export function netPile({ seed = 1 } = {}) {
   const rng = new Rng(`netpile-${seed}`);
-  const L = [netPaint(part(blob(0.7, 1, 0.14, seed), '#fff', { y: 0.2, sx: 1.25, sy: 0.42, sz: 0.95 }))];
-  L.push(netPaint(part(blob(0.4, 1, 0.16, seed + 3), '#fff', { x: 0.55, y: 0.14, z: 0.35, sy: 0.4 }), '#2f6e62', '#5fa08e'));
-  for (let i = 0; i < 9; i++) {
-    const a = i * 1.7 + rng.range(-0.3, 0.3), r = rng.range(0.3, 0.75);
-    L.push(part(ball(0.085, 0), i % 3 ? P.tangerine : '#fff8ee', { x: Math.cos(a) * r, y: 0.3 + rng.range(-0.05, 0.08), z: Math.sin(a) * r * 0.75 }));
+  const E = [0.875, 0.3, 0.665]; // main heap half-extents, centred at y 0.2
+  const L = [netPaint(part(blob(0.7, 2, 0.12, seed), '#fff', { y: 0.2, sx: E[0] / 0.7, sy: E[1] / 0.7, sz: E[2] / 0.7 }))];
+  L.push(netPaint(part(blob(0.4, 2, 0.14, seed + 3), '#fff', { x: 0.55, y: 0.14, z: 0.35, sy: 0.4 }), '#2f6a5e', '#b5dccb'));
+  // cork line: a rope spiralling over the heap with floats threaded on it
+  const pts = [];
+  for (let i = 0; i <= 14; i++) {
+    const th = i * 0.62 + rng.range(-0.1, 0.1), rr = 0.95 - i * 0.045;
+    const x = Math.cos(th) * E[0] * rr, z = Math.sin(th) * E[2] * rr;
+    const q = 1 - (x / E[0]) ** 2 - (z / E[2]) ** 2;
+    pts.push(new THREE.Vector3(x, 0.2 + E[1] * Math.sqrt(Math.max(0, q)) + 0.03, z));
   }
-  L.push(part(tube([new THREE.Vector3(-0.6, 0.15, 0.2), new THREE.Vector3(-1.0, 0.04, 0.5), new THREE.Vector3(-1.2, 0.04, 1.0), new THREE.Vector3(-0.9, 0.04, 1.3)], 0.03, 10, 4), ROPE));
+  L.push(part(tube(pts, 0.022, 40, 4), ROPE));
+  for (let i = 1; i < pts.length; i += 2) {
+    const p = pts[i];
+    L.push(part(ball(0.085, 0), i % 3 ? P.tangerine : '#fff8ee', { x: p.x, y: p.y + 0.03, z: p.z }));
+  }
+  L.push(part(tube([pts[0], new THREE.Vector3(1.08, 0.07, -0.05), new THREE.Vector3(1.35, 0.04, 0.5), new THREE.Vector3(1.25, 0.04, 1.1)], 0.026, 12, 4), ROPE));
   const g = new THREE.Group();
   g.add(mesh(L, materials.toy, 'nets'));
   return finish(g, { name: 'netPile', parts: {}, surface: 'soft' });
@@ -498,7 +513,7 @@ export function snaggedNet({ seed = 1 } = {}) {
   const net = pivot('net', 0, 0.55, 0.05);
   const cols = 6, rows = 8, W = 1.5, Ln = 2.6;
   const pos = [], colA = [];
-  const ca = new THREE.Color('#3d7a6e'), cb = new THREE.Color('#7fb8a6');
+  const dark = [new THREE.Color('#2b5d54'), new THREE.Color('#34695e')], cord = new THREE.Color('#a3d4c0');
   const at = (k, r) => {
     const u = k / cols - 0.5, v = r / rows;
     const x = u * W * (0.55 + v * 0.6);
@@ -506,16 +521,33 @@ export function snaggedNet({ seed = 1 } = {}) {
     const y = -(Math.max(0, v - 0.35) ** 1.6) * 2.2 - v * 0.2;
     return [x, y, z];
   };
+  // double-sided triangle: the upper copy faces up and sits `off` above the sheet, the lower one below
+  const tri = (p1, p2, p3, col, off) => {
+    const ux = p2[0] - p1[0], uz = p2[2] - p1[2], vx = p3[0] - p1[0], vz = p3[2] - p1[2];
+    const up = uz * vx - ux * vz > 0 ? [p1, p2, p3] : [p1, p3, p2];
+    for (const [side, seq] of [[1, up], [-1, [up[0], up[2], up[1]]]]) {
+      for (const p of seq) { pos.push(p[0], p[1] + side * off, p[2]); colA.push(col.r, col.g, col.b); }
+    }
+  };
+  // thin cord lying along a -> b on the sheet, widened along the cell's other diagonal (c -> d)
+  const cordStrip = (a, b, c, d) => {
+    const w = [d[0] - c[0], d[1] - c[1], d[2] - c[2]];
+    const s = 0.024 / Math.hypot(...w);
+    const o = w.map((x) => x * s);
+    const a1 = a.map((x, i) => x - o[i]), a2 = a.map((x, i) => x + o[i]);
+    const b1 = b.map((x, i) => x - o[i]), b2 = b.map((x, i) => x + o[i]);
+    tri(a1, a2, b1, cord, 0.02);
+    tri(a2, b2, b1, cord, 0.02);
+  };
+  // dark netting with a lighter diamond mesh of cords on both faces (reads as net, not cloth)
   for (let r = 0; r < rows; r++) {
     for (let k = 0; k < cols; k++) {
       const a = at(k, r), b = at(k + 1, r), c2 = at(k, r + 1), d2 = at(k + 1, r + 1);
-      const col = (k + r) % 2 ? ca : cb;
-      for (const [p1, p2, p3] of [[a, c2, b], [b, c2, d2]]) {
-        for (const side of [1, -1]) {
-          const seq = side > 0 ? [p1, p2, p3] : [p1, p3, p2];
-          for (const p of seq) { pos.push(p[0], p[1] + side * 0.008, p[2]); colA.push(col.r, col.g, col.b); }
-        }
-      }
+      const col = dark[(k * 7 + r * 3) % 5 === 0 ? 1 : 0];
+      tri(a, c2, b, col, 0.008);
+      tri(b, c2, d2, col, 0.008);
+      cordStrip(a, d2, b, c2);
+      cordStrip(b, c2, a, d2);
     }
   }
   const ng = new THREE.BufferGeometry();

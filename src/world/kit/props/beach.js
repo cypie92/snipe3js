@@ -329,7 +329,7 @@ export function surfboard({ seed = 1, color, stand = true } = {}) {
   if (stand) {
     m.position.y = Lb / 2 - 0.28;
     m.rotation.set(0.12, rng.range(-0.3, 0.3), rng.range(-0.1, 0.1));
-    g.add(part && new THREE.Mesh(merge([part(new THREE.ConeGeometry(0.3, 0.12, 8), WET, { y: 0.03 })]), materials.toy));
+    g.add(mesh([part(new THREE.ConeGeometry(0.3, 0.12, 8), WET, { y: 0.03 })], materials.toy, 'sandMound'));
   } else {
     m.rotation.x = -Math.PI / 2;
     m.position.y = 0.05;

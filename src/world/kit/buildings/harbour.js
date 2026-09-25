@@ -7,6 +7,7 @@ import { box, cyl, ico, torus, jitter } from '../../geo.js';
 import { hash3 } from '../../../core/rng.js';
 import { P } from '../../../gfx/palette.js';
 import { labelMaterial } from './signs.js';
+import { cobbleTexture } from './ground.js';
 
 export const SEA_LEVEL = -1.6;
 export const HARBOUR_STONE = { base: '#bdb4a4', light: '#d8d0c1', dark: '#968d7e', algae: '#6f8450', wet: '#5d625a', barnacle: '#f3eee4' };
@@ -346,7 +347,15 @@ export function slipway(opts = {}) {
   kit.add(prism([[0, 0], [L, endY], [L, endY - 2], [0, -2]], W - 0.05), S.dark, { ry: -Math.PI / 2, x: 0 });
   for (const s of [-1, 1]) {
     kit.at({ x: s * (W / 2 + 0.25) }, () => {
-      kit.addFaces(prism([[0, 0.45], [L, endY + 0.45], [L, endY - 2], [0, -2]], 0.5), (x, y, z, c) => masonry(c, y, seaLevel, hash3(Math.floor(z), Math.floor(y * 2), 5)), { ry: -Math.PI / 2 });
+      const wallG = new THREE.BoxGeometry(0.5, 1, 1, 1, 8, Math.ceil(L / 1.1));
+      const wp = wallG.attributes.position;
+      for (let i = 0; i < wp.count; i++) {
+        const z = (wp.getZ(i) + 0.5) * L;
+        const topY = yAt(z) + 0.45, botY = yAt(z) - 2;
+        wp.setXYZ(i, wp.getX(i), botY + (wp.getY(i) + 0.5) * (topY - botY), z);
+      }
+      wallG.computeVertexNormals();
+      kit.addFaces(wallG, (x, y, z, c) => masonry(c, y, seaLevel, hash3(Math.floor(z / 1.1), Math.floor(y / 0.4), 5)));
       kit.add(box(0.62, 0.14, len + 0.1), S.light, { y: yAt(L / 2) + 0.5, z: L / 2, rx: ang });
     });
   }
@@ -475,19 +484,39 @@ export function beach(opts = {}) {
 export function harbourLand(points, opts = {}) {
   const seaLevel = opts.seaLevel ?? SEA_LEVEL;
   const kit = new Kit('harbourLand');
+  const bottom = seaLevel - 3;
+  const top = opts.top ?? 'grass';
+  // sides: a closed sweep of a vertical profile with a vertex row every masonry course
+  const prof = [];
+  for (let y = bottom; y < -0.02; y += 0.45) prof.push([0, y]);
+  prof.push([0, -0.02]);
+  // sweep faces point to the right of travel: walk the outline so that right = outside
+  let area = 0;
+  for (let i = 0; i < points.length; i++) { const [x0, z0] = points[i], [x1, z1] = points[(i + 1) % points.length]; area += x0 * z1 - x1 * z0; }
+  const ring = (area > 0 ? points.slice().reverse() : points).map(([x, z]) => new THREE.Vector3(x, 0, z));
+  const sides = sweep(prof.map(([x, y]) => [x, y]), ring, { closed: true, caps: false });
+  kit.addFaces(sides, (x, y, z, c) => {
+    const i = Math.floor((y + 50) / 0.45);
+    masonry(c, y, seaLevel, hash3(Math.floor((x * 0.7 + z * 0.7 + (i % 2) * 0.6) / 1.2), i, 1));
+  }, undefined, materials.toy);
+  // top cap
   const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
-  const depth = -seaLevel + 3;
-  const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 4 });
-  g.rotateX(-Math.PI / 2).translate(0, -depth, 0);
-  const topHex = { grass: P.grass, paved: '#d9d0bf', sand: '#f4dfa8' }[opts.top ?? 'grass'] ?? opts.top;
-  kit.addFaces(g, (x, y, z, c) => {
-    if (y > -0.05) c.set(topHex);
-    else masonry(c, y, seaLevel, hash3(Math.floor(x + z), Math.floor(y * 2), 1));
-  }, undefined, opts.top === 'grass' || !opts.top ? materials.facet : materials.toy);
+  const cap = new THREE.ShapeGeometry(shape, 2).rotateX(-Math.PI / 2);
   const group = kit.build(new THREE.Group());
+  if (top === 'cobble') {
+    const m = new THREE.Mesh(cap, cobbleTexture({ seed: opts.seed ?? 1, base: opts.color ?? '#d6c9b0', tile: 4 }));
+    m.name = 'landTop';
+    m.receiveShadow = true;
+    group.add(m);
+  } else {
+    const tk = new Kit('landTop');
+    const hex = { grass: P.grass, paved: '#d9d0bf', sand: '#f4dfa8' }[top] ?? top;
+    tk.add(cap, hex, undefined, top === 'grass' ? materials.facet : materials.toy);
+    tk.build(group);
+  }
   group.name = opts.name ?? 'harbourLand';
   group.userData.kind = 'harbourLand';
-  group.userData.surface = opts.top === 'sand' ? 'soft' : 'stone';
+  group.userData.surface = top === 'sand' ? 'soft' : top === 'grass' ? 'grass' : 'stone';
   group.userData.parts = {};
   return group;
 }

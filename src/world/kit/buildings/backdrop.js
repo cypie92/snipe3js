@@ -56,6 +56,33 @@ const seaFrag = /* glsl */ `
   }
 `;
 
+const oceanFrag = /* glsl */ `
+  #include <common>
+  #include <fog_pars_fragment>
+  uniform float uTime;
+  uniform vec3 uNear, uFar;
+  varying vec3 vWorld;
+  float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  void main() {
+    float d = length(vWorld.xz);
+    vec3 col = mix(uNear, uFar, smoothstep(60.0, 700.0, d));
+    // soft swell bands
+    float sw = sin(vWorld.x * 0.045 + vWorld.z * 0.09 + uTime * 0.7) * sin(vWorld.x * 0.11 - vWorld.z * 0.03 - uTime * 0.5);
+    col *= 1.0 + sw * 0.06;
+    vec3 V = normalize(cameraPosition - vWorld);
+    float graze = 1.0 - clamp(V.y, 0.0, 1.0);
+    // glitter: denser toward the horizon
+    float dist = length(cameraPosition - vWorld);
+    vec2 g = floor(vWorld.xz * vec2(1.4, 2.6) * clamp(40.0 / dist, 0.18, 1.0) + vec2(uTime * 0.3, 0.0));
+    float tw = step(0.992 - 0.05 * graze * graze, h21(g)) * (0.5 + 0.5 * sin(uTime * 4.0 + h21(g + 7.0) * 40.0));
+    col += vec3(1.0, 0.96, 0.86) * tw * (0.25 + 1.1 * graze * graze);
+    col = mix(col, col + vec3(0.18, 0.22, 0.24), pow(graze, 6.0));
+    gl_FragColor = vec4(col, 1.0);
+    #include <colorspace_fragment>
+    #include <fog_fragment>
+  }
+`;
+
 /**
  * backdrop({ radius = 800, inner = 105, seed, seaAngle, windmill, spire, hedgeRange }).
  * Angles are measured from -Z (the perch's forward view) toward +X, in radians.
@@ -77,7 +104,13 @@ export function backdrop(opts = {}) {
   const spireAt = place(opts.spireAngle ?? 0.22, opts.spireDist ?? Math.min(radius * 0.62, 500));
   const bumps = [[...windmillAt, 20, 70], [...spireAt, 12, 90]];
 
+  // bay mode (harbour): sea north of a coastline that sweeps out into two headlands
+  const bay = opts.bay ?? null;
+  const seaLevel = bay ? (bay.seaLevel ?? -1.6) : 0;
+  const coastZ = (x) => -(bay.coastDist ?? 95) - (bay.headlandDepth ?? 430) * smooth(bay.mouth ?? 150, (bay.mouth ?? 150) + 300, Math.abs(x))
+    + (vnoise(x * 0.011, 3.3, ns + 7) - 0.5) * 46;
   const seaMask = (x, z) => {
+    if (bay) return smooth(9, -9, z - coastZ(x));
     if (opts.sea === false) return 0;
     const a = angOf(x, z), r = Math.hypot(x, z);
     return smooth(seaHalf + 0.16, seaHalf, angDiff(a, seaAngle)) * smooth(inner + 40, inner + 120, r);
@@ -92,11 +125,17 @@ export function backdrop(opts = {}) {
     h += smooth(radius * 0.55, radius, r) * 38 * (0.6 + 0.8 * vnoise(x * 0.006, z * 0.006, ns + 3));
     for (const [bx, bz, amp, w] of bumps) h += amp * Math.exp(-((x - bx) ** 2 + (z - bz) ** 2) / (w * w));
     const m = seaMask(x, z);
+    if (bay) {
+      // cliffs: land stays high right up to the coastline, then drops to the seabed
+      const land = (h + 2 + (bay.cliff ?? 16) * smooth(0, 70, z - coastZ(x))) * ramp - (1 - ramp) * 0.6;
+      return land * (1 - m) + (seaLevel - 9) * m;
+    }
     const coast = opts.coast ?? inner + 145;
     const coastH = lerp(0.35, -7, smooth(coast - 14, coast + 25, r));
     h = (h + 1.0) * (1 - m) + coastH * m;
     return h * ramp - (1 - ramp) * 0.6;
   }
+  const steep = (x, z) => Math.abs(heightAt(x + 2.5, z) - heightAt(x - 2.5, z)) + Math.abs(heightAt(x, z + 2.5) - heightAt(x, z - 2.5)) > 3.4;
 
   // ---------------- patchwork fields (jittered-grid Voronoi)
   const C = opts.fieldSize ?? 62;
@@ -150,14 +189,21 @@ export function backdrop(opts = {}) {
     let hex = fieldType(f.id);
     if (hex === 'wood') hex = woodGround;
     const sm = seaMask(cx, cz);
-    if (sm > 0.3) hex = mix(hex, cy < 0.8 ? '#e8d29a' : '#8fd35e', clamp((sm - 0.3) * 2, 0, 1));
-    hex = mix(hex, P.grass, 1 - smooth(inner + 8, inner + 45, r));
+    const e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], e2 = [Cc[0] - A[0], Cc[1] - A[1], Cc[2] - A[2]];
+    const ny = e1[2] * e2[0] - e1[0] * e2[2];
+    if (bay) {
+      const nx = e1[1] * e2[2] - e1[2] * e2[1], nz = e1[0] * e2[1] - e1[1] * e2[0];
+      const up = Math.abs(ny) / Math.max(1e-6, Math.hypot(nx, ny, nz));
+      const hr = hash3(cx * 0.21, cz * 0.19, 2.2);
+      if (cy < seaLevel - 2.5) hex = '#6f9a94';
+      else if (up < 0.62) hex = hr < 0.5 ? '#c2ab86' : hr < 0.8 ? '#ab9a80' : '#d1bf98';
+      else if (cy < seaLevel + 1.6) hex = '#f0dca6';
+    } else if (sm > 0.3) hex = mix(hex, cy < 0.8 ? '#e8d29a' : '#8fd35e', clamp((sm - 0.3) * 2, 0, 1));
+    hex = mix(hex, P.grass, (1 - smooth(inner + 8, inner + 45, r)) * (bay && cy < seaLevel + 1.6 ? 0 : 1));
     c.set(hex);
     const jit = (hash3(cx * 0.37, cz * 0.53, 4.1) - 0.5) * 0.06 + clamp(cy / 90, 0, 0.25) * 0.15;
     c.offsetHSL(0, 0, jit);
     // winding: ensure faces point up
-    const e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], e2 = [Cc[0] - A[0], Cc[1] - A[1], Cc[2] - A[2]];
-    const ny = e1[2] * e2[0] - e1[0] * e2[2];
     const tri = ny >= 0 ? [A, B, Cc] : [A, Cc, B];
     for (const v of tri) { pos.push(v[0], v[1], v[2]); col.push(c.r, c.g, c.b); }
   };
@@ -199,7 +245,7 @@ export function backdrop(opts = {}) {
   for (let x = -hedgeMax; x <= hedgeMax; x += step) {
     for (let z = -hedgeMax; z <= hedgeMax; z += step) {
       const r = Math.hypot(x, z);
-      if (r > hedgeMax || inPlay(x, z) || seaMask(x, z) > 0.4) continue;
+      if (r > hedgeMax || inPlay(x, z) || seaMask(x, z) > 0.4 || (bay && steep(x, z))) continue;
       const f = nearest(x, z);
       if (f.edge > step * 0.62) continue;
       if (hash3(x * 0.1, z * 0.1, 9.9) > 0.9) continue;
@@ -221,7 +267,7 @@ export function backdrop(opts = {}) {
     for (let z = -radius * 0.8; z <= radius * 0.8; z += 11) {
       const jx = x + (hash3(x, z, 3.3) - 0.5) * 9, jz = z + (hash3(z, x, 4.4) - 0.5) * 9;
       const r = Math.hypot(jx, jz);
-      if (r < inner + 30 || r > radius * 0.82 || seaMask(jx, jz) > 0.2) continue;
+      if (r < inner + 30 || r > radius * 0.82 || seaMask(jx, jz) > 0.2 || (bay && steep(jx, jz))) continue;
       const f = nearest(jx, jz);
       if (fieldType(f.id) !== 'wood' || f.edge < 3) continue;
       const y = heightAt(jx, jz);
@@ -239,7 +285,7 @@ export function backdrop(opts = {}) {
   for (let i = 0; i < (opts.loneTrees ?? 90); i++) {
     const a = rng.range(0, TAU), r = rng.range(inner + 30, radius * 0.75);
     const x = Math.sin(a) * r, z = -Math.cos(a) * r;
-    if (seaMask(x, z) > 0.2) continue;
+    if (seaMask(x, z) > 0.2 || (bay && steep(x, z))) continue;
     roundT.push({ x, y: heightAt(x, z) - 0.3, z, s: rng.range(0.9, 1.5), ry: rng.range(0, TAU) });
     roundC.push(wobbleColor(rng, '#ffffff', 0.08, 0.05, 0.02));
   }
@@ -287,7 +333,7 @@ export function backdrop(opts = {}) {
   const hamlets = opts.hamlets ?? [[-0.25, 250, 6], [0.95, 330, 5], [-1.25, 420, 6], [0.42, 215, 3], [-0.85, 560, 4], [1.5, 470, 4], [0.1, 640, 5]];
   for (const [a, r, n] of hamlets) {
     const [hx, hz] = place(a, r);
-    if (seaMask(hx, hz) > 0.3) continue;
+    if (seaMask(hx, hz) > 0.3 || (bay && steep(hx, hz))) continue;
     for (let i = 0; i < n; i++) {
       const x = hx + rng.range(-28, 28), z = hz + rng.range(-22, 22);
       const y = heightAt(x, z);
@@ -350,9 +396,27 @@ export function backdrop(opts = {}) {
   rotor.rotation.y = faceA;
   group.add(rotor);
 
-  // ---------------- sea glint
+  // ---------------- sea: open ocean (bay mode) or a glint through a valley
   let seaMat = null;
-  if (opts.sea !== false) {
+  let seaMesh = null;
+  if (bay && opts.sea !== false) {
+    seaMat = new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+        uTime: { value: 0 }, uNear: { value: new THREE.Color(bay.near ?? '#2fb3d9') }, uFar: { value: new THREE.Color(bay.far ?? '#1f78c8') },
+        uCoast: { value: 0 },
+      }]),
+      vertexShader: seaVert, fragmentShader: oceanFrag, fog: true,
+    });
+    seaMat.name = 'ocean';
+    const R = radius * 2.4;
+    const sg = (opts.seaInner ?? 0) > 0 ? new THREE.RingGeometry(opts.seaInner, R, 96, 8) : new THREE.CircleGeometry(R, 96);
+    sg.rotateX(-Math.PI / 2);
+    seaMesh = new THREE.Mesh(sg, seaMat);
+    seaMesh.position.y = seaLevel;
+    seaMesh.name = 'sea';
+    seaMesh.receiveShadow = true;
+    group.add(seaMesh);
+  } else if (opts.sea !== false) {
     seaMat = new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
         uTime: { value: 0 }, uCoast: { value: opts.coast ?? inner + 145 },
@@ -364,15 +428,18 @@ export function backdrop(opts = {}) {
     const phi = Math.PI / 2 - seaAngle;
     const span = seaHalf + 0.25;
     const sg = new THREE.RingGeometry((opts.coast ?? inner + 145) - 20, radius * 1.3, 36, 3, phi - span, span * 2).rotateX(-Math.PI / 2);
-    const sea = new THREE.Mesh(sg, seaMat);
-    sea.position.y = 0.12;
-    sea.name = 'sea';
-    group.add(sea);
+    seaMesh = new THREE.Mesh(sg, seaMat);
+    seaMesh.position.y = 0.12;
+    seaMesh.name = 'sea';
+    group.add(seaMesh);
   }
 
   group.userData.kind = 'backdrop';
   group.userData.heightAt = heightAt;
-  group.userData.parts = { terrain, windmillSails: rotor, windmill: new THREE.Vector3(wx, wy, wz), spire: new THREE.Vector3(spireAt[0], heightAt(...spireAt), spireAt[1]) };
+  group.userData.parts = { terrain, sea: seaMesh, windmillSails: rotor, windmill: new THREE.Vector3(wx, wy, wz), spire: new THREE.Vector3(spireAt[0], heightAt(...spireAt), spireAt[1]) };
+  group.userData.seaMask = seaMask;
+  group.userData.seaLevel = seaLevel;
+  if (bay) group.userData.coastZ = coastZ;
   group.userData.update = (dt, t) => {
     rotor.rotation.z -= dt * 0.55;
     if (seaMat) seaMat.uniforms.uTime.value = t;

@@ -291,9 +291,9 @@ function applyMask() {
 // ---------------------------------------------------------------- A/B toggles
 function applyToggles(o = {}) {
   const r = renderer;
+  if (r.setToggles) { r.setToggles(o); return; }
   if ('ao' in o && r.ao) r.ao.enabled = !!o.ao;
   if ('bloom' in o && r.bloom) r.bloom.blendMode.opacity.value = o.bloom ? 1 : 0;
-  r.setToggles?.(o);
 }
 const initial = {};
 for (const k of ['ao', 'bloom', 'outline', 'grade', 'tilt', 'dof', 'shadows']) if (params.has(k)) initial[k] = flag(k, true);

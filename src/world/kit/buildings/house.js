@@ -253,7 +253,7 @@ export function buildHouse(kit, opts = {}) {
   if (o.base > 0) {
     const bh = o.base, front = 1.6;
     const bd = D + 0.4 + front;
-    kit.addFaces(box(W + 0.4, bh, bd), (x, y, z, c) => {
+    kit.addFaces(new THREE.BoxGeometry(W + 0.4, bh, bd, Math.ceil((W + 0.4) / 1.1), Math.ceil(bh / 0.45), Math.ceil(bd / 1.1)), (x, y, z, c) => {
       const i = Math.floor((y + 50) / 0.45);
       const h = hash3(Math.floor((x + z + (i % 2) * 0.55) / 1.1), i, 7.7);
       c.set(shade(h > 0.75 ? '#d8d0c1' : h < 0.25 ? '#968d7e' : '#bdb4a4', (h - 0.5) * 0.05));
