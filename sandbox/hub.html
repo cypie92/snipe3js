@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Hub — Jack's Odd Jobs HQ</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #log { position: fixed; right: 10px; top: 10px; font: 12px/1.35 monospace; color: #fff8ee; background: rgba(43,43,58,.8);
+    padding: 6px 9px; border-radius: 8px; pointer-events: none; white-space: pre; display: none; z-index: 9; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"></div>
+<div id="log"></div>
+<script type="module">
+// Office hub sandbox with mock game deps (real renderer / post / lighting).
+// URL params:
+//   levels=<n> (mock count, default 3) | real=1 (use src/levels registry)   stars=<n> coins=<n>
+//   grades=village:A:2,harbour:S:4   (id:grade:stars, overrides the mock progress)
+//   hover=<target>        simulate the cursor resting on a target (tooltip + lift)
+//   shoot=<t1>,<t2>       fire darts at targets one after another (see __office.targetNames())
+//   after=<sec>           simulated seconds to run after the scripted actions (default 0.9)
+//   freeze=0              keep simulating after the script (default: freeze for a stable screenshot)
+//   radio=0  preset=<name>  quality=low|medium|high  cam=wide|top|side (debug views)  stats=1  noui=1
+// Console / --eval helpers: __office (Office), __sim(seconds) advances the simulation in fixed steps.
+import '@fontsource/fredoka/400.css';
+import '@fontsource/fredoka/500.css';
+import '@fontsource/fredoka/600.css';
+import '@fontsource/fredoka/700.css';
+import '@fontsource/patrick-hand/400.css';
+import * as THREE from 'three';
+import { Renderer } from '../src/core/Renderer.js';
+import { Environment } from '../src/gfx/Environment.js';
+import { sound, loadAudio } from '../src/core/sound.js';
+import { whenFontsReady } from '../src/world/perch/paint.js';
+import { Office } from '../src/hub/Office.js';
+
+const params = new URLSearchParams(location.search);
+const num = (k, d) => (params.has(k) ? Number(params.get(k)) : d);
+const canvas = document.getElementById('c');
+const logEl = document.getElementById('log');
+const log = (msg) => {
+  console.log(`[hub] ${msg}`);
+  logEl.style.display = 'block';
+  logEl.textContent = `${msg}\n${logEl.textContent}`.split('\n').slice(0, 8).join('\n');
+};
+
+await whenFontsReady();
+await loadAudio().catch(() => null);
+
+const renderer = new Renderer({ canvas, quality: params.get('quality') || 'high' });
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 3500);
+scene.add(camera);
+const env = new Environment(scene, renderer.renderer, { shadowMapSize: renderer.q.shadowMapSize });
+if (params.get('preset')) env.apply(params.get('preset'));
+renderer.attach(scene, camera);
+renderer.renderer.info.autoReset = false;
+const resize = () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+};
+addEventListener('resize', resize);
+resize();
+
+// ---- mock deps
+let levels;
+if (params.get('real') === '1') {
+  const reg = await import('../src/levels/index.js');
+  levels = reg.boardLevels().map((l) => ({ id: l.id, name: l.name, location: l.location, unlockStars: l.unlockStars || 0, parTime: l.parTime }));
+} else {
+  levels = [
+    { id: 'village', name: 'Puddleby Green', location: 'Village Square', unlockStars: 0, parTime: 210 },
+    { id: 'harbour', name: 'Barnacle Bay', location: 'The Harbour', unlockStars: 3, parTime: 240 },
+    { id: 'farm', name: 'Wobbleton Farm', location: 'Farmyard', unlockStars: 6, parTime: 240 },
+    { id: 'park', name: 'Pickle Park', location: 'Park & Pond', unlockStars: 9, parTime: 240 },
+    { id: 'airfield', name: 'Muddlecombe Airfield', location: 'Airfield', unlockStars: 12, parTime: 270 },
+    { id: 'testrange', name: 'Test Range', location: 'Dev playground', unlockStars: 0, parTime: 90 },
+  ].slice(0, num('levels', 3));
+}
+const records = {};
+for (const g of (params.get('grades') ?? 'village:A:2').split(',').filter(Boolean)) {
+  const [id, grade, stars] = g.split(':');
+  records[id] = { grade, stars: Number(stars) || 0 };
+}
+const progress = {
+  coins: num('coins', 340),
+  get stars() { return params.has('stars') ? num('stars', 0) : Object.values(records).reduce((s, r) => s + r.stars, 0); },
+  level: (id) => records[id] || { grade: null, stars: 0 },
+};
+
+const sfxLog = [];
+const soundProxy = { ...sound, sfx: (name, o) => { sfxLog.push(name); sound.sfx(name, o); } };
+const tBuild = performance.now();
+const office = new Office({
+  scene, camera, canvas, env, sound: soundProxy, progress, levels, ui: document.getElementById('ui'),
+  radioOn: params.get('radio') !== '0',
+  onAction: (a) => {
+    log(`onAction ${JSON.stringify(a)}`);
+    window.__actions.push(a);
+  },
+});
+window.__buildMs = Math.round(performance.now() - tBuild);
+console.log(`[hub] office built in ${window.__buildMs} ms`);
+window.__actions = [];
+window.__office = office;
+window.__renderer = renderer;
+window.__sfx = sfxLog;
+office.enter();
+if (params.get('noui') === '1') office.hud.show(false);
+
+// ---- loop (fixed-step simulation helper for deterministic captures)
+let t = 0;
+let frozen = false;
+const STEP = 1 / 30;
+function step(dt) {
+  t += dt;
+  office.update(dt, t);
+  debugCam();
+  env.update(dt, camera);
+}
+window.__sim = (seconds) => {
+  for (let s = 0; s < seconds; s += STEP) step(STEP);
+};
+function debugCam() {
+  const view = params.get('cam');
+  if (!view) return;
+  const V = {
+    wide: [[0, 15, 30], [0, 1, -2]], top: [[0, 26, 4], [0, 0, -0.5]], side: [[16, 7, 8], [0, 1.4, -0.5]], front: [[0, 2.2, 7.5], [0, 1.8, -3]],
+    board: [[-0.6, 2.1, 2.2], [-0.65, 1.9, -3]], desk: [[-1.0, 2.1, 3.6], [-2.2, 0.95, 0.9]], pidge: [[-2.2, 1.9, -0.4], [-3.3, 1.45, -2.9]],
+    bench: [[2.4, 2.1, 0.9], [3.0, 1.55, -2.6]], cat: [[1.6, 1.3, 2.2], [0.7, 0.3, 0.3]], right: [[1.2, 2.2, 2.4], [4.4, 1.3, -0.4]],
+    cab: [[2.3, 1.7, 3.9], [4.0, 0.95, 1.1]],
+  }[view];
+  if (!V) return;
+  office.root.updateMatrixWorld();
+  camera.position.set(...V[0]).applyMatrix4(office.root.matrixWorld);
+  const tgt = new THREE.Vector3(...V[1]).applyMatrix4(office.root.matrixWorld);
+  camera.lookAt(tgt);
+  camera.fov = 40;
+  camera.updateProjectionMatrix();
+}
+
+let last = performance.now();
+let frames = 0;
+let scripted = false;
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (!frozen) step(dt);
+  renderer.renderer.info.reset();
+  renderer.render(dt);
+  frames++;
+  if (frames === 3 && !scripted) {
+    scripted = true;
+    runScript();
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function runScript() {
+  window.__sim(1.5); // let the intro camera settle
+  const hover = params.get('hover');
+  const shots = (params.get('shoot') || '').split(',').filter(Boolean);
+  for (const name of shots) {
+    if (!office.debugShoot(name)) log(`unknown target ${name}`);
+    window.__sim(0.5);
+  }
+  if (hover && !office.debugHover(hover)) log(`unknown target ${hover}`);
+  window.__sim(num('after', 0.9));
+  if (hover) office.debugHover(hover);
+  if ((hover || shots.length) && params.get('freeze') !== '0') frozen = true;
+  const s = office.stats();
+  window.__shotInfo = { ...s, buildMs: window.__buildMs, drawCalls: renderer.renderer.info.render.calls, frameTris: renderer.renderer.info.render.triangles, actions: window.__actions, sfx: sfxLog.slice(-8) };
+  if (params.get('stats') === '1') log(`office meshes ${s.calls}  tris ${s.tris}  gl calls/frame ${renderer.renderer.info.render.calls}`);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.__shotInfo.drawCalls = renderer.renderer.info.render.calls;
+    window.__shotInfo.frameTris = renderer.renderer.info.render.triangles;
+    window.__ready = true;
+  }));
+}
+</script>
+</body>
+</html>

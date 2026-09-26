@@ -2,10 +2,10 @@
 // visible dart projectile (slight arc), darts that stick with a squash + shaft wobble ("thwock"),
 // then drop off, tumble, bounce on the floor and shrink away. All darts = ONE InstancedMesh.
 import * as THREE from 'three';
-import { part, merge, xform, rbox } from '../world/geo.js';
+import { part, merge, rbox } from '../world/geo.js';
 import { materials } from '../gfx/materials.js';
 import { P } from '../gfx/palette.js';
-import { lathe, ball, puck, bev } from '../world/kit/props/lib.js';
+import { lathe, ball, bev } from '../world/kit/props/lib.js';
 
 const MAX = 24;
 const LIFE = [6.5, 9.5];
@@ -76,7 +76,8 @@ export class Darts {
     this.root = root;
     this.camera = camera;
     this.floorY = floorY;
-    this.mesh = new THREE.InstancedMesh(dartGeometry(), materials.toy, MAX);
+    // darts are toy-exaggerated (1.25x) so they still read from the hub camera ~15 m away
+    this.mesh = new THREE.InstancedMesh(dartGeometry().scale(1.25, 1.25, 1.25), materials.toy, MAX);
     this.mesh.name = 'darts';
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
@@ -86,7 +87,8 @@ export class Darts {
     root.add(this.mesh);
     this.list = [];
     this.gun = popGun();
-    this.gun.position.set(0.36, -0.3, -0.82);
+    this.gun.position.set(0.36, -0.245, -0.9);
+    this.gun.scale.setScalar(0.44);
     this.gunAim = new THREE.Quaternion();
     this.recoil = 0;
     this.recoilV = 0;
@@ -110,19 +112,19 @@ export class Darts {
 
   muzzleWorld(out = new THREE.Vector3()) {
     this.gun.updateMatrixWorld(true);
-    return out.set(0, 0, -0.44).applyMatrix4(this.gun.matrixWorld);
+    return out.set(0, 0, -0.46).applyMatrix4(this.gun.matrixWorld);
   }
 
   /**
    * Fire a dart from the gun to `point` (world). normal = surface normal (world) or null.
    * attach = Object3D the dart sticks to (or null for a bounce-off). onHit(dart) at impact.
    */
-  fire(point, normal, attach, { bounce = false, onHit } = {}) {
+  fire(point, normal, attach, { bounce = false, vanish = false, onHit } = {}) {
     const from = this.muzzleWorld();
     const dist = from.distanceTo(point);
     const d = {
       state: 'fly', t: 0, dur: THREE.MathUtils.clamp(dist / 34, 0.12, 0.36),
-      from, to: point.clone(), normal: normal ? normal.clone() : null, attach, bounce, onHit,
+      from, to: point.clone(), normal: normal ? normal.clone() : null, attach, bounce, vanish, onHit,
       arc: Math.min(0.9, dist * 0.045), spin: Math.random() * Math.PI * 2, age: 0, local: new THREE.Matrix4(),
       pos: new THREE.Vector3(), quat: new THREE.Quaternion(), vel: new THREE.Vector3(), ang: new THREE.Vector3(),
       life: LIFE[0] + Math.random() * (LIFE[1] - LIFE[0]), bounces: 0, shrink: 1,
@@ -175,8 +177,8 @@ export class Darts {
     this.gun.quaternion.slerp(this.gunAim, 1 - Math.exp(-dt * 16));
     this.recoilV += (-120 * this.recoil - 14 * this.recoilV) * dt;
     this.recoil += this.recoilV * dt;
-    this.gun.position.z = -0.82 + this.recoil * 0.1;
-    this.gun.position.y = -0.3 - this.recoil * 0.02;
+    this.gun.position.z = -0.9 + this.recoil * 0.05;
+    this.gun.position.y = -0.245 - this.recoil * 0.01;
     if (this.reload > 0) {
       this.reload -= dt;
       if (this.reload <= 0) this.gun.userData.loaded.visible = true;
@@ -201,6 +203,10 @@ export class Darts {
         d.quat.setFromUnitVectors(Z, dir.negate()).multiply(_q.setFromAxisAngle(Z, d.spin + d.t * 12));
         d.pos.copy(p);
         if (u >= 1) this.impact(d);
+        if (d.state === 'dead') {
+          this.list.splice(k, 1);
+          continue;
+        }
       }
       if (d.state === 'stuck' && d.age > d.life) this.drop(d);
       if (d.state === 'fall') {
@@ -248,6 +254,10 @@ export class Darts {
 
   impact(d) {
     d.pos.copy(d.to);
+    if (d.vanish) {
+      d.state = 'dead';
+      return;
+    }
     if (d.bounce || !d.attach) {
       // boing: ricochet off (animals) — flies back a little and drops
       d.state = 'bounce';

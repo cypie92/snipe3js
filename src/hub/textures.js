@@ -317,91 +317,105 @@ export function flyerTexture(data) {
     paperBg(ctx, w, h, PAPER, def.id.length + 3);
     // header band
     ctx.fillStyle = th.color;
-    ctx.fillRect(0, 0, w, 116);
-    ctx.fillStyle = 'rgba(43,43,58,0.18)';
-    ctx.fillRect(0, 110, w, 8);
-    title(ctx, teaser ? 'COMING SOON' : 'ODD JOB!', w / 2, 60, w - 70, 74, PAPER);
-    // doodle frame
+    ctx.fillRect(0, 0, w, 88);
+    ctx.fillStyle = 'rgba(43,43,58,0.2)';
+    ctx.fillRect(0, 84, w, 7);
+    title(ctx, teaser ? 'COMING SOON' : 'ODD JOB!', w / 2, 46, w - 60, 60, PAPER);
+    // doodle
+    const dy0 = 104, dh = 176;
     ctx.fillStyle = '#e8f6ff';
-    roundRect(ctx, 36, 138, w - 72, 214, 18);
+    roundRect(ctx, 30, dy0, w - 60, dh, 18);
     ctx.fill();
     ctx.fillStyle = '#9bd86a';
-    ctx.fillRect(38, 300, w - 76, 50);
+    ctx.fillRect(32, dy0 + dh - 44, w - 64, 42);
     ctx.save();
-    roundRect(ctx, 36, 138, w - 72, 214, 18);
+    roundRect(ctx, 30, dy0, w - 60, dh, 18);
     ctx.clip();
-    th.draw(ctx, w / 2, 316, 150);
+    th.draw(ctx, w / 2, dy0 + dh - 30, 132);
     ctx.restore();
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 7;
     ctx.strokeStyle = INK;
-    roundRect(ctx, 36, 138, w - 72, 214, 18);
+    roundRect(ctx, 30, dy0, w - 60, dh, 18);
     ctx.stroke();
-    // name + location
-    const ns = fitFont(ctx, def.name, w - 60, 62);
-    stickerText(ctx, def.name, w / 2, 398, { fill: INK, outline: null, shadow: null, size: ns });
-    hand(ctx, def.location || '', w / 2, 446, 38, '#5a5a70', { maxW: w - 80 });
-    // stars (4 = 3 for grade + 1 for golden spanners)
+    // name: one big line, or two balanced lines
+    const words = def.name.split(' ');
+    let lines = [def.name];
+    ctx.font = `700 90px ${FONT_UI}`;
+    if (words.length > 1 && ctx.measureText(def.name).width * (86 / 90) > w - 50) {
+      let best = null;
+      for (let i = 1; i < words.length; i++) {
+        const a = words.slice(0, i).join(' '), b = words.slice(i).join(' ');
+        const m = Math.max(ctx.measureText(a).width, ctx.measureText(b).width);
+        if (!best || m < best.m) best = { m, l: [a, b] };
+      }
+      lines = best.l;
+    }
+    const lh = lines.length === 1 ? 92 : 76;
+    const y0 = lines.length === 1 ? 356 : 332;
+    const size = Math.min(...lines.map((l) => fitFont(ctx, l, w - 44, lh)));
+    ctx.font = `700 ${size}px ${FONT_UI}`;
+    lines.forEach((l, i) => stickerText(ctx, l, w / 2, y0 + i * (size * 0.98), { fill: INK, outline: null, shadow: 'rgba(43,43,58,0.15)', size, drop: 0.05 }));
+    // stars (4 = 3 for the grade + 1 for all golden spanners)
     for (let i = 0; i < 4; i++) {
-      const x = w / 2 + (i - 1.5) * 62, y = 500;
-      starPath(ctx, x, y, 26);
+      const x = w / 2 + (i - 1.5) * 76, y = 474;
+      starPath(ctx, x, y, 32);
       ctx.fillStyle = i < (rec.stars || 0) ? P.sunflower : '#e9e1cf';
       ctx.fill();
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 6;
       ctx.strokeStyle = INK;
       ctx.stroke();
     }
-    if (!teaser) hand(ctx, `Par ${fmtTime(def.parTime || 180)}`, 110, 552, 34, INK);
+    if (!teaser) hand(ctx, `par ${fmtTime(def.parTime || 180)}`, 96, 536, 38, '#5a5a70');
     // tear-off tabs
     ctx.setLineDash([8, 7]);
     ctx.strokeStyle = '#b9ab90';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(0, 584);
-    ctx.lineTo(w, 584);
+    ctx.moveTo(0, 572);
+    ctx.lineTo(w, 572);
     ctx.stroke();
     for (let i = 1; i < 7; i++) {
       ctx.beginPath();
-      ctx.moveTo((i * w) / 7, 584);
+      ctx.moveTo((i * w) / 7, 572);
       ctx.lineTo((i * w) / 7, h);
       ctx.stroke();
     }
     ctx.setLineDash([]);
     for (let i = 0; i < 7; i++) {
       ctx.save();
-      ctx.translate(((i + 0.5) * w) / 7, 624);
+      ctx.translate(((i + 0.5) * w) / 7, 616);
       ctx.rotate(-Math.PI / 2);
       hand(ctx, '4-2-0-0', 0, 0, 22, '#6a6a80');
       ctx.restore();
     }
-    // grade stamp (best result)
-    if (rec.grade && !locked) stamp(ctx, w - 108, 540, 58, rec.grade, GRADE_COLORS[rec.grade] || INK, rng, -0.3);
+    // best-grade stamp (or a NEW! sticker)
+    if (rec.grade && !locked) stamp(ctx, w - 100, 548, 66, rec.grade, GRADE_COLORS[rec.grade] || INK, rng, -0.3);
     else if (!locked && !teaser) {
       ctx.save();
-      ctx.translate(w - 104, 546);
+      ctx.translate(w - 100, 548);
       ctx.rotate(0.12);
       ctx.fillStyle = P.tomato;
-      roundRect(ctx, -70, -26, 140, 52, 14);
+      roundRect(ctx, -76, -30, 152, 60, 16);
       ctx.fill();
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 6;
       ctx.strokeStyle = INK;
       ctx.stroke();
-      title(ctx, 'NEW!', 0, 1, 110, 38, PAPER, { drop: 0.05 });
+      title(ctx, 'NEW!', 0, 1, 118, 44, PAPER, { drop: 0.05 });
       ctx.restore();
     }
     if (locked || teaser) {
-      ctx.fillStyle = 'rgba(70,74,96,0.42)';
+      ctx.fillStyle = 'rgba(70,74,96,0.4)';
       ctx.fillRect(0, 0, w, h);
       ctx.save();
-      ctx.translate(w / 2, teaser ? 430 : 470);
+      ctx.translate(w / 2, teaser ? 470 : 500);
       ctx.rotate(-0.16);
       ctx.fillStyle = teaser ? P.cobalt : P.tomato;
-      roundRect(ctx, -200, -44, 400, 88, 18);
+      roundRect(ctx, -210, -50, 420, 100, 20);
       ctx.fill();
-      ctx.lineWidth = 7;
+      ctx.lineWidth = 8;
       ctx.strokeStyle = INK;
       ctx.stroke();
-      const label = teaser ? 'SOON!' : `NEEDS ${need} ★`;
-      title(ctx, label, 0, 2, 350, 56, PAPER);
+      title(ctx, teaser ? 'SOON!' : `NEEDS ${need} \u2605`, 0, 3, 370, 66, PAPER);
       ctx.restore();
     }
   }, { anisotropy: 8 });

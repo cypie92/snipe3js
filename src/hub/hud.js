@@ -12,7 +12,7 @@ const CSS = `
 .hub-chip i { width: 22px; height: 22px; border-radius: 50%; display: inline-block; border: 2.5px solid #2b2b3a;
   background: radial-gradient(circle at 35% 35%, #ffe590 0 30%, #ffc93c 31%); box-sizing: border-box; }
 .hub-chip b { color: #e39b1b; font-size: 24px; line-height: 1; -webkit-text-stroke: 1.5px #2b2b3a; }
-.hub-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%) rotate(-1deg);
+.hub-hint { position: absolute; left: 50%; top: 16px; transform: translateX(-50%) rotate(-1deg);
   background: #2b2b3a; color: #fff8ee; border-radius: 14px; padding: 6px 16px; font-size: 17px; font-weight: 600;
   letter-spacing: .2px; box-shadow: 0 4px 0 rgba(43,43,58,.35); transition: opacity .6s; white-space: nowrap; }
 .hub-hint em { font-style: normal; color: #ffc93c; }
@@ -26,6 +26,7 @@ const CSS = `
 .hub-cross.hot .lock { opacity: 1; }
 .hub-cross.hot svg { animation: hubspin 2.4s linear infinite; }
 .hub-cross.hide { opacity: 0; }
+.hub-hud.passive .hub-cross, .hub-hud.passive .hub-tip, .hub-hud.passive .hub-hint { display: none; }
 @keyframes hubspin { to { transform: rotate(360deg); } }
 .hub-tip { position: absolute; left: 0; top: 0; min-width: 150px; max-width: 300px; background: #fff8ee;
   border: 3px solid #2b2b3a; border-radius: 16px; box-shadow: 0 5px 0 #2b2b3a; padding: 8px 14px 10px;

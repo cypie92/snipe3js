@@ -8,12 +8,13 @@ import { P } from '../gfx/palette.js';
 import { Rng } from '../core/rng.js';
 import { bev, ball, rod, puck, arc, latheBands, goldMaterial } from '../world/kit/props/lib.js';
 import { trophy } from '../world/kit/props/index.js';
-import { canvasTexture, roundRect, fitFont, stickerText, FONT_UI, FONT_HAND } from '../world/perch/paint.js';
-import { decorAtlas, flyerTexture } from './textures.js';
+import { canvasTexture, roundRect, fitFont, stickerText, FONT_HAND } from '../world/perch/paint.js';
+import { flyerTexture } from './textures.js';
 import { meshGroup, decal, hitBox } from './props.js';
 import { mergeUV } from './room.js';
 
 export const BOARD = { w: 3.8, h: 2.05 };
+const ASPECT = 512 / 660;
 const TEASERS = [
   { id: 'soon-harbour', name: 'Barnacle Bay', location: 'The Harbour', parTime: 240 },
   { id: 'soon-farm', name: 'Wobbleton Farm', location: 'Farmyard', parTime: 240 },
@@ -70,11 +71,11 @@ export function buildBoard() {
   for (const s of [-1, 1]) T.push(part(bev(fw, h + fw * 2, 0.09, 0.03), wood, { x: s * (w / 2 + fw / 2), z: 0.045 }));
   T.push(part(bev(w, h, 0.04, 0.01), '#b58450', { z: 0.02 }));
   // header plank with the ODD JOBS sign, hung from two pegs
-  T.push(part(bev(2.2, 0.42, 0.06, 0.03), '#7a4a26', { y: h / 2 + 0.36, z: 0.07 }));
-  for (const x of [-0.9, 0.9]) T.push(part(ball(0.035, 1), P.sunflower, { x, y: h / 2 + 0.36, z: 0.1 }));
+  T.push(part(bev(2.1, 0.36, 0.06, 0.03), '#7a4a26', { y: h / 2 + 0.2, z: 0.09 }));
+  for (const x of [-0.93, 0.93]) T.push(part(ball(0.035, 1), P.sunflower, { x, y: h / 2 + 0.2, z: 0.125 }));
   const D = [
     decal('cork', w, h, { z: 0.041 }),
-    decal('jobs', 2.05, 0.34, { y: h / 2 + 0.36, z: 0.101 }),
+    decal('jobs', 1.96, 0.31, { y: h / 2 + 0.2, z: 0.121 }),
   ];
   // decorative notes (static) along the top strip + postcard + lost-cat poster
   const rng = new Rng('board');
@@ -113,20 +114,21 @@ export function buildBoard() {
     const n = entries.length;
     const cols = n <= 4 ? Math.max(1, n) : Math.ceil(n / 2);
     const rows = Math.ceil(n / cols);
-    const gap = 0.14;
-    let fwid = Math.min(0.8, (w - 0.3 - (cols - 1) * gap) / cols);
-    let fh = fwid / 0.776;
-    const maxH = rows === 1 ? 1.08 : (h - 0.62 - (rows - 1) * 0.1) / rows;
-    if (fh > maxH) { fh = maxH; fwid = fh * 0.776; }
-    const yTop = rows === 1 ? 0.28 : 0.42;
+    // slightly overlapping flyers, like a real, busy board (the hovered one lifts to the front)
+    let fwid = Math.min(1.0, (w - 0.16) / cols + (cols > 1 ? 0.05 : 0));
+    let fh = fwid / ASPECT;
+    const maxH = rows === 1 ? 1.26 : (h - 0.5 - (rows - 1) * 0.06) / rows;
+    if (fh > maxH) { fh = maxH; fwid = fh * ASPECT; }
+    const pitch = cols > 1 ? Math.min(fwid + 0.12, (w - 0.2 - fwid) / (cols - 1)) : 0;
+    const yTop = rows === 1 ? 0.44 : 0.5;
     entries.forEach((e, i) => {
       const r = Math.floor(i / cols), cIdx = i % cols;
       const inRow = Math.min(cols, n - r * cols);
-      const x = (cIdx - (inRow - 1) / 2) * (fwid + gap) + rng.range(-0.03, 0.03);
-      const yPin = yTop - r * (fh + 0.1) + rng.range(-0.02, 0.02);
+      const x = (cIdx - (inRow - 1) / 2) * pitch + rng.range(-0.02, 0.02);
+      const yPin = yTop - r * (fh + 0.06) + rng.range(-0.02, 0.02);
       const pivot = new THREE.Group();
       pivot.name = `flyer:${e.def.id}`;
-      pivot.position.set(x, yPin, 0.05);
+      pivot.position.set(x, yPin, 0.05 + (i % cols) * 0.012 + r * 0.004);
       pivot.rotation.z = rng.range(-0.05, 0.05);
       const data = { ...e };
       const tex = flyerTexture(data);
@@ -238,6 +240,17 @@ export function buildTrophyShelf() {
     T.push(part(bev(W, 0.05, 0.02, 0.01), P.tomato, { y: y - 0.01, z: 0.345 }));
   }
   const stamps = [...stampProp('S', P.tomato, { x: 0.72, y: ys[1] + 0.03, z: 0.2 }), ...stampProp('A', P.cobalt, { x: 0.9, y: ys[1] + 0.03, z: 0.16 })];
+  // a few books leaning at the end of the top shelf + a framed licence
+  const bookCols = [P.cobalt, P.tomato, P.sunflower, P.teal, P.violet];
+  bookCols.forEach((c, i) => {
+    const hgt = 0.26 + ((i * 37) % 5) * 0.02;
+    T.push(part(bev(0.06, hgt, 0.2, 0.012), c, { x: -1.02 + i * 0.066, y: ys[1] + 0.03 + hgt / 2, z: 0.16, rz: i === 4 ? -0.28 : 0 }));
+    T.push(part(bev(0.062, 0.02, 0.202, 0.005), '#fff8ee', { x: -1.02 + i * 0.066, y: ys[1] + 0.03 + hgt * 0.72, z: 0.16, rz: i === 4 ? -0.28 : 0 }));
+  });
+  T.push(part(bev(0.34, 0.26, 0.03, 0.012), P.gold, { x: -0.55, y: ys[1] + 0.17, z: 0.07, rx: -0.12 }));
+  T.push(part(bev(0.28, 0.2, 0.01, 0.004), '#fff8ee', { x: -0.55, y: ys[1] + 0.17, z: 0.09, rx: -0.12 }));
+  T.push(part(bev(0.16, 0.02, 0.012, 0.004), P.tomato, { x: -0.55, y: ys[1] + 0.22, z: 0.1, rx: -0.12 }));
+  T.push(part(bev(0.12, 0.012, 0.012, 0.004), P.ink, { x: -0.55, y: ys[1] + 0.17, z: 0.1, rx: -0.12 }));
   const ink = [part(puck(0.1, 0.035, 0.012, 16), '#3b3f4f', { x: 0.62, y: ys[1] + 0.05, z: 0.08, rx: 0 }), part(puck(0.085, 0.01, 0.004, 16), '#8a2030', { x: 0.62, y: ys[1] + 0.07, z: 0.08 })];
   const g = meshGroup('shelf', { toy: [...T, ...ink], glossy: stamps });
   group.add(g);
@@ -262,14 +275,15 @@ export function buildTrophyShelf() {
     const real = levels.slice(0, 8);
     state.cards = real.map((d) => ({ name: d.name, grade: progress?.level?.(d.id)?.grade || null }));
     cards.userData.repaint?.();
-    const slots = Math.max(4, real.length);
-    const per = Math.ceil(slots / 2);
+    // cups on the lower shelf (up to 5); any extra go in the middle of the upper shelf
+    const lower = Math.min(5, Math.max(3, real.length));
     const quads = [];
     real.forEach((d, i) => {
-      const row = i < per ? 0 : 1;
-      const k = row ? i - per : i;
-      const cnt = row ? slots - per : per;
-      const x = (k - (cnt - 1) / 2) * ((W - 0.5) / Math.max(1, cnt)) - (row ? 0.35 : 0);
+      const row = i < 5 ? 0 : 1;
+      const k = row ? i - 5 : i;
+      const cnt = row ? real.length - 5 : lower;
+      const pitch = row ? 0.34 : Math.min(0.46, (W - 0.3) / cnt);
+      const x = (k - (cnt - 1) / 2) * pitch + (row ? 0.05 : 0);
       const y = ys[row] + 0.03;
       const grade = state.cards[i].grade;
       if (grade) {
@@ -280,7 +294,13 @@ export function buildTrophyShelf() {
         dyn.add(cup);
         cups.push(cup);
       } else {
-        const base = new THREE.Mesh(merge([part(bev(0.2, 0.08, 0.2, 0.03), '#e8dcc3', { y: 0.04 }), part(ball(0.03, 1), '#c9bca0', { y: 0.1 })]), materials.toy);
+        const ghost = '#d9d2c4';
+        const base = new THREE.Mesh(merge([
+          part(bev(0.2, 0.08, 0.2, 0.03), '#e8dcc3', { y: 0.04 }),
+          latheBands([[0, 0.08], [0.05, 0.08], [0.02, 0.12], [0.02, 0.2], [0.09, 0.26], [0.1, 0.34], [0.085, 0.34], [0, 0.3]], 14, () => ghost),
+          part(new THREE.TorusGeometry(0.035, 0.01, 5, 10, Math.PI * 1.2), ghost, { x: 0.1, y: 0.29, rz: -Math.PI * 0.6 }),
+          part(new THREE.TorusGeometry(0.035, 0.01, 5, 10, Math.PI * 1.2), ghost, { x: -0.1, y: 0.29, rz: Math.PI * 0.4 }),
+        ]), materials.toy);
         base.position.set(x, y, 0.16);
         base.castShadow = true;
         dyn.add(base);

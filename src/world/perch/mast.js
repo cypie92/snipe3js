@@ -2,7 +2,7 @@
 // of the front extension ladder (the top one climbs through the crow's-nest hatch). Everything is
 // drawn by ONE LiveMesh whose pieces follow the section pivots; setExtension(m) slides them.
 import * as THREE from 'three';
-import { part, merge, xform } from '../geo.js';
+import { part, merge } from '../geo.js';
 import { materials } from '../../gfx/materials.js';
 import { P } from '../../gfx/palette.js';
 import { bev, puck, ball, arc } from '../kit/props/lib.js';

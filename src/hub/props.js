@@ -62,14 +62,13 @@ export function desk() {
     T.push(part(rod([-0.72 + dx, 0.9, 0.2 + dz], [-0.72 + dx + a * 0.3, 1.17, 0.2 + dz + a * 0.2], 0.012, 6), c));
   }
   T.push(part(new THREE.CylinderGeometry(0.085, 0.085, 0.36, 3), '#7a4a26', { y: 0.93, z: 0.3, rz: Math.PI / 2, ry: 0, rx: Math.PI }));
-  const LAq = decorAtlas();
-  const plate = decalQuad(0.32, 0.08, LAq.uv('nameplate'), xform({ y: 0.945, z: 0.345, rx: -0.52 }));
+  const plate = decalQuad(0.32, 0.08, decorAtlas().uv('nameplate'), xform({ y: 0.945, z: 0.345, rx: -0.52 }));
   const g = meshGroup('desk', { toy: T, glossy: G });
   const dm = new THREE.Mesh(mergeUV([badge]), LA.material);
   dm.name = 'desk-badge';
   dm.receiveShadow = true;
   g.add(dm);
-  const pm = new THREE.Mesh(mergeUV([plate]), LAq.material);
+  const pm = new THREE.Mesh(mergeUV([plate]), decorAtlas().material);
   pm.name = 'desk-plate';
   g.add(pm);
   return g;
@@ -153,24 +152,25 @@ export function mug() {
   const H = part(arc(0.045, 0.014, Math.PI * 1.2, 6, 12), P.teal, { x: 0.075, y: 0.075, rz: -Math.PI * 0.6 });
   const tea = part(puck(0.063, 0.01, 0.003, 16), '#b0703a', { y: 0.12 });
   const g = meshGroup('mug', { glossy: [G, H], toy: [tea] });
-  const steamMat = new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.5, roughness: 1, depthWrite: false });
-  steamMat.name = 'office-steam';
+  // soft steam wisps: each puff has its own material so it can fade out as it rises
   const puffs = [];
-  for (let i = 0; i < 4; i++) {
-    const p = new THREE.Mesh(new THREE.IcosahedronGeometry(0.03, 1), steamMat);
-    p.userData.phase = i / 4;
+  const geo = new THREE.IcosahedronGeometry(0.032, 1);
+  for (let i = 0; i < 5; i++) {
+    const m = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.3, depthWrite: false, fog: true });
+    const p = new THREE.Mesh(geo, m);
+    p.userData.phase = i / 5;
     p.raycast = () => {};
+    p.castShadow = false;
     g.add(p);
     puffs.push(p);
   }
   g.userData.tick = (dt, t) => {
     for (const p of puffs) {
-      const k = (t * 0.35 + p.userData.phase) % 1;
-      p.position.set(Math.sin(k * 9 + p.userData.phase * 6) * 0.03, 0.15 + k * 0.32, Math.cos(k * 7) * 0.02);
-      p.scale.setScalar(0.6 + k * 1.2);
-      p.visible = k < 0.95;
+      const k = (t * 0.45 + p.userData.phase) % 1;
+      p.position.set(Math.sin(k * 8 + p.userData.phase * 6) * 0.035 * k, 0.15 + k * 0.36, Math.cos(k * 6) * 0.02 * k);
+      p.scale.set(0.6 + k * 2.2, 0.45 + k * 1.2, 0.6 + k * 2.2);
+      p.material.opacity = 0.2 * Math.sin(Math.PI * Math.min(1, k * 1.1));
     }
-    steamMat.opacity = 0.35;
   };
   return g;
 }
@@ -187,24 +187,23 @@ export function radio() {
   s.lineTo(-0.26, 0);
   const cab = slab(s, 0.22, 0.02, 14);
   G.push(part(cab, '#b86a36'));
-  G.push(part(slab(s, 0.012, 0.004, 14), '#8a4b22', { z: 0.116, s: 0.93, y: 0.01 }));
+  G.push(part(slab(s, 0.012, 0.004, 14), '#8a4b22', { z: 0.128, s: 0.93, y: 0.01 }));
   const grille = new THREE.Shape();
   grille.moveTo(-0.19, 0.2);
   grille.lineTo(0.19, 0.2);
   grille.lineTo(0.19, 0.25);
   grille.absarc(0, 0.25, 0.19, 0, Math.PI, false);
-  const gg = part(new THREE.ShapeGeometry(grille, 16), '#e9d3a8', { z: 0.126 });
+  const gg = part(new THREE.ShapeGeometry(grille, 16), '#e9d3a8', { z: 0.137 });
   paintFaces(gg, (x, y, z, nx, ny, nz, c) => {
     const a = Math.atan2(y - 0.2, x);
     if (Math.floor(a / (Math.PI / 9)) % 2) c.set('#d9bb88');
   });
   T.push(gg);
-  for (const x of [-0.14, 0.14]) G.push(part(puck(0.035, 0.04, 0.012, 14), CREAM, { x, y: 0.07, z: 0.125, rx: Math.PI / 2 }));
+  for (const x of [-0.15, 0.15]) G.push(part(puck(0.04, 0.05, 0.014, 14), CREAM, { x, y: 0.075, z: 0.14, rx: Math.PI / 2 }));
   T.push(part(rod([0.18, 0.44, -0.05], [0.34, 0.7, -0.08], 0.008, 5), P.metal));
   T.push(part(ball(0.016, 1), P.tomato, { x: 0.34, y: 0.7, z: -0.08 }));
   const g = meshGroup('radio', { toy: T, glossy: G });
-  const dial = new THREE.Mesh(mergeUV([decal('dial', 0.2, 0.056, { y: 0.075, z: 0.127 })]), new THREE.MeshStandardMaterial({ map: decorAtlas().texture, emissive: '#ffb640', emissiveMap: decorAtlas().texture, emissiveIntensity: 0.0, roughness: 0.5 }));
-  const [u0, v0, u1, v1] = decorAtlas().uv('dial');
+  const dial = new THREE.Mesh(mergeUV([decal('dial', 0.2, 0.056, { y: 0.075, z: 0.138 })]), new THREE.MeshStandardMaterial({ map: decorAtlas().texture, emissive: '#ffb640', emissiveMap: decorAtlas().texture, emissiveIntensity: 0.0, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }));
   dial.material.name = 'radio-dial';
   dial.name = 'radio-dial';
   g.add(dial);
@@ -292,32 +291,31 @@ export function filingCabinet() {
   const G = [], T = [];
   const col = '#8fd3b8';
   G.push(part(rbox(0.66, 1.32, 0.7, 0.05), col, { y: 0.66 }));
-  for (let i = 1; i < 3; i++) {
-    G.push(part(bev(0.58, 0.38, 0.04, 0.02), '#a6e0c9', { y: 0.2 + i * 0.42 - 0.36 + 0.02, z: 0.35 }));
-    G.push(part(bev(0.2, 0.04, 0.05, 0.02), CHROME, { y: 0.2 + i * 0.42 - 0.36 + 0.02 - 0.1, z: 0.38 }));
+  // three drawers centred at y = 0.24 / 0.66 / 1.08 (the top one is the SETTINGS pivot below)
+  for (const y of [0.24, 0.66]) {
+    G.push(part(bev(0.58, 0.38, 0.04, 0.02), '#a6e0c9', { y, z: 0.35 }));
+    G.push(part(bev(0.2, 0.04, 0.05, 0.02), CHROME, { y: y - 0.08, z: 0.38 }));
   }
-  const D = [decal('drawer1', 0.2, 0.066, { y: 0.52 + 0.02 + 0.07 - 0.36 + 0.42 - 0.42 + 0.0, z: 0.372 })];
   const g = meshGroup('filingCabinet', { glossy: G, decal: [] });
-  // labels for the two lower drawers
   const labels = new THREE.Mesh(mergeUV([
-    decal('drawer2', 0.2, 0.066, { y: 0.14, z: 0.373 }),
-    decal('drawer1', 0.2, 0.066, { y: 0.56, z: 0.373 }),
+    decal('drawer2', 0.2, 0.066, { y: 0.24 + 0.09, z: 0.373 }),
+    decal('drawer1', 0.2, 0.066, { y: 0.66 + 0.09, z: 0.373 }),
   ]), decorAtlas().material);
   labels.name = 'cabinet-labels';
   g.add(labels);
   // top drawer = settings (slides out when shot)
   const drawer = new THREE.Group();
-  drawer.position.set(0, 1.04, 0.35);
+  drawer.position.set(0, 1.08, 0.35);
   const DG = [
     part(bev(0.58, 0.38, 0.04, 0.02), '#a6e0c9'),
-    part(bev(0.24, 0.05, 0.06, 0.02), CHROME, { y: -0.1, z: 0.03 }),
+    part(bev(0.24, 0.05, 0.06, 0.02), CHROME, { y: -0.08, z: 0.03 }),
     part(bev(0.56, 0.34, 0.5, 0.02), '#7cc2a6', { z: -0.26 }),
   ];
   for (let i = 0; i < 5; i++) DG.push(part(bev(0.5, 0.3, 0.012, 0.004), i % 2 ? '#fff8ee' : '#ffe590', { y: 0.06, z: -0.1 - i * 0.07, rx: -0.1 }));
   const dm = new THREE.Mesh(merge(DG), materials.glossy);
   dm.castShadow = true;
   drawer.add(dm);
-  const lab = new THREE.Mesh(mergeUV([decal('drawer0', 0.3, 0.1, { y: 0.06, z: 0.022 })]), decorAtlas().material);
+  const lab = new THREE.Mesh(mergeUV([decal('drawer0', 0.3, 0.1, { y: 0.08, z: 0.022 })]), decorAtlas().material);
   drawer.add(lab);
   g.add(drawer);
   g.userData.drawer = drawer;
@@ -387,6 +385,17 @@ function toolParts(L) {
   L.push(part(rod([0.6, -0.14, 0], [0.64, 0.12, 0], 0.016, 6), P.cobalt));
   L.push(part(rod([0.68, -0.14, 0], [0.64, 0.12, 0], 0.016, 6), P.cobalt));
   L.push(part(puck(0.07, 0.04, 0.012, 14), P.sunflower, { x: 0.86, y: 0.02, rx: Math.PI / 2 }));
+  // second row: mallet, coil of rope, paint brushes, clamp
+  L.push(part(bev(0.04, 0.3, 0.035, 0.012), P.woodLight, { x: -0.8, y: -0.42 }));
+  L.push(part(new THREE.CylinderGeometry(0.06, 0.06, 0.16, 12), P.tomato, { x: -0.8, y: -0.26, rz: Math.PI / 2 }));
+  for (let i = 0; i < 3; i++) L.push(part(new THREE.TorusGeometry(0.1 - i * 0.012, 0.022, 6, 16), '#d8b37a', { x: -0.42, y: -0.4, z: 0.02 + i * 0.012 }));
+  for (const [x, c] of [[0.02, P.cobalt], [0.12, P.tomato], [0.22, P.sunflower]]) {
+    L.push(part(bev(0.03, 0.2, 0.02, 0.008), P.woodLight, { x, y: -0.42 }));
+    L.push(part(bev(0.05, 0.07, 0.03, 0.01), c, { x, y: -0.29 }));
+  }
+  L.push(part(bev(0.16, 0.04, 0.04, 0.012), P.cobalt, { x: 0.58, y: -0.3 }));
+  L.push(part(bev(0.04, 0.2, 0.04, 0.012), P.cobalt, { x: 0.5, y: -0.39 }));
+  L.push(part(rod([0.58, -0.49, 0.02], [0.58, -0.31, 0.02], 0.012, 6), CHROME));
 }
 
 export function workbench() {
@@ -422,9 +431,18 @@ export function workbench() {
   for (const tp of tools) T.push(tp.applyMatrix4(xform({ y: h + 0.8, z: pz + 0.05 })));
   // rifle rack: two pegs + Jack's spare rifle
   const ry = h + 1.6;
-  for (const x of [-0.45, 0.45]) {
-    T.push(part(rod([x, ry, pz], [x, ry + 0.04, pz + 0.16], 0.03, 8), P.woodDark));
-    T.push(part(ball(0.04, 1), P.woodDark, { x, y: ry + 0.05, z: pz + 0.17 }));
+  T.push(part(bev(1.6, 0.14, 0.04, 0.02), P.woodDark, { y: ry + 0.02, z: pz + 0.02 }));
+  for (const x of [-0.5, 0.5]) {
+    T.push(part(rod([x, ry, pz + 0.02], [x, ry + 0.05, pz + 0.24], 0.034, 8), P.wood));
+    T.push(part(ball(0.045, 1), P.wood, { x, y: ry + 0.06, z: pz + 0.25 }));
+  }
+  // box of spare suction darts on the bench (a wink at the hub's shooting)
+  G.push(part(bev(0.36, 0.14, 0.22, 0.03), P.sunflower, { x: -0.3, y: h + 0.07, z: 0.14, ry: -0.2 }));
+  G.push(part(bev(0.3, 0.06, 0.012, 0.004), P.tomato, { x: -0.3 + Math.sin(-0.2) * 0.112, y: h + 0.08, z: 0.14 + Math.cos(-0.2) * 0.112, ry: -0.2 }));
+  for (let i = 0; i < 4; i++) {
+    const x = -0.42 + i * 0.07;
+    G.push(part(rod([x, h + 0.1, 0.1 + i * 0.01], [x + 0.03, h + 0.36, 0.18], 0.013, 6), P.tangerine));
+    G.push(part(new THREE.SphereGeometry(0.035, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), P.tomato, { x: x + 0.032, y: h + 0.37, z: 0.182 }));
   }
   const R = [];
   R.push(part(rbox(0.36, 0.14, 0.07, 0.03), '#9a5b2e', { x: 0.62, y: -0.02 }));
@@ -434,7 +452,7 @@ export function workbench() {
   R.push(part(new THREE.CylinderGeometry(0.036, 0.036, 0.34, 14), P.cobalt, { x: 0.2, y: 0.12, rz: Math.PI / 2 }));
   R.push(part(new THREE.CylinderGeometry(0.05, 0.036, 0.09, 14), P.cobalt, { x: -0.01, y: 0.12, rz: Math.PI / 2 }));
   for (const x of [-0.05, 0.38]) R.push(part(new THREE.CylinderGeometry(0.052, 0.052, 0.025, 14), P.sunflower, { x, y: 0.12, rz: Math.PI / 2 }));
-  G.push(...R.map((x) => x.applyMatrix4(xform({ y: ry + 0.1, z: pz + 0.12 }))));
+  G.push(...R.map((x) => x.applyMatrix4(xform({ y: ry + 0.12, z: pz + 0.13, s: 1.35 }))));
   const D = [decal('workshop', 1.1, 0.275, { y: h + 1.98, z: pz + 0.03 })];
   const g = meshGroup('workbench', { toy: T, glossy: G, metal: M, decal: D });
   return g;
@@ -486,7 +504,7 @@ export function rug() {
     const g = new THREE.RingGeometry(r0, r1, 48, 1).rotateX(-Math.PI / 2);
     L.push(part(g, rings[n - 1 - i], { y: 0.012 + i * 0.0006, sx: 1.9, sz: 1.3 }));
   }
-  L.push(part(new THREE.CylinderGeometry(1, 1, 0.012, 48), '#e8a855', { y: 0.006, sx: 1.92, sz: 1.32 }));
+  L.push(part(new THREE.CylinderGeometry(1, 1, 0.008, 48), '#e8a855', { y: 0.004, sx: 1.92, sz: 1.32 }));
   return L;
 }
 

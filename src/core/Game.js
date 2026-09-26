@@ -24,6 +24,7 @@ import { Screens } from '../ui/Screens.js';
 import { Popups } from '../ui/Popups.js';
 import { LEVELS, getLevel, boardLevels } from '../levels/index.js';
 import { createPerch } from '../world/perch/index.js';
+import { Office } from '../hub/Office.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -299,6 +300,7 @@ export class Game {
   }
 
   showTitle() {
+    this.office?.exit();
     this.state = 'title';
     this.hud.show(false);
     this.input.active = false;
@@ -310,6 +312,11 @@ export class Game {
     sound.music('menu');
   }
 
+  officeLevels() {
+    return boardLevels().map((l) => ({ id: l.id, name: l.name, location: l.location, unlockStars: l.unlockStars || 0, parTime: l.parTime }));
+  }
+
+  /** The 3D office hub: menus are navigated by shooting suction darts at things. */
   showOffice() {
     this.state = 'office';
     this.paused = false;
@@ -317,16 +324,41 @@ export class Game {
     this.input.active = false;
     this.input.exitLock();
     this.rig.setScoped(false);
-    this.screens.office(boardLevels(), {
-      onPlay: (id) => {
-        sound.unlock();
-        this.startLevel(id);
-      },
-      onWorkshop: () => this.screens.workshop(() => this.showOffice()),
-      onSettings: () => this.screens.settings(() => this.showOffice()),
+    this.screens.clear();
+    this.office ??= new Office({
+      scene: this.scene, camera: this.camera, canvas: this.canvas, env: this.env, sound,
+      ui: this.screenRoot.parentElement, progress: this.progress, levels: this.officeLevels(),
+      radioOn: this.progress.data.settings.music > 0, onAction: (a) => this.onOfficeAction(a),
     });
-    sound.music('menu');
-    sound.ambience(null);
+    this.office.refresh({ levels: this.officeLevels(), progress: this.progress });
+    this.office.enter();
+    this.office.setInteractive(true);
+    this.rig.override = this.office.view;
+    sound.music(this.office.radioOn ? 'menu' : null);
+    sound.ambience('office');
+  }
+
+  onOfficeAction(a) {
+    if (a.type === 'play') {
+      sound.unlock();
+      this.office.exit();
+      this.startLevel(a.id);
+    } else if (a.type === 'workshop') {
+      this.office.setInteractive(false);
+      this.screens.workshop(() => {
+        this.screens.clear();
+        this.office.refresh();
+        this.office.setInteractive(true);
+      });
+    } else if (a.type === 'settings') {
+      this.office.setInteractive(false);
+      this.screens.settings(() => {
+        this.screens.clear();
+        this.office.setInteractive(true);
+      });
+    } else if (a.type === 'radio') {
+      sound.music(a.on ? 'menu' : null);
+    }
   }
 
   disposeLevel() {
@@ -358,7 +390,14 @@ export class Game {
     this.env.setShadowFocus(out.shadowCenter || new THREE.Vector3(0, 0, -5), out.shadowRadius || 95);
     const perch = out.perch || { position: new THREE.Vector3(0, 12, 70), yaw: 0, pitch: -0.12 };
     this.rig.setPerch(perch);
-    const groundY = perch.groundY ?? perch.position.y - this.perch.eyeHeight;
+    const groundY = perch.groundY ?? perch.position.y - 12;
+    const eyeHeight = perch.position.y - groundY;
+    if (Math.abs(eyeHeight - this.perch.eyeHeight) > 1e-3) {
+      // rebuild so the crow's nest puts the eye exactly at this level's perch height
+      this.scene.remove(this.perch.root);
+      this.perch = createPerch({ seed: 1, eyeHeight });
+      this.scene.add(this.perch.root);
+    }
     this.perch.root.position.set(perch.position.x, groundY, perch.position.z);
     this.perch.root.rotation.y = perch.yaw ?? 0;
     this.perch.setRaise(1);
@@ -369,6 +408,7 @@ export class Game {
   }
 
   async startLevel(id, { skipIntro = false } = {}) {
+    this.office?.exit();
     this.screens.clear();
     this.state = 'loading';
     this.input.active = false;
@@ -549,7 +589,10 @@ export class Game {
       this.rig.look(dx, dy * inv);
       this.viewmodel.sway(dx, dy);
     }
-    if (this.state === 'title' || this.state === 'office' || this.state === 'results') this.orbitCamera(realDt);
+    if (this.state === 'office' && this.office) {
+      this.office.update(realDt, this.time);
+      this.rig.override = this.office.view;
+    } else if (this.state === 'title' || this.state === 'results') this.orbitCamera(realDt);
     else if (this.rig.override && this.state !== 'intro' && !this.bulletCam.active) this.rig.override = null;
 
     this.rig.update(dt, this.frozen ? 0 : realDt);
@@ -557,7 +600,7 @@ export class Game {
       this.time += dt;
       this.rifle.update(dt);
       this.tweens.update(dt);
-      this.level?.ctx.update(dt, this.time);
+      if (this.state !== 'office') this.level?.ctx.update(dt, this.time);
       if (this.state === 'play') this.scoring.time += dt;
     }
     this.bulletCam.update(this.frozen ? 0 : realDt);
