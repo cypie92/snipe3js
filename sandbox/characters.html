@@ -21,7 +21,7 @@ import { part, merge, rbox, meshOf, cyl, cone, sphere, box, ico, jitter } from '
 import { materials } from '../src/gfx/materials.js';
 import { P } from '../src/gfx/palette.js';
 
-window.__chars = { THREE, Person, Crowd, Walker, ANIMALS, PigeonFlock, Rng };
+window.__chars = { THREE, Person, Crowd, Walker, ANIMALS, PigeonFlock, GullFlock, SealCatch, Rng };
 const params = new URLSearchParams(location.search);
 const num = (k, d) => (params.has(k) ? Number(params.get(k)) : d);
 if (params.has('rim')) setCharacterLook({ rim: num('rim', 0.45) });   // rim=0 disables the distance rim

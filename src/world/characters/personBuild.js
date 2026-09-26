@@ -903,17 +903,19 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
 function buildWorn(rb, b, d, cfg, C) {
   const acc = [].concat(cfg.accessory || []);
   const hy = d.shY - d.armLen - d.handR * 0.62;
+  // bags carried in the left hand get their own bone so Person can tuck them away when that hand is busy
+  if (acc.some((a) => a === 'bag' || a === 'handbag' || a === 'shopping')) b.carryL = rb.bone('carryL', b.handL, [d.shX, d.shY - d.armLen, 0]);
   for (const a of acc) {
     if (a === 'bag' || a === 'handbag') { // handbag hanging from the left hand
       const col = cfg.bagColor || P.roofPlum;
-      rb.add(G.torus(0.05, 0.01, 4, 10, Math.PI), shade(col, 0.8), { x: d.shX + 0.02, y: hy - 0.02, rz: Math.PI }, b.handL);
-      rb.add(G.box(0.16, 0.13, 0.08), col, { x: d.shX + 0.03, y: hy - 0.12 }, b.handL);
-      rb.add(G.sphere(6, 4), '#ffd76a', { x: d.shX + 0.03, y: hy - 0.08, z: 0.042, s: 0.013 }, b.handL);
+      rb.add(G.torus(0.05, 0.01, 4, 10, Math.PI), shade(col, 0.8), { x: d.shX + 0.02, y: hy - 0.02, rz: Math.PI }, b.carryL);
+      rb.add(G.box(0.16, 0.13, 0.08), col, { x: d.shX + 0.03, y: hy - 0.12 }, b.carryL);
+      rb.add(G.sphere(6, 4), '#ffd76a', { x: d.shX + 0.03, y: hy - 0.08, z: 0.042, s: 0.013 }, b.carryL);
     } else if (a === 'shopping') {
       const col = cfg.bagColor || '#e8d7b0';
-      rb.add(G.box(0.2, 0.2, 0.12), col, { x: d.shX + 0.04, y: hy - 0.13 }, b.handL);
-      rb.add(G.cyl(0.018, 0.018, 0.34, 6), '#e3b56b', { x: d.shX + 0.02, y: hy - 0.02, z: 0.02, rz: 0.25 }, b.handL);
-      for (const k of [-0.035, 0.035]) rb.add(G.sphere(6, 4), P.grassLight, { x: d.shX + 0.08 + k, y: hy + 0.0, z: -0.02, sx: 0.03, sy: 0.07, sz: 0.03 }, b.handL);
+      rb.add(G.box(0.2, 0.2, 0.12), col, { x: d.shX + 0.04, y: hy - 0.13 }, b.carryL);
+      rb.add(G.cyl(0.018, 0.018, 0.34, 6), '#e3b56b', { x: d.shX + 0.02, y: hy - 0.02, z: 0.02, rz: 0.25 }, b.carryL);
+      for (const k of [-0.035, 0.035]) rb.add(G.sphere(6, 4), P.grassLight, { x: d.shX + 0.08 + k, y: hy + 0.0, z: -0.02, sx: 0.03, sy: 0.07, sz: 0.03 }, b.carryL);
     } else if (a === 'postbag') {
       const col = cfg.bagColor || P.tomato;
       rb.add(G.box(0.2, 0.17, 0.08), col, { x: -d.bodyR * 0.95, y: d.waistY - 0.02, z: 0.02, ry: -0.35 }, b.hips);

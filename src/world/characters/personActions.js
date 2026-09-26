@@ -35,9 +35,12 @@ function keys(c, k) {
 }
 const cyc = (T, period) => ((T / period) % 1 + 1) % 1;
 
-/** Arms folded across the chest (sailor's hornpipe, impatient queuer). */
-function foldArms(o) {
-  both(o, 'aF', 1.0); both(o, 'aT', 0.95); both(o, 'eB', 1.95); both(o, 'aO', 0.14);
+/**
+ * Hands on hips (sailor's hornpipe, impatient queuer). Bean arms are too short to fold across those
+ * round tummies (the forearms end up inside the chest), so akimbo is the cross/impatient silhouette.
+ */
+function akimbo(o, flap = 0) {
+  both(o, 'aO', 0.62 + flap); both(o, 'aF', -0.12); both(o, 'eS', 1.75 - flap); both(o, 'eB', 0.15); both(o, 'aT', 0);
 }
 function breathe(o, T, s, amt = 1) {
   o.ssq += 0.022 * amt * Math.sin(T * TAU / 3.4);
@@ -63,19 +66,27 @@ function armsIdle(o, T, s, style) {
 }
 
 /**
- * Cross fist raised high beside the head and shaken (S = 'R' | 'L'); k = weight 0..1. The other arm
- * goes to the hip. Stubby arms: the fist sits above the head, out to the side, so it reads in silhouette.
+ * Cross fist raised beside the head and shaken (S = 'R' | 'L'); k = weight 0..1; the other hand goes to
+ * the hip (opt.both: two fists). Angles are absolute (from hanging, compensating the per-build arm base):
+ * the upper arm goes out just above horizontal and the forearm points up, so the fist sits OUTSIDE the
+ * big head's silhouette (stubby arms raised straight up just vanish into it).
  */
-function fistUp(o, k, shake, S, opt = {}) {
+function fistUp(o, k, shake, S, s, opt = {}) {
+  const d = s.d, L = d.armLen * 0.5; // (Person drops the belly arm-base for raised arms: angles are absolute)
+  const up = opt.up ?? (s.kid ? 1.95 : 1.85);
+  // forearm as upright as possible while the fist still clears the side of the head (kids' heads are
+  // too big for that: their fist stays up by the cheek rather than sticking straight out)
+  const need = (d.Rx + d.handR * 0.8 - d.shX - L * Math.sin(up)) / L;
+  const fore = opt.fore ?? clamp(Math.PI - Math.asin(clamp(need, 0, 1)), 2.5, 2.95);
+  const arm = (X, sh) => {
+    o['aO' + X] = lerp(o['aO' + X], up + 0.08 * sh, k); o['aF' + X] = lerp(o['aF' + X], opt.aF ?? 0.18, k);
+    o['eS' + X] = lerp(o['eS' + X], -(fore - up) - 0.14 * sh, k); o['eB' + X] = lerp(o['eB' + X], (opt.eB ?? 0.25) + 0.1 * sh, k);
+    o['aT' + X] = lerp(o['aT' + X], 0, k); o['wW' + X] = lerp(o['wW' + X], 0.35 * sh, k);
+  };
   const X = S === 'R' ? 'L' : 'R';
-  o['aO' + S] = lerp(o['aO' + S], opt.aO ?? 2.2, k); o['aF' + S] = lerp(o['aF' + S], opt.aF ?? 0.3, k);
-  o['eS' + S] = lerp(o['eS' + S], -(opt.eS ?? 0.75) - 0.35 * shake, k); o['eB' + S] = lerp(o['eB' + S], (opt.eB ?? 0.4) + 0.12 * shake, k);
-  o['aT' + S] = lerp(o['aT' + S], 0, k); o['wW' + S] = lerp(o['wW' + S], 0.35 * shake, k);
-  if (opt.both) {
-    o['aO' + X] = lerp(o['aO' + X], opt.aO ?? 2.2, k); o['aF' + X] = lerp(o['aF' + X], opt.aF ?? 0.3, k);
-    o['eS' + X] = lerp(o['eS' + X], -(opt.eS ?? 0.75) + 0.35 * shake, k); o['eB' + X] = lerp(o['eB' + X], (opt.eB ?? 0.4) - 0.12 * shake, k);
-    o['aT' + X] = lerp(o['aT' + X], 0, k);
-  } else { // other hand on the hip
+  arm(S, shake);
+  if (opt.both) arm(X, -shake);
+  else { // other hand on the hip
     o['aO' + X] = lerp(o['aO' + X], 0.62, k); o['aF' + X] = lerp(o['aF' + X], -0.12, k);
     o['eS' + X] = lerp(o['eS' + X], 1.75, k); o['eB' + X] = lerp(o['eB' + X], 0.15, k); o['aT' + X] = lerp(o['aT' + X], 0, k);
   }
@@ -381,7 +392,7 @@ export const ACTIONS = {
       const c = cyc(T, 2.3);
       const dip = win(c, 0.02, 0.3, 0.08, 0.1), up = win(c, 0.3, 0.62, 0.1, 0.12);
       const chew = Math.max(0, Math.sin(T * 14)) * win(c, 0.52, 0.98, 0.05, 0.1);
-      o.aFL = 1.0; o.aTL = 0.55; o.eBL = 1.2; o.aOL = 0.12;
+      o.aFL = 1.15; o.aTL = 0.3; o.eBL = 0.65; o.aOL = 0.15; // cone held out in front of the chest
       o.aFR = 0.55 + 0.35 * dip + 0.8 * up; o.aTR = 0.3 + 0.3 * dip + 0.35 * up; o.eBR = 0.85 + 0.45 * dip + 1.05 * up; o.aOR = 0.1;
       o.nrx = 0.12 + 0.18 * dip - 0.08 * up; o.eyeY = -0.5 * dip;
       o.mouth = 0.55 * win(c, 0.42, 0.6, 0.05, 0.05) + 0.25 * chew; o.smile = 0.65; o.lid = 0.15 + 0.35 * chew;
@@ -434,6 +445,12 @@ export const ACTIONS = {
     o.aOL = o.aOR = 0.62; o.aFL = o.aFR = -0.12; o.eSL = o.eSR = 1.75; o.eBL = o.eBR = 0.15;
     o.srx = 0.08; o.nrx = 0.06; o.nry = 0.15 * Math.sin(T * 1.3);
     o.lid = 0.3; o.lidT = 0.55; o.browT = 0.9; o.browY = -0.3; o.smile = -0.9; o.mouth = 0.25 * Math.max(0, Math.sin(T * 9));
+  },
+
+  pose(o, t, s, opt) { // hold a custom static pose: opts.channels = { aFL: 1.2, eBL: 0.8, nrx: 0.2, ... } (+ breathing)
+    breathe(o, t * s.tempo + s.phase, s);
+    const c = opt.channels;
+    if (c) for (const k in c) if (k in o) o[k] = c[k];
   },
 
   // ---- harbour & beach -------------------------------------------------------------------------
@@ -564,8 +581,7 @@ export const ACTIONS = {
     o.lFL = side > 0 ? 0.75 * kick : 0.05; o.kL = side > 0 ? 0.1 : 0.2 + stand;
     o.lFR = side < 0 ? 0.75 * kick : 0.05; o.kR = side < 0 ? 0.1 : 0.2 + stand;
     o.hrz = 0.1 * side * h; o.srz = -0.08 * side * h;
-    if (s.seed % 2) foldArms(o);
-    else { both(o, 'aO', 0.62); both(o, 'aF', -0.12); both(o, 'eS', 1.75); both(o, 'eB', 0.15); }
+    akimbo(o, 0.12 * h); // elbows flap on the hop
     o.nrz = 0.16 * Math.sin(T * rate * Math.PI); o.nrx = -0.1 + 0.06 * h;
     o.lid = 0.5; o.smile = 0.9; o.mouth = 0.45 + 0.2 * h; o.browY = 0.5;
   },
@@ -574,7 +590,7 @@ export const ACTIONS = {
     const T = t * s.tempo + s.phase;
     const up = smooth(t / 0.2);
     const shake = Math.sin(T * 22);
-    fistUp(o, up, shake, opt.hand || s.fist || 'R', opt); // Person picks the free hand (opts.hand to force)
+    fistUp(o, up, shake, opt.hand || s.fist || 'R', s, opt); // Person picks the free hand (opts.hand to force)
     const stomp = Math.max(0, Math.sin(T * 6.5)) * win(T % 3.1, 0.2, 1.7);
     o.lFL = 0.22 * stomp; o.kL = 0.45 * stomp; o.by = 0.02 * stomp;
     o.srx = 0.12; o.nrx = 0.05 + 0.04 * Math.sin(T * 11); o.nry = 0.1 * Math.sin(T * 3);
@@ -600,7 +616,7 @@ export const ACTIONS = {
   impatient(o, t, s) { // arms folded, toe tapping, sighing (the chip-shop queue)
     const T = t * s.tempo + s.phase;
     breathe(o, T, s);
-    foldArms(o);
+    akimbo(o);
     const tap = Math.max(0, Math.sin(T * 7.5));
     o.lFR = 0.1 * tap; o.kR = 0.14 * tap; o.lTR = 0.1;
     const sigh = bump(T % 6.5, 3.2, 4.2);
@@ -614,10 +630,12 @@ export const ACTIONS = {
     breathe(o, T, s);
     const look = win(T % 5.2, 0.3, 3.3, 0.3, 0.35);
     armsIdle(o, T, s, 'relaxed');
-    o.aFL = lerp(o.aFL, 1.3, look); o.aTL = 0.75 * look; o.eBL = lerp(o.eBL, 1.6, look); o.aOL = lerp(o.aOL, 0.3, look); o.wBL = -0.3 * look;
-    const tap = Math.max(0, Math.sin(T * 9)) * win(T % 5.2, 1.4, 2.6);
-    o.aFR = lerp(o.aFR, 1.05, look); o.aTR = 0.72 * look; o.eBR = lerp(o.eBR, 1.7 + 0.15 * tap, look);
-    o.nrx = 0.32 * look; o.nry = 0.28 * look + 0.4 * noise(T * 0.3, s.seed) * (1 - look); o.eyeY = -0.5 * look;
+    // watch wrist raised in front of the chin (clears the chest on every build), other hand on the hip
+    const tap = Math.max(0, Math.sin(T * 9)) * win(T % 5.2, 1.4, 2.6); // gives the watch a shake
+    o.aFL = lerp(o.aFL, 1.35, look); o.aTL = 0.3 * look; o.eBL = lerp(o.eBL, 1.0, look); o.aOL = lerp(o.aOL, 0.1, look);
+    o.wBL = -0.3 * look; o.wWL = 0.5 * tap;
+    o.aOR = lerp(o.aOR, 0.62, look); o.aFR = lerp(o.aFR, -0.12, look); o.eSR = 1.75 * look; o.eBR = lerp(o.eBR, 0.15, look);
+    o.nrx = 0.32 * look; o.nry = 0.1 * look + 0.4 * noise(T * 0.3, s.seed) * (1 - look); o.eyeY = -0.5 * look;
     o.lFR = 0.1 * Math.max(0, Math.sin(T * 7)) * (1 - look);
     o.browT = 0.4; o.smile = -0.35; o.mouth = 0.1 * tap;
   },
@@ -638,7 +656,8 @@ export const ACTIONS = {
     const shout = win(T % 3.6, 0.4, 2.1, 0.15, 0.3);
     const jig = Math.sin(T * 7) * 0.12;
     o.aFR = 0.8 + jig; o.aOR = 0.85; o.aTR = -0.1; o.eBR = 0.35; o.wBR = 0.2;
-    o.aFL = lerp(0.2, 1.25, shout); o.aTL = lerp(0.1, 0.68, shout); o.eBL = lerp(0.3, 2.0, shout); o.aOL = lerp(0.1, 0.3, shout);
+    // hand cupped beside the mouth (bean arms can't reach the mouth itself: it would sink into the chin)
+    o.aFL = lerp(0.2, 0.9, shout); o.aTL = lerp(0.1, 0.3, shout); o.eBL = lerp(0.3, 0.8, shout); o.aOL = lerp(0.1, 1.3, shout); o.eSL = -1.0 * shout;
     o.srx = -0.06 * shout; o.nrx = -0.12 * shout; o.nry = 0.2 * noise(T * 0.3, s.seed) * (1 - shout) - 0.15 * shout;
     o.mouth = shout * (0.55 + 0.35 * Math.max(0, Math.sin(T * 9))) + 0.1; o.browY = 0.6 * shout; o.smile = 0.5;
     o.by = 0.02 * Math.abs(Math.sin(T * 3.5)) * shout;
@@ -647,7 +666,7 @@ export const ACTIONS = {
   whistle(o, t, s) { // lifeguard blowing the whistle, other arm waving swimmers in
     const T = t * s.tempo + s.phase;
     const blow = win(T % 2.2, 0.15, 1.3, 0.06, 0.12);
-    o.aFR = 1.25; o.aTR = 0.7; o.eBR = 2.05; o.aOR = 0.25;
+    o.aFR = 0.9; o.aTR = 0.3; o.eBR = 0.8; o.aOR = 1.3; o.eSR = -1.0; // hand up by the mouth with the whistle
     o.aOL = 1.9 + 0.35 * Math.sin(T * 7); o.aFL = 0.35; o.eBL = 0.1; o.eSL = 0.3 * Math.sin(T * 7 + 1);
     o.srx = 0.1 * blow; o.by = 0.03 * blow; o.bsq = 0.04 * blow; o.nrx = -0.05;
     o.lid = -0.2; o.browY = 0.85; o.browT = 0.2; o.smile = -0.2;
@@ -738,7 +757,7 @@ export function reactPose(o, t, s) {
   const fist = win(t, 0.78, 2.05, 0.18, 0.3);
   o.bry += s.reactFace * fist;
   const shake = Math.sin(t * 24);
-  fistUp(o, fist, shake, s.fist || 'R');
+  fistUp(o, fist, shake, s.fist || 'R', s);
   o.srx = 0.13 * fist; o.nrx = 0.05 * fist - 0.12 * flail; o.nry = 0.12 * Math.sin(t * 7) * fist;
   const stomp = Math.max(0, Math.sin(t * 13)) * fist;
   o.lFL += 0.2 * stomp; o.kL += 0.45 * stomp;

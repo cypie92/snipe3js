@@ -27,6 +27,7 @@ const _m = new THREE.Matrix4();
 const _m2 = new THREE.Matrix4();
 const _qa = new THREE.Quaternion();
 const warned = new Set();
+const TALL_HATS = new Set(['chef', 'tophat', 'police', 'party', 'veil']);
 const FOODS = ['chips', 'icecream'];
 
 /** Is this action (with these options) sitting on something? (bad hits keep them on it) */
@@ -212,8 +213,8 @@ export class Person {
   /** Aim the 'point' action at a world position (or Object3D). */
   pointAt(target) { this._pointTarget = target; return this; }
 
-  /** Turn the head (and a little of the body) toward a world point / Object3D. null to stop. */
-  lookAt(target) { this.lookTarget = target || null; return this; }
+  /** Turn the head (and a little of the body) toward a world point / Object3D (for `seconds`, or until null). */
+  lookAt(target, seconds = 0) { this.lookTarget = target || null; this._lookT = target ? seconds : 0; return this; }
 
   /** Rotate the root to face a world point (instant). */
   faceTowards(point) {
@@ -261,6 +262,7 @@ export class Person {
       this.autoProps.push(pr);
     }
     const busy = BUSY_HANDS[this.action] || '';
+    this._carryHidden = busy.includes('L') || this.autoProps.some((a) => !a.bone && a.hand === 'L'); // baked-in handbag / shopping bag
     for (const h of ['L', 'R']) {
       const f = this.fixedProps[h];
       if (f) f.mesh.visible = !busy.includes(h) && !this.autoProps.some((a) => (!a.bone && a.hand === h) || a.type === f.type);
@@ -525,6 +527,7 @@ export class Person {
 
   _updateLook(o, dt) {
     const s = this.s;
+    if (this._lookT > 0 && (this._lookT -= dt) <= 0) this.lookTarget = null; // lookAt(target, seconds)
     if (this.lookTarget) {
       this.root.updateWorldMatrix(true, false);
       const p = this.lookTarget.isVector3 ? _v.copy(this.lookTarget) : this.lookTarget.getWorldPosition(_v);
@@ -587,13 +590,16 @@ export class Person {
     const br = 1 + o.ssq;
     B.spine.scale.set(1 + o.ssq * 0.6, br, 1 + o.ssq * 0.6);
     B.head.rotation.set(o.nrx - s.stoop * 0.7, o.nry, o.nrz, 'YXZ');
-    const ab = s.armBase;
+    // the outward rest angle only matters for hanging arms (clearing the belly): raised arms keep the
+    // authored angle, otherwise tubby folk lift them straight up into their big heads
+    const abL = s.armBase * (1 - smooth((o.aOL - 0.9) / 0.9)), abR = s.armBase * (1 - smooth((o.aOR - 0.9) / 0.9));
     // YZX: swing forward first, then raise sideways, then yaw -> "forward" stays forward when raised
-    B.armL.rotation.set(-o.aFL, -o.aTL, o.aOL + ab, 'YZX');
-    B.armR.rotation.set(-o.aFR, o.aTR, -(o.aOR + ab), 'YZX');
+    B.armL.rotation.set(-o.aFL, -o.aTL, o.aOL + abL, 'YZX');
+    B.armR.rotation.set(-o.aFR, o.aTR, -(o.aOR + abR), 'YZX');
     B.foreL.rotation.set(-o.eBL, 0, -o.eSL);
     B.foreR.rotation.set(-o.eBR, 0, o.eSR);
     B.handL.rotation.set(-o.wBL, 0, o.wWL);
+    if (B.carryL) B.carryL.scale.setScalar(this._carryHidden ? 1e-3 : 1);
     B.handR.rotation.set(-o.wBR, 0, -o.wWR);
     B.legL.rotation.set(-o.lFL, o.lTL, o.lOL, 'YXZ');
     B.legR.rotation.set(-o.lFR, -o.lTR, -o.lOR, 'YXZ');
@@ -618,7 +624,7 @@ export class Person {
     B.pupilL.quaternion.copy(this.rest.pupilL).multiply(_q);
     B.pupilR.quaternion.copy(this.rest.pupilR).multiply(_q);
     if (B.hat && B.hat.parent === B.head && (!this.hatState || this.hatState.phase === 'done')) {
-      const k = clamp(o.hat, 0, 1); // tip the hat forward over the eyes
+      const k = clamp(o.hat, 0, 1) * (TALL_HATS.has(this.config.hat?.type) ? 0 : 1); // tip the hat over the eyes (not a chef's toque)
       B.hat.quaternion.copy(this.rest.hat.quat).multiply(_q.setFromEuler(_e.set(1.15 * k, 0, 0)));
       B.hat.position.copy(this.rest.hat.pos);
       B.hat.position.y -= 0.12 * k * this.meta.d.HS;

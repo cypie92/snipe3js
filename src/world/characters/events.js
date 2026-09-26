@@ -1,7 +1,7 @@
 // Tiny event hub so audio / FX / the level can hook character moments without touching this folder.
 //   onCharacterEvent('react', (ch, hit) => audio.sfx('hey', { position: ch.root.getWorldPosition(v) }));
-// Events: 'react' (ch, hit), 'celebrate' (ch), 'tell' (ch, iconType), 'action' (ch, name, opts),
-//         'stealChip' (gull, person), 'bark' (dog), 'squawk' (bird)...
+// Events: 'react' (ch, hit), 'celebrate' (ch), 'tell' (ch, iconType), 'action' (ch, name, opts) (a dog's
+//         'bark', a seal's 'clap'... arrive as actions), 'stealChip' (gull, person), 'squawk' (flock bird).
 const handlers = new Map();
 
 export function onCharacterEvent(name, fn) {

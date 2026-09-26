@@ -280,6 +280,7 @@ class FlockAgent {
         b.holdingChip = true;
         v.tell?.('!?', { duration: 1.2 });
         v.perform?.('shakeFist', 2.8, { icon: false });
+        v.lookAt?.(b.root, 3); // glaring after the thief
         emitCharacterEvent('stealChip', b, v);
         this.onSnatch?.(b, v);
         this.victim = null;
