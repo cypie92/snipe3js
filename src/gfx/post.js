@@ -23,11 +23,13 @@ uniform vec4 uOutline;       // strength, width (texels), fade start (m), fade e
 uniform vec3 uOutlineColor;
 uniform float uOutlineThreshold;
 
+#ifdef OUTLINE
 float invDist(const in vec2 uv) {
   return -1.0 / getViewZ(readDepth(uv));
 }
+#endif
 
-void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
+MAIN_IMAGE_SIGNATURE {
   vec3 c = clamp(inputColor.rgb, 0.0, 1.0);
 
 #ifdef OUTLINE
@@ -63,9 +65,14 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
 }
 `;
 
+// pmndrs passes `depth` to mainImage only for EffectAttribute.DEPTH effects, so the signature must match
+// the attribute exactly (a mismatch fails to compile as "eNMainImage: no matching overloaded function").
+const SIG_DEPTH = 'void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor)';
+const SIG_PLAIN = 'void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)';
+
 export class GradeEffect extends Effect {
   constructor({ outline = true } = {}) {
-    super('GradeEffect', gradeFrag, {
+    super('GradeEffect', gradeFrag.replace('MAIN_IMAGE_SIGNATURE', outline ? SIG_DEPTH : SIG_PLAIN), {
       blendFunction: BlendFunction.SRC,
       attributes: outline ? EffectAttribute.DEPTH : EffectAttribute.NONE,
       defines: outline ? new Map([['OUTLINE', '1']]) : new Map(),
