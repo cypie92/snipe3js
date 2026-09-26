@@ -1,6 +1,23 @@
 // Shared materials. Most geometry is vertex-coloured and uses toy/facet so it batches well.
 import * as THREE from 'three';
 
+// NaN-safe flat shading (all flatShading materials: facet, foliage, backdrop, particles...).
+// three computes flat normals as normalize(cross(dFdx(p), dFdy(p))); for tiny/far or degenerate
+// triangles the cross product collapses to zero and the normal becomes NaN, which bloom then smears
+// into large black blocks. Fall back to world-up (in view space) when the derivatives are degenerate.
+{
+  const FLAT = 'vec3 normal = normalize( cross( fdx, fdy ) );';
+  const chunk = THREE.ShaderChunk.normal_fragment_begin;
+  if (chunk.includes(FLAT)) {
+    THREE.ShaderChunk.normal_fragment_begin = chunk.replace(FLAT, `vec3 flatN = cross( fdx, fdy );
+	float flatL = length( flatN );
+	vec3 normal = flatL > 1e-5 * length( fdx ) * length( fdy ) && flatL > 1e-20
+		? flatN / flatL : normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );`);
+  } else {
+    console.warn('[materials] flat-normal guard not applied (three chunk changed)');
+  }
+}
+
 const toy = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.0 });
 toy.name = 'toy';
 

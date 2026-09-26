@@ -1,6 +1,9 @@
 // Custom post effects for the Renderer (pmndrs postprocessing):
-//   GradeEffect     display-space colour grade (lift/gain/gamma, S-curve contrast, saturation + vibrance),
-//                   depth-based silhouette darkening for readability, tinted vignette. Merges into one pass.
+//   EdgeEffect      depth-based silhouette darkening for readability (+ NaN guard). DEPTH attribute.
+//   GradeEffect     display-space colour grade (lift/gain/gamma, S-curve contrast, saturation + vibrance,
+//                   calmer greens), tinted vignette / scope lens falloff. Runs after tone mapping.
+//   Each mainImage signature matches its attributes (depth parameter only for DEPTH effects), otherwise
+//   the merged shader fails with "eNMainImage: no matching overloaded function".
 //   ScopeLensEffect radial chromatic aberration toward the scope rim (convolution; zero cost when unscoped).
 //   OverlayPass     draws the first-person viewmodel after AO (no AO halos / self-occlusion blotches) and
 //                   writes its depth into the composer's stable depth so later passes see it.
@@ -11,6 +14,61 @@ export const VIEWMODEL_LAYER = 5;
 
 /** Live view state published by the Renderer (e.g. particles skip the muzzle puff while scoped). */
 export const viewState = { scope: 0 };
+
+// NOTE pmndrs EffectPass sorts merged effects by attribute (CONVOLUTION > DEPTH > NONE, stable), so a
+// DEPTH effect always runs before NONE effects such as Bloom/ToneMapping. The depth-based edge darkening is
+// therefore its own effect (fine pre-tonemap), and the display-space grade stays attribute-free so it runs
+// after tone mapping.
+
+const edgeFrag = /* glsl */ `
+uniform vec4 uOutline;       // strength, width (texels), fade start (m), fade end (m)
+uniform vec3 uOutlineColor;
+uniform float uOutlineThreshold;
+
+float invDist(const in vec2 uv) {
+  return -1.0 / getViewZ(readDepth(uv));
+}
+
+void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
+  vec3 c = inputColor.rgb;
+  if (any(isnan(c)) || any(isinf(c))) c = vec3(0.0); // NaN-safe: never propagate a bad pixel
+  // Silhouette darkening: 1/z is affine across any plane in screen space, so its Laplacian is ~0 on flat
+  // surfaces and creases and large only where this pixel sits in front of what surrounds it.
+  float w0 = -1.0 / getViewZ(depth);
+  vec2 o = texelSize * uOutline.y;
+  float lap = (4.0 * w0 - invDist(uv + vec2(o.x, 0.0)) - invDist(uv - vec2(o.x, 0.0))
+    - invDist(uv + vec2(0.0, o.y)) - invDist(uv - vec2(0.0, o.y))) / w0;
+  float e = smoothstep(uOutlineThreshold, uOutlineThreshold * 3.0, lap);
+  e *= 1.0 - smoothstep(uOutline.z, uOutline.w, 1.0 / w0);
+  c *= mix(vec3(1.0), uOutlineColor, e * uOutline.x);
+  outputColor = vec4(c, inputColor.a);
+}
+`;
+
+/** Depth-based silhouette darkening (readability of small objects at 60-130 m). */
+export class EdgeEffect extends Effect {
+  constructor() {
+    super('EdgeEffect', edgeFrag, {
+      blendFunction: BlendFunction.SRC,
+      attributes: EffectAttribute.DEPTH,
+      uniforms: new Map([
+        ['uOutline', new THREE.Uniform(new THREE.Vector4(0.3, 1, 140, 320))],
+        ['uOutlineColor', new THREE.Uniform(new THREE.Color('#2e2a4a'))],
+        ['uOutlineThreshold', new THREE.Uniform(0.02)],
+      ]),
+    });
+  }
+
+  apply(g, enabled = true) {
+    const u = this.uniforms;
+    const o = u.get('uOutline').value;
+    o.x = enabled ? g.outline : 0; o.z = g.outlineFade[0]; o.w = g.outlineFade[1];
+    u.get('uOutlineColor').value.set(g.outlineColor);
+    u.get('uOutlineThreshold').value = g.outlineThreshold;
+  }
+
+  set width(px) { this.uniforms.get('uOutline').value.y = px; }
+}
 
 const gradeFrag = /* glsl */ `
 uniform vec3 uLift;
@@ -23,30 +81,11 @@ uniform vec3 uGreen;         // yellow-green taming: saturation scale, hue shift
 uniform vec4 uVignette;      // inner radius, outer radius, strength, scope amount (0..1)
 uniform vec3 uVignetteColor;
 uniform float uScopeRadius;  // scope circle radius in screen-height units
-uniform vec4 uOutline;       // strength, width (texels), fade start (m), fade end (m)
-uniform vec3 uOutlineColor;
-uniform float uOutlineThreshold;
 
-#ifdef OUTLINE
-float invDist(const in vec2 uv) {
-  return -1.0 / getViewZ(readDepth(uv));
-}
-#endif
-
-MAIN_IMAGE_SIGNATURE {
-  vec3 c = clamp(inputColor.rgb, 0.0, 1.0);
-
-#ifdef OUTLINE
-  // Silhouette darkening: 1/z is affine across any plane in screen space, so its Laplacian is ~0 on flat
-  // surfaces and creases and large only where this pixel sits in front of what surrounds it.
-  float w0 = -1.0 / getViewZ(depth);
-  vec2 o = texelSize * uOutline.y;
-  float lap = (4.0 * w0 - invDist(uv + vec2(o.x, 0.0)) - invDist(uv - vec2(o.x, 0.0))
-    - invDist(uv + vec2(0.0, o.y)) - invDist(uv - vec2(0.0, o.y))) / w0;
-  float e = smoothstep(uOutlineThreshold, uOutlineThreshold * 3.0, lap);
-  e *= 1.0 - smoothstep(uOutline.z, uOutline.w, 1.0 / w0);
-  c *= mix(vec3(1.0), uOutlineColor, e * uOutline.x);
-#endif
+void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+  vec3 c = inputColor.rgb;
+  if (any(isnan(c)) || any(isinf(c))) c = vec3(0.0);
+  c = clamp(c, 0.0, 1.0); // tone-mapped (display-referred) input
 
   // grade in a perceptual (gamma 2.2) space
   c = pow(c, vec3(1.0 / 2.2));
@@ -77,17 +116,11 @@ MAIN_IMAGE_SIGNATURE {
 }
 `;
 
-// pmndrs passes `depth` to mainImage only for EffectAttribute.DEPTH effects, so the signature must match
-// the attribute exactly (a mismatch fails to compile as "eNMainImage: no matching overloaded function").
-const SIG_DEPTH = 'void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor)';
-const SIG_PLAIN = 'void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)';
-
+/** Display-space colour grade + vignette. Must come after ToneMappingEffect (attribute-free on purpose). */
 export class GradeEffect extends Effect {
-  constructor({ outline = true } = {}) {
-    super('GradeEffect', gradeFrag.replace('MAIN_IMAGE_SIGNATURE', outline ? SIG_DEPTH : SIG_PLAIN), {
+  constructor() {
+    super('GradeEffect', gradeFrag, {
       blendFunction: BlendFunction.SRC,
-      attributes: outline ? EffectAttribute.DEPTH : EffectAttribute.NONE,
-      defines: outline ? new Map([['OUTLINE', '1']]) : new Map(),
       uniforms: new Map([
         ['uLift', new THREE.Uniform(new THREE.Vector3())],
         ['uGain', new THREE.Uniform(new THREE.Vector3(1, 1, 1))],
@@ -99,12 +132,8 @@ export class GradeEffect extends Effect {
         ['uVignette', new THREE.Uniform(new THREE.Vector4(0.45, 1.05, 0.25, 0))],
         ['uVignetteColor', new THREE.Uniform(new THREE.Color('#3b3560'))],
         ['uScopeRadius', new THREE.Uniform(0.47)],
-        ['uOutline', new THREE.Uniform(new THREE.Vector4(0.3, 1, 140, 320))],
-        ['uOutlineColor', new THREE.Uniform(new THREE.Color('#2e2a4a'))],
-        ['uOutlineThreshold', new THREE.Uniform(0.02)],
       ]),
     });
-    this.hasOutline = outline;
   }
 
   /** Apply a grade settings object (see Renderer GRADE_DEFAULTS). */
@@ -120,13 +149,8 @@ export class GradeEffect extends Effect {
     const v = u.get('uVignette').value;
     v.x = g.vignette[0]; v.y = g.vignette[1]; v.z = g.vignette[2];
     u.get('uVignetteColor').value.set(g.vignetteColor);
-    const o = u.get('uOutline').value;
-    o.x = g.outline; o.z = g.outlineFade[0]; o.w = g.outlineFade[1];
-    u.get('uOutlineColor').value.set(g.outlineColor);
-    u.get('uOutlineThreshold').value = g.outlineThreshold;
   }
 
-  set outlineWidth(px) { this.uniforms.get('uOutline').value.y = px; }
   set scope(amount) { this.uniforms.get('uVignette').value.w = amount; }
   set scopeRadius(r) { this.uniforms.get('uScopeRadius').value = r; }
 }
