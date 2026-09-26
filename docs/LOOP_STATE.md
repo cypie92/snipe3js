@@ -36,7 +36,15 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
       27 animals, vehicles; ~520 draw calls / 1.1M tris; all jobs verified by real shots).
 - [x] 3D office hub integrated (shoot flyers/workbench/cabinet); Jack's van perch per level.
 - [x] Lead: post-shift secret hunt ("Shift done! N secrets left" → clock off), par judged at shift end.
-- [ ] Iteration 1 review running (review/REVIEW-1.md); tech artist still polishing grade/sky/water.
+- [x] Review 1 done: 5.9/10 (review/REVIEW-1.md). Blocker: world too far from the perch.
+- [x] Lead review-1 fixes: level reuse (no double build) + loading card, briefing clipboard after the
+      swoop (click starts the shift), two-tier hints (radio nudge → marker), first-shift coach marks,
+      bullet-cam unscope + shake, voiced/capped/scope-clipped bubbles, reactions get shot origin,
+      heartbeat on hold-breath, 'oi' on bad hits, vanished-row CSS bug, spanner ids, capture clock-off.
+- [ ] Round 2 running (resumed 09:55 UTC after a 2nd API-limit cut): level designer (pull world in,
+      flanks, ground variety, clue/hint rewrite, escalating tells, first-laugh job), tech artist (raking
+      light, ground shading, less fringing, tilt-shift, fewer programs), characters (tell icons, face
+      shooter), audio (babble voices, oi, heartbeat). Buildings/props (kit bugs + harbour) wait.
 - Kit bugs to fix (found by the level designer, worked around in the level): buildings addCollider()
   doesn't flag colliders; church update overwrites weathervane rotation; bunting coil scale reset each
   frame; phone box glass opaque; birdseed spill point at bag origin.
