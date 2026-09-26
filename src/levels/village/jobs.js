@@ -1,6 +1,6 @@
 // Puddleby Green: 11 contracts, 2 secret jobs and 3 Golden Spanners — each with a tell, a reaction
 // and the villagers who care about it. Clues describe the resident's problem (not the target);
-// hints are a spoken nudge. Anyone still waiting after ~45 s starts waving for help ("nag").
+// hints are a spoken nudge. Anyone still waiting after ~45 s starts waving for help ("nag"; staggered).
 import * as THREE from 'three';
 import * as K from '../../world/kit/props/index.js';
 import { Duck, PigeonFlock, Walker } from '../../world/characters/index.js';
@@ -44,8 +44,10 @@ export function buildJobs(ctx, S, L, D) {
   // ---------------------------------------------------------------- escalating tells ("nag")
   // After `after` seconds of play with the job still open (and unlocked), its owner waves for help
   // with a '!' every few seconds and the target does something louder (fn).
+  // Staggered so a stuck player hears one new voice every 6 s (nearest problems first), not a chorus.
+  const NAG_ORDER = ['fountain', 'pigeons', 'icecream', 'sign', 'bunting', 'tap', 'kite', 'postman', 'bell'];
   const nags = new Map();
-  const nag = (id, o) => nags.set(id, { t: 0, n: 0, next: 0, started: false, ...o });
+  const nag = (id, o) => nags.set(id, { t: 0, n: 0, next: 0, started: false, after: 45 + 6 * Math.max(0, NAG_ORDER.indexOf(id)), ...o });
   const quiet = (id) => {
     const g = nags.get(id);
     if (!g) return;
@@ -75,14 +77,15 @@ export function buildJobs(ctx, S, L, D) {
         who.perform(g.big || 'alarm', 2.3);
       }
       g.fn?.(g.n);
-      if (who && g.lines && g.n % 2 === 1) cast.say(who, g.lines[((g.n - 1) >> 1) % g.lines.length], 2.4);
+      if (who && g.n === 1 && g.hey !== false) ctx.sfx('hey', { position: worldPos(who.root).setY(1.6), voice: who.root.userData.voice });
+      if (who && g.lines && g.n % 3 === 1) cast.say(who, g.lines[((g.n - 1) / 3 | 0) % g.lines.length], 2.4);
     }
   });
   J.nags = nags;
 
   // ================================================================ 0. first laugh: dunk the Sarge
   // Right under the van (≈24 m): a new player can hit it unscoped within seconds.
-  const DK = [-7.6, 25.8];
+  const DK = [-10.8, 25.2]; // left of the crow's-nest pennant, clear above the rail
   const DKR = facePerch(DK[0], DK[1]);
   const tank = dunkTank();
   put(root, tank, DK[0], DK[1], DKR);
@@ -128,7 +131,7 @@ export function buildJobs(ctx, S, L, D) {
       if (dunked) return;
       ctx.popText(tp.clone().add(v3(0, 1.1, 0)), 'MISSED!', { cls: 'pop-info', duration: 1 });
       if (rng.chance(0.5)) cast.say(sarge, rng.pick(['Ha! Missed!', 'Too slow!', 'Whoosh! Nope!']), 1.6);
-      ctx.sfx('boo', { position: tp, volume: 0.5 });
+      ctx.sfx('aww', { position: worldPos(kid.root).setY(1.2), voice: 'kid', volume: 0.45 });
     });
   };
   every(ctx, () => rng.range(3.2, 4.6), throwBall, { cond: () => open('dunk'), start: 1.5 });
@@ -155,10 +158,11 @@ export function buildJobs(ctx, S, L, D) {
           ctx.sfx('splash', { position: wp, pitch: 0.85 });
           ctx.sfx('hitWater', { position: wp });
           ctx.popText(wp.clone().add(v3(0, 2.4, 0)), 'SPLOSH!', { cls: 'pop-big', duration: 1.6 });
+          ctx.sfx('hey', { position: wp.clone().setY(wp.y + 1), voice: 'man' });
           sarge.tell('!?', { duration: 1.8, size: 1.3 });
         },
       });
-      ctx.delay(0.6, () => { ctx.sfx('yay', { position: wp }); ctx.sfx('crowdCheer', { position: wp, volume: 0.8 }); });
+      ctx.delay(0.6, () => { ctx.sfx('yay', { position: worldPos(throwers[0].root).setY(1.2), voice: 'kid' }); ctx.sfx('crowdCheer', { position: wp, volume: 0.8 }); });
       throwers.forEach((k, i) => ctx.delay(0.5 + i * 0.2, () => { k.setAction('cheer'); k.celebrate(); }));
       ctx.delay(0.9, () => cast.cheerNear(wp, 14, { except: [sarge, ...throwers], say: 'Ha! Got him!' }));
       ctx.delay(1.2, () => ctx.fx.burst('confetti', wp.clone().add(v3(0, 2.2, 0)), UP, { scale: 1.2 }));
@@ -507,7 +511,7 @@ export function buildJobs(ctx, S, L, D) {
       for (let i = 0; i < 12; i++) ctx.delay(i * 0.05, () => ctx.fx.burst('smoke', fp.clone().add(v3(rng.range(-0.7, 0.7), rng.range(0, 0.9), rng.range(-0.7, 0.7))), UP, { scale: rng.range(0.45, 0.75), color: ['#ffffff', '#f7f2ea', '#efe8dc'] }));
       ctx.fx.burst('dust', fp.clone().setY(0.15), UP, { scale: 0.9, color: ['#ffffff', '#f3ede2'] });
       ctx.sfx('hitSoft', { position: fp, pitch: 0.7 });
-      ctx.delay(0.3, () => ctx.sfx('aww', { position: fp }));
+      ctx.delay(0.3, () => ctx.sfx('aww', { position: fp, voice: 'old' }));
       flour.scale.set(0.8, 0.45, 0.8);
       flock.scare(fp, 30);
       floured(crumb);
@@ -523,7 +527,7 @@ export function buildJobs(ctx, S, L, D) {
 
   // ================================================================ 7. the ice-cream van jingle (giant cone = decoy)
   const van = K.iceCreamVan({ seed: 2 });
-  const VAN = [27.4, 28.2];
+  const VAN = [25.1, 24.8];
   put(root, van, VAN[0], VAN[1], Math.PI);
   ctx.surface(van, 'metal');
   ctx.onUpdate(van.userData.update);
@@ -610,6 +614,7 @@ export function buildJobs(ctx, S, L, D) {
       vanManR.on = false;
       vanMan.setAction('angry');
       vanMan.tell('anger', { duration: 2 });
+      ctx.sfx('hey', { position: worldPos(vanMan.root).setY(1.6), voice: 'man' });
       ctx.delay(0.4, () => cast.say(vanMan, "Not the cone! Now it's stuck on FAST!", 3));
       queue.forEach((q, i) => ctx.delay(1 + i * 0.5, () => q.setAction('shrug')));
     },
@@ -655,7 +660,7 @@ export function buildJobs(ctx, S, L, D) {
     },
   });
   nag('postman', {
-    owner: pete, big: false, tell: 'z', every: 7,
+    owner: pete, big: false, tell: 'z', every: 7, hey: false,
     fn: () => { snore.set({ volume: 1.35, rate: 1.2 }); ctx.sfx('tick', { position: worldPos(clock) }); },
   });
   J.pete = pete;
@@ -788,7 +793,7 @@ export function buildJobs(ctx, S, L, D) {
   ctx.onUpdate(tap.userData.update);
   const handle = tap.userData.parts.handle;
   const butt = waterButt();
-  const bp0 = gw(-1.85, G.d / 2 + 0.55);
+  const bp0 = gw(2.95, G.d / 2 + 0.6); // on the far side of the tap from the door
   put(root, butt, bp0.x, bp0.z, G.ry);
   ctx.collider(butt, new THREE.SphereGeometry(0.6, 8, 6), { y: 0.55 });
   ctx.surface(butt, 'soft');
@@ -846,6 +851,7 @@ export function buildJobs(ctx, S, L, D) {
       grubbR.on = false;
       grubb.setAction('angry');
       grubb.tell('anger', { duration: 2.4 });
+      ctx.sfx('hey', { position: worldPos(grubb.root).setY(1.6), voice: 'old' });
       ctx.delay(0.5, () => cast.say(grubb, 'Not the BUTT! Now it\'s a swamp!', 3));
       ctx.delay(3.2, () => grubb.setAction('shakeFist'));
     },

@@ -80,7 +80,7 @@ export function buildDressing(ctx, S, L) {
   for (const [x, z] of bins) add(K.bin({ seed: x + z * 3, overflow: rng.chance(0.3) }), x, z, facePerch(x, z), { surface: 'metal' });
   const planters = [
     [-26.3, -18.6, ROT_W, 'flowers'], [-29.4, 1.2, ROT_W, 'flowers'], [26.2, -13.4, ROT_E, 'flowers'],
-    [-15.6, -24.8, 0, 'shrub'], [15.6, -24.8, 0, 'flowers'], [-8.4, 16.4, 0, 'topiary'], [8.4, 16.4, 0, 'topiary'],
+    [-15.6, -24.8, 0, 'shrub'], [11.2, -24.9, 0, 'flowers'], [-8.4, 16.4, 0, 'topiary'], [8.4, 16.4, 0, 'topiary'],
   ];
   for (const [x, z, ry, plant] of planters) add(K.planter({ seed: x * 13 + z, plant, w: 1.6 }), x, z, ry, { surface: 'wood' });
   for (const x of [-3.2, 3.2]) add(K.bollard({ seed: x * 11 }), x, 16.6, 0, { surface: 'metal' });
@@ -90,7 +90,7 @@ export function buildDressing(ctx, S, L) {
   add(band, 17.6, -4.2, facePerch(17.6, -4.2), { surface: 'wood' });
   D.bandstand = { x: 17.6, z: -4.2, ry: facePerch(17.6, -4.2), deck: 0.95 };
   // signpost by the fountain
-  add(K.signpost({ seed: 5, arrows: [{ yaw: 2.3, color: P.teal, len: 1.0 }, { yaw: -0.9, color: P.tomato, len: 0.95 }, { yaw: 0.6, color: P.sunflower, len: 0.9 }] }), -5.8, 3.4, 0.1, { batch: false, surface: 'wood' });
+  add(K.signpost({ seed: 5, arrows: [{ yaw: 2.3, color: P.teal, len: 1.0 }, { yaw: -0.9, color: P.tomato, len: 0.95 }, { yaw: 0.6, color: P.sunflower, len: 0.9 }] }), -4.4, 2.1, 0.1, { batch: false, surface: 'wood' });
   // notice board with the LOST CAT poster (the cat is on Mr Grubb's wall...)
   const nb = L.west[3];
   const [nbx, nbz] = local(nb.front[0], nb.front[1], ROT_W, 3.9, 1.1);
@@ -124,7 +124,7 @@ export function buildDressing(ctx, S, L) {
   // the post box + phone kiosk on the pavement in front of the terrace
   add(B.postBox({}), -11.2, -26.4, 0.1, { surface: 'metal' });
   const kiosk = C.phoneKiosk({ open: 1.75 });
-  const KX = [11.4, -26.6];
+  const KX = [14.3, -26.4];
   put(root, kiosk, KX[0], KX[1], facePerch(KX[0], KX[1]) + 0.15);
   ctx.surface(kiosk, 'metal');
   S.batch.addMeshes(kiosk, 'metal');
@@ -152,9 +152,9 @@ export function buildDressing(ctx, S, L) {
   add(castle, CA[0], CA[1], CAR, { surface: 'soft' });
   D.castle = { x: CA[0], z: CA[1], ry: CAR, deck: castle.userData.deck };
   add(C.coconutShy({}), 15.8, 29.4, facePerch(15.8, 29.4), { surface: 'wood' });
-  add(C.tombola({}), 20.6, 25.2, facePerch(20.6, 25.2), { surface: 'wood' });
-  add(C.prizeTable({}), -12.4, 25.2, facePerch(-12.4, 25.2), { surface: 'wood' });
-  D.prizeTable = { x: -12.4, z: 25.2 };
+  add(C.tombola({}), -19.6, 25.4, facePerch(-19.6, 25.4), { surface: 'wood' });
+  add(C.prizeTable({}), -4.8, 22.3, facePerch(-4.8, 22.3), { surface: 'wood' });
+  D.prizeTable = { x: -4.8, z: 22.3 };
   add(C.hayBales([[0, 0, 0, 0.1], [1.25, 0, 0.05, 0.05], [0.6, 0.55, 0, 0.12]], { seed: 1 }), -25.2, 26.4, 0.4);
   add(C.hayBales([[0, 0, 0, 1.4], [0.1, 0, 1.3, 1.5]], { seed: 2 }), 24.6, 33.6, 0.2);
   add(C.hayBales([[0, 0, 0, 0]], { seed: 3 }), -8.2, 34.8, -0.6);
@@ -179,6 +179,28 @@ export function buildDressing(ctx, S, L) {
     add(dc, x, z, ry, { surface: 'soft' });
     return { x, z, ry, seat: dc.userData.seat };
   });
+  // test-your-strength + hook-a-duck in the strip you see just over the crow's-nest rail
+  const striker = C.highStriker();
+  const HS = [-3.4, 24.6];
+  add(striker, HS[0], HS[1], facePerch(HS[0], HS[1]), { batch: false, surface: 'wood' });
+  const { puck, pad, bell } = striker.userData.parts;
+  let ringing = false;
+  ctx.prop(pad, { surface: 'soft', onHit: () => { // anyone can have a go: a shot on the pad sends the puck up
+    if (ringing) return;
+    ringing = true;
+    const top = striker.userData.top - 0.3;
+    ctx.sfx('hitWood', { position: pad.getWorldPosition(new THREE.Vector3()) });
+    ctx.tweens.run(0.6, (k) => { const up = k < 0.5 ? 1 - (1 - k * 2) ** 3 : 1 - ((k - 0.5) * 2) ** 2; puck.position.y = 0.45 + (top - 0.45) * up; }, { onComplete: () => { ringing = false; } });
+    ctx.delay(0.3, () => {
+      const bp = bell.getWorldPosition(new THREE.Vector3());
+      ctx.sfx('bell', { position: bp, pitch: 2.1, volume: 0.8 });
+      ctx.popText(bp.clone().add(v3(0, 0.8, 0)), rng.pick(['MIGHTY!', 'DING!', 'STRONGMAN!']), { cls: 'pop-big', duration: 1.2 });
+    });
+  } });
+  D.striker = { x: HS[0], z: HS[1], obj: striker };
+  const pool = C.duckPool({ r: 1.1 });
+  add(pool, 4.3, 22.8, 0, { animate: true, batch: false, surface: 'water' });
+  D.duckPool = { x: 4.3, z: 22.8 };
   // Mrs Crumb's bench (the pigeon job), just south-west of the fountain
   const crumbBench = K.bench({ seed: 98, length: 2.0, color: '#2f7d62' });
   const CB = [-8.4, 4.6], CBR = 0.16;
@@ -259,6 +281,14 @@ export function buildDressing(ctx, S, L) {
   ];
   for (const [o, x, z, ry] of carPark) D.parkedCars.push(add(o, x, z, ry, { animate: true, batch: false, surface: 'metal' }));
   add(C.hayBales([[0, 0, 0, 0], [1.3, 0, 0, 0.1]], { seed: 6 }), -27.6, 45.2, 0.1);
+  add(C.hayBales([[0, 0, 0, 0.2]], { seed: 7 }), -21.6, 41.6, 0.9);
+  for (const [x, z, s, f] of [[-24.4, 48.6, 1.2, '#ffc93c'], [-17.8, 44.8, 1.0, null], [-31.8, 43.4, 1.1, '#ff7eb6'], [21.2, 45.4, 1.1, null], [27.4, 47.8, 1.2, '#fff4e6']]) {
+    add(N.bush({ seed: x * z, size: s, flowers: f }), x, z, rng.range(0, 6), { surface: 'leaves' });
+  }
+  for (const [x, z, sd, type] of [[-22.8, 51.2, 12, 'round'], [-14.8, 48.8, 13, 'fruit'], [16.2, 49.6, 14, 'blossom'], [24.6, 51.8, 15, 'round']]) {
+    const t = N.tree({ type, seed: sd, scale: 0.95 });
+    add(t, x, z, rng.range(0, 6), { animate: true, batch: false, surface: 'leaves' });
+  }
 
   // ------------------------------------------------------------ Pete's bench under the oak
   const peteBench = K.bench({ seed: 99, length: 2.1 });
@@ -289,7 +319,7 @@ export function buildDressing(ctx, S, L) {
   // raised flower beds (stone-edged domes of blooms) + flower borders
   const bedsF = [
     { x: -7.6, z: 20.4, r: 1.5 }, { x: 7.6, z: 20.4, r: 1.5 }, { x: -3.8, z: 36.8, r: 1.7 }, { x: 3.9, z: 34.2, r: 1.4 },
-    { x: -27.2, z: 20.4, r: 1.5 }, { x: 27.4, z: 19.6, r: 1.4 }, { x: FX, z: FZ + 10.8, r: 1.2 },
+    { x: -27.2, z: 20.4, r: 1.5 }, { x: 27.4, z: 19.6, r: 1.4 }, { x: FX, z: FZ + 12.9, r: 1.2 },
     { x: -21.6, z: -27.2, r: 1.4 }, { x: 22.4, z: -26.8, r: 1.6 }, { x: -44, z: 44.2, r: 1.8 }, { x: 44.4, z: 44.6, r: 1.8 },
     { x: -31.6, z: 14.8, r: 1.2 }, { x: 31.2, z: 14.6, r: 1.1 },
   ];

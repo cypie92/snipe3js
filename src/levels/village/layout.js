@@ -344,7 +344,7 @@ export function buildLayout(ctx, S) {
 
   // ---- south-west: Mr Grubb's cottage (the tap is by its front door) beside the allotments
   const grubb = B.house({ backDetail: false, seed: 'grubb', floors: 1, roofStyle: 'gable', gableFront: false, wall: '#fff1d6', roof: P.roofTeal, style: 'plain', number: 3, porch: 'hood', climber: true, pots: false, width: 6.4, depth: 5.4 });
-  const GR = [-46.5, 16.5], GRR = facePerch(-46.5, 16.5) - 0.18;
+  const GR = [-42.5, 17.5], GRR = facePerch(-42.5, 17.5) - 0.18;
   add(grubb, GR[0], GR[1], GRR);
   ctx.surface(grubb, 'stone');
   batch.add(grubb, 'stone');

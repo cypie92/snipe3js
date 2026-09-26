@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import * as K from '../../world/kit/props/index.js';
 import { Person, Walker, Dog, Cat, Gull, Chicken, Duck, Sheep } from '../../world/characters/index.js';
 import { P } from '../../gfx/palette.js';
-import { put, local, yawTo, facePerch, worldPos, circlePath, sunHat, Leash, v3, every } from './util.js';
+import { put, local, yawTo, facePerch, worldPos, circlePath, sunHat, Leash, v3, every, routine } from './util.js';
 import { FOUNTAIN, ROAD_PTS } from './layout.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -92,6 +92,7 @@ class Drive {
 
 export function buildLife(ctx, S, L, D, J) {
   const root = ctx.root;
+  const routineLife = (p, steps) => routine(ctx, p, steps, ctx.rng.range(0, 2));
   const cast = S.cast;
   const rng = ctx.rng;
   const FC = new THREE.Vector3(FOUNTAIN[0], 0, FOUNTAIN[1]);
@@ -142,8 +143,8 @@ export function buildLife(ctx, S, L, D, J) {
   const jogger = cast.person({ preset: 'jogger', seed: 2501 }, 0, 0, 0, 'run', {}, { name: 'jogger', lines: ['Lap nine!', 'Huff... huff...'] });
   new Walker(jogger, jogLoop, { loop: true, speed: 3.1, action: 'run', start: 0.15, startFraction: true });
 
-  // ------------------------------------------------------------ a dog walking its owner (round the green)
-  const dogPath = [[-27.8, 21], [-27.6, 38.2], [-10, 38.6], [-6.2, 35.4], [6.2, 35.4], [10, 38.6], [28, 38.2], [28.8, 30], [24, 25.4], [9.5, 20.6], [-9.5, 20.6], [-24, 21.4]];
+  // ------------------------------------------------------------ a dog walking its owner (laps of the fountain, through the pigeons)
+  const dogPath = circlePath(FC.x, FC.z, 10.4, 20, 0.3);
   const bigDog = new Dog({ seed: 7, scale: 1.45, variant: { coat: '#e3b56b', light: '#fbefd9', patch: '#c8894a', ear: '#c8894a' } });
   cast.animal(bigDog, 0, 0, 0, { name: 'dog' });
   new Walker(bigDog, dogPath, { loop: true, speed: 2.3, action: 'run', start: 0.35, startFraction: true, variety: 0 });
@@ -222,6 +223,16 @@ export function buildLife(ctx, S, L, D, J) {
     f.faceTowards(new THREE.Vector3(bs.x, 0, bs.z));
     return f;
   });
+  // a big lad having a go on the high striker and a kid hooking ducks
+  const hs = D.striker;
+  const strong = cast.person({ seed: 3231, top: { type: 'tee', color: P.tomato, sleeves: 'short' }, bottom: { type: 'shorts', color: '#3d4a6b' }, hat: null, accessory: null, build: { width: 1.3, belly: 0.6 } },
+    hs.x + 1.3, hs.z + 1.4, 0, 'cheer', {}, { name: 'strongman', lines: ['Stand back, everyone!', "I'll ring it this time!", 'Must be rigged, that.'] });
+  strong.faceTowards(new THREE.Vector3(hs.x, 0, hs.z));
+  routineLife(strong, [['cheer', 2.4], ['shrug', 2], ['impatient', 2.6], ['point', 1.8, { at: new THREE.Vector3(hs.x, 4.2, hs.z) }]]);
+  const dp = D.duckPool;
+  const hooker = cast.person({ age: 'kid', seed: 3241, accessory: null, top: { type: 'dress', color: P.sunflower, sleeves: 'short' } }, dp.x - 1.5, dp.z + 0.6, 0, 'point', { at: new THREE.Vector3(dp.x, 0.3, dp.z) }, { name: 'kid', lines: ['I got a duck!', 'Number seven wins!'] });
+  hooker.faceTowards(new THREE.Vector3(dp.x, 0, dp.z));
+
   // two old friends putting the world to rights on the bench by the memorial
   const gossipBench = [-23.4, -8.2, 1.3];
   [[-0.45, 0.27], [0.45, 0.27]].forEach(([lx, lz], i) => {
@@ -242,7 +253,7 @@ export function buildLife(ctx, S, L, D, J) {
   });
   const cakeLady = cast.person({ seed: 3301, top: { type: 'apron', color: P.bubblegum, color2: '#fff8ee', sleeves: 'short' }, hair: { style: 'bun', color: P.hair[2] }, accessory: null }, 0, 0, 0, 'walk', {}, { name: 'cake lady', lines: ['Victoria sponge coming through!', 'Has anyone seen the judge?'] });
   const mq = D.marquee;
-  new Walker(cakeLady, [[mq.x - 3.6, mq.z - 1.2], [mq.x - 5.4, mq.z - 4.2], [30.6, 24.2], [mq.x - 5.8, mq.z - 1.4]], { pingPong: true, speed: 0.9, pauseAt: [{ index: 0, duration: 3, action: 'talk' }, { index: 2, duration: 3, action: 'point', actionOptions: { at: new THREE.Vector3(27.4, 2.5, 28.2) } }] });
+  new Walker(cakeLady, [[mq.x - 3.6, mq.z - 1.2], [mq.x - 5.4, mq.z - 4.2], [30.6, 24.2], [mq.x - 5.8, mq.z - 1.4]], { pingPong: true, speed: 0.9, pauseAt: [{ index: 0, duration: 3, action: 'talk' }, { index: 2, duration: 3, action: 'point', actionOptions: { at: new THREE.Vector3(25.1, 2.5, 24.8) } }] });
   const strollPath = [[-19.6, 24.6], [-10, 23.2], [0, 23.4], [10.4, 23], [19.4, 24.8]];
   const stroller = cast.person({ seed: 3401, accessory: 'icecream', hat: { type: 'sunhat', color: '#fff1d6', band: P.teal } }, 0, 0, 0, 'walk', {}, { name: 'fête-goer', lines: ['Lovely day for a fête.', 'Have you tried the tombola?'] });
   new Walker(stroller, strollPath, { pingPong: true, speed: 1.0, start: 0.3, startFraction: true, pauseAt: [{ index: 2, duration: 3, action: 'eat' }] });

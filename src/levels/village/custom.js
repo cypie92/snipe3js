@@ -985,7 +985,7 @@ export function pond({ r = 4.5, seed = 3 } = {}) {
   const n = 28;
   const pts = [];
   for (let i = 0; i < n; i++) { const a = (i / n) * TAU; const k = 1 + (hash(i * 3 + seed) - 0.5) * 0.18; pts.push([Math.cos(a) * r * k, Math.sin(a) * r * 0.8 * k]); }
-  const rim = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x * 1.12, z * 1.12)));
+  const rim = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x * 1.12, -z * 1.12)));
   const rimG = new THREE.ExtrudeGeometry(rim, { depth: 0.1, bevelEnabled: false });
   rimG.rotateX(-Math.PI / 2);
   kit.add(rimG, '#a99a7c');
@@ -1004,7 +1004,7 @@ export function pond({ r = 4.5, seed = 3 } = {}) {
     kit.add(cyl(0.3, 0.3, 0.02, 10), '#5fae44', { x: Math.cos(a) * d, y: 0.13, z: Math.sin(a) * d * 0.8 });
   }
   const g = kit.build(new THREE.Group());
-  const water = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, z))), 1).rotateX(Math.PI / 2), waterMat());
+  const water = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z))), 1).rotateX(-Math.PI / 2), waterMat());
   water.position.y = 0.11;
   water.receiveShadow = true;
   water.name = 'pondWater';
@@ -1035,6 +1035,87 @@ export function bootTable({ seed = 1 } = {}) {
   const g = kit.build(new THREE.Group());
   g.name = 'bootTable';
   g.userData.surface = 'wood';
+  return g;
+}
+
+/**
+ * "Test your strength" high striker (front = +Z): a tall striped board with a bell on top, a puck on
+ * a rail and a lever pad at the foot. parts: { puck (slides up the rail, y 0.45 .. top - 0.3), pad, bell }.
+ */
+export function highStriker() {
+  const kit = new Kit('striker');
+  const H = 4.6;
+  kit.add(cbox(0.5, H, 0.16, 0.04), (x, y, z, c) => c.set(Math.floor(y / 0.46) % 2 ? RED : CREAM), { y: H / 2 });
+  for (let i = 1; i <= 4; i++) kit.add(box(0.62, 0.05, 0.05), P.ink, { y: i * 0.92, z: 0.1 });
+  kit.add(cbox(1.1, 0.24, 0.9, 0.05), P.woodDark, { y: 0.12, z: 0.3 });
+  kit.add(cyl(0.05, 0.05, H - 0.4, 6), '#c9d2de', { y: H / 2 + 0.1, z: 0.14 }, materials.glossy);
+  kit.add(box(0.9, 0.34, 0.08), P.sunflower, { y: H + 0.3, z: 0.02 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'highStriker';
+  const bell = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8, 0, TAU, 0, Math.PI / 2).rotateX(Math.PI), materials.solid(P.gold, { roughness: 0.3, metalness: 0.6 }));
+  bell.position.set(0, H - 0.05, 0.16);
+  bell.castShadow = true;
+  bell.name = 'bell';
+  g.add(bell);
+  const puck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.16, 10), materials.solid(P.tomato));
+  puck.position.set(0, 0.45, 0.2);
+  puck.castShadow = true;
+  puck.name = 'puck';
+  g.add(puck);
+  const pad = new THREE.Group();
+  pad.name = 'pad';
+  pad.position.set(0, 0.3, 0.52);
+  const pk = new Kit('pad');
+  pk.add(cyl(0.2, 0.22, 0.12, 12), RED, {});
+  pk.add(cyl(0.12, 0.12, 0.13, 12), CREAM, { y: 0.005 });
+  pk.build(pad);
+  g.add(pad);
+  g.userData.parts = { puck, pad, bell };
+  g.userData.top = H;
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** Hook-a-duck paddling pool: a round stripy pool with rubber ducks bobbing about. parts: { ducks }. */
+export function duckPool({ r = 1.1, n = 7, seed = 4 } = {}) {
+  const rng = new Rng(`duckpool-${seed}`);
+  const kit = new Kit('duckPool');
+  const segs = 16;
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * TAU;
+    kit.add(box(0.44, 0.34, 0.12), i % 2 ? RED : CREAM, { x: Math.cos(a) * r, y: 0.17, z: Math.sin(a) * r, ry: -a + Math.PI / 2 });
+  }
+  const g = kit.build(new THREE.Group());
+  const water = new THREE.Mesh(new THREE.CylinderGeometry(r - 0.02, r - 0.02, 0.26, segs), waterMat());
+  water.position.y = 0.13;
+  water.receiveShadow = true;
+  g.add(water);
+  const ducks = [];
+  const dk = (x, z) => {
+    const d = new THREE.Group();
+    const k = new Kit('rubberDuck');
+    k.add(ball(0.09, 1), P.sunflower, { sy: 0.8 });
+    k.add(ball(0.06, 1), P.sunflower, { y: 0.09, z: 0.05 });
+    k.add(new THREE.ConeGeometry(0.03, 0.06, 5), P.tangerine, { y: 0.09, z: 0.12, rx: Math.PI / 2 });
+    k.build(d);
+    d.position.set(x, 0.29, z);
+    d.userData.phase = rng.range(0, TAU);
+    g.add(d);
+    ducks.push(d);
+  };
+  for (let i = 0; i < n; i++) { const a = rng.range(0, TAU), rr = rng.range(0.2, r - 0.25); dk(Math.cos(a) * rr, Math.sin(a) * rr); }
+  g.userData.update = (dt, t) => {
+    for (const d of ducks) {
+      const p = d.userData.phase + t * 0.35;
+      const rr = Math.hypot(d.position.x, d.position.z) || 0.3;
+      d.position.x = Math.cos(p) * rr; d.position.z = Math.sin(p) * rr;
+      d.rotation.y = -p;
+      d.position.y = 0.29 + Math.sin(t * 2.3 + d.userData.phase) * 0.015;
+    }
+  };
+  g.name = 'duckPool';
+  g.userData.parts = { ducks };
+  g.userData.surface = 'water';
   return g;
 }
 

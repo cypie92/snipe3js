@@ -34,7 +34,7 @@ export default {
     ctx.root.userData.village = { S, L, D, J, life };
     return {
       // raised + pulled in: a 16 m eye 20-60 m from the fête and the square, looking down ~23 degrees
-      perch: { position: PERCH.clone(), yaw: 0, pitch: -0.4, yawLimit: [-0.96, 0.96], pitchLimit: [-1.05, 0.26] },
+      perch: { position: PERCH.clone(), yaw: 0, pitch: -0.4, yawLimit: [-1.08, 1.08], pitchLimit: [-1.05, 0.26] },
       shadowCenter: new THREE.Vector3(0, 0, 2),
       shadowRadius: 64,
       // suggested intro swoop framing for the tighter diorama (start radius / height / arc in radians)
