@@ -84,6 +84,11 @@ export function buildDressing(ctx, S, L) {
   ];
   for (const [x, z, ry, plant] of planters) add(K.planter({ seed: x * 13 + z, plant, w: 1.6 }), x, z, ry, { surface: 'wood' });
   for (const x of [-3.2, 3.2]) add(K.bollard({ seed: x * 11 }), x, 16.6, 0, { surface: 'metal' });
+  // the war memorial (west half) and the bandstand (east half) fill the square's open flanks
+  add(C.memorial(), -17.6, -3.6, 0.6, { surface: 'stone' });
+  const band = B.bandstand({ radius: 3.2, color: P.teal });
+  add(band, 17.6, -4.2, facePerch(17.6, -4.2), { surface: 'wood' });
+  D.bandstand = { x: 17.6, z: -4.2, ry: facePerch(17.6, -4.2), deck: 0.95 };
   // signpost by the fountain
   add(K.signpost({ seed: 5, arrows: [{ yaw: 2.3, color: P.teal, len: 1.0 }, { yaw: -0.9, color: P.tomato, len: 0.95 }, { yaw: 0.6, color: P.sunflower, len: 0.9 }] }), -5.8, 3.4, 0.1, { batch: false, surface: 'wood' });
   // notice board with the LOST CAT poster (the cat is on Mr Grubb's wall...)
@@ -192,13 +197,13 @@ export function buildDressing(ctx, S, L) {
   // car-boot sale: two cars with their boots open and trestles of treasures
   const boots = [
     [K.car({ style: 'hatch', color: P.bubblegum, seed: 21 }), 47.2, 21.6, 0.2],
-    [K.car({ style: 'van', color: '#fff1d6', seed: 22 }), 44.2, 38.6, -0.4],
+    [K.car({ style: 'van', color: '#fff1d6', seed: 22 }), 49.6, 30.2, -0.3],
   ];
   D.parkedCars = boots.map(([o, x, z, ry]) => {
     add(o, x, z, ry, { animate: true, batch: false, surface: 'metal' });
     return o;
   });
-  for (const [x, z, ry, seed] of [[46.2, 25.6, 0.2, 1], [43.6, 34.4, -0.4, 2], [41.6, 23.4, 1.3, 3]]) add(C.bootTable({ seed }), x, z, ry, { surface: 'wood' });
+  for (const [x, z, ry, seed] of [[46.2, 25.6, 0.2, 1], [46.2, 32.6, -0.3, 2], [41.6, 23.4, 1.3, 3]]) add(C.bootTable({ seed }), x, z, ry, { surface: 'wood' });
 
   // ------------------------------------------------------------ west flank: allotments + Mr Grubb's garden
   const G = L.grubb;
@@ -242,10 +247,18 @@ export function buildDressing(ctx, S, L) {
   root.add(paddock);
   S.batch.add(paddock, 'wood');
   D.paddock = { x0: -69, x1: -60, z0: 6, z1: 28 };
-  // duck pond beyond the east road
-  const pond = C.pond({ r: 4.6, seed: 3 });
-  add(pond, 63, 26, 0.4, { surface: 'water' });
-  D.pond = { x: 63, z: 26, r: 4.6 };
+  // duck pond at the green's east corner
+  const pond = C.pond({ r: 4.0, seed: 3 });
+  add(pond, 36.6, 41.2, 0.4, { surface: 'water' });
+  D.pond = { x: 36.6, z: 41.2, r: 4.0 };
+  // fête car park on the west lawn
+  const carPark = [
+    [K.car({ style: 'beetle', color: P.cobalt, seed: 31 }), -38.6, 46.8, 1.35],
+    [K.car({ style: 'hatch', color: P.sunflower, seed: 32 }), -33.4, 47.4, 1.5],
+    [K.car({ style: 'pickup', color: '#fff1d6', seed: 33 }), -43.4, 45.6, 1.2],
+  ];
+  for (const [o, x, z, ry] of carPark) D.parkedCars.push(add(o, x, z, ry, { animate: true, batch: false, surface: 'metal' }));
+  add(C.hayBales([[0, 0, 0, 0], [1.3, 0, 0, 0.1]], { seed: 6 }), -27.6, 45.2, 0.1);
 
   // ------------------------------------------------------------ Pete's bench under the oak
   const peteBench = K.bench({ seed: 99, length: 2.1 });

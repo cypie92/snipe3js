@@ -82,7 +82,7 @@ export function buildJobs(ctx, S, L, D) {
 
   // ================================================================ 0. first laugh: dunk the Sarge
   // Right under the van (≈24 m): a new player can hit it unscoped within seconds.
-  const DK = [-7.2, 27.6];
+  const DK = [-7.6, 25.8];
   const DKR = facePerch(DK[0], DK[1]);
   const tank = dunkTank();
   put(root, tank, DK[0], DK[1], DKR);

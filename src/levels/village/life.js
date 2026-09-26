@@ -119,7 +119,7 @@ export function buildLife(ctx, S, L, D, J) {
       x, z, st.ry, i === 0 ? 'hawk' : 'talk', { role: 'speak', period: 5 + i }, { name: 'trader', lines: traderLines[i] });
   });
   // shoppers queueing in front of the stalls
-  const shopSpots = [[0, 0.3, 1.9, 'talk'], [1, -0.2, 2.0, 'idle'], [2, 0.4, 1.9, 'point'], [3, -0.3, 2.1, 'talk'], [5, 0.1, 1.9, 'idle']];
+  const shopSpots = [[0, 0.3, 1.9, 'talk'], [1, -0.2, 2.0, 'idle'], [2, 0.4, 1.9, 'point'], [3, -0.3, 2.1, 'talk'], [5, 0.1, 1.9, 'idle'], [4, -0.4, 1.9, 'talk'], [4, 0.7, 2.7, 'impatient']];
   const shoppers = shopSpots.map(([si, lx, lz, act], i) => {
     const st = tradeStalls[si];
     const [x, z] = local(st.x, st.z, st.ry, lx, lz);
@@ -212,10 +212,23 @@ export function buildLife(ctx, S, L, D, J) {
     hat.rotation.set(Math.PI / 2 - 0.25, Math.atan2(_b.x - _a.x, _b.z - _a.z) + Math.PI / 2, t * 7);
   });
 
-  // ------------------------------------------------------------ a one-man band by the fountain
+  // ------------------------------------------------------------ a one-man band on the bandstand + his audience
+  const bs = D.bandstand;
   const busker = cast.person({ seed: 3201, hat: { type: 'tophat', color: P.tomato }, top: { type: 'stripes', color: P.tomato, color2: '#fff8ee', sleeves: 'long' }, bottom: { type: 'trousers', color: '#3d4a6b' }, accessory: null, facial: 'moustache' },
-    -7.4, -11.4, 0, 'jig', {}, { name: 'busker', lines: ['A one, a two...', 'Requests? Anyone?', 'Tuppence for a tune!'] });
-  busker.faceTowards(new THREE.Vector3(0, 0, 44));
+    bs.x, bs.z, bs.ry, 'jig', {}, { y: bs.deck, name: 'busker', lines: ['A one, a two...', 'Requests? Anyone?', 'Tuppence for a tune!'] });
+  const fans = [[-1.6, 4.9, 'clap'], [1.7, 5.3, 'dance']].map(([lx, lz, act], i) => {
+    const [x, z] = local(bs.x, bs.z, bs.ry, lx, lz);
+    const f = cast.person({ seed: 3211 + i, age: i ? 'kid' : 'adult', accessory: i ? 'balloon' : null }, x, z, 0, act, {}, { name: 'listener', lines: ['Play the one about the goat!', 'Bravo!'] });
+    f.faceTowards(new THREE.Vector3(bs.x, 0, bs.z));
+    return f;
+  });
+  // two old friends putting the world to rights on the bench by the memorial
+  const gossipBench = [-23.4, -8.2, 1.3];
+  [[-0.45, 0.27], [0.45, 0.27]].forEach(([lx, lz], i) => {
+    const [x, z] = local(gossipBench[0], gossipBench[1], gossipBench[2], lx, lz);
+    cast.person({ seed: 3221 + i, age: 'elder', accessory: i ? 'shopping' : null, hat: i ? undefined : { type: 'sunhat', color: '#c9b6e8', band: P.violet } }, x, z, gossipBench[2], 'sit', { height: 0.5 },
+      { name: 'gossip', voice: 'old', lines: ['...and then SHE said...', 'Never! Not the vicar!', 'Mark my words, dear.'] });
+  });
   every(ctx, () => rng.range(5, 8), () => ctx.sfx('whistle', { position: worldPos(busker.root).setY(1.5), volume: 0.35, pitch: rng.range(1.1, 1.4) }));
 
   // ------------------------------------------------------------ fête: bouncy castle kids, cake lady, strollers
@@ -418,7 +431,7 @@ export function buildLife(ctx, S, L, D, J) {
   ];
   for (const c of chimneys) ctx.smoke(c.clone().add(v3(0, 0.25, 0)), { rate: rng.range(0.7, 1.1) });
 
-  return { shoppers, jogger, owner, bigDog, painter, binMan, hatLady, cakeLady, busker, stroller, bus, car, bike };
+  return { shoppers, jogger, owner, bigDog, painter, binMan, hatLady, cakeLady, busker, fans, stroller, bus, car, bike };
 }
 
 export { Drive, UP };

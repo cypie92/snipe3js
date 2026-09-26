@@ -1038,6 +1038,37 @@ export function bootTable({ seed = 1 } = {}) {
   return g;
 }
 
+/** Village memorial: stepped plinth, tapering obelisk with a cross, poppy wreaths and bollards + chain. */
+export function memorial() {
+  const kit = new Kit('memorial');
+  const stone = '#e6dccb', dark = shade('#e6dccb', -0.12);
+  kit.add(cbox(3.4, 0.24, 3.4, 0.04), dark, { y: 0.12 });
+  kit.add(cbox(2.6, 0.26, 2.6, 0.04), [dark, stone], { y: 0.37 });
+  kit.add(cbox(1.5, 1.1, 1.5, 0.05), stone, { y: 1.05 });
+  kit.add(cbox(1.7, 0.16, 1.7, 0.04), dark, { y: 1.66 });
+  kit.add(new THREE.CylinderGeometry(0.34, 0.55, 3.0, 4, 1).rotateY(Math.PI / 4), [stone, shade(stone, 0.05)], { y: 3.24 });
+  kit.add(new THREE.ConeGeometry(0.38, 0.5, 4).rotateY(Math.PI / 4), stone, { y: 5.0 });
+  kit.add(box(0.14, 0.9, 0.14), stone, { y: 5.6 });
+  kit.add(box(0.56, 0.14, 0.14), stone, { y: 5.72 });
+  for (const [x, z, ry] of [[0, 0.78, 0], [0.78, 0, Math.PI / 2], [-0.78, 0, -Math.PI / 2]]) {
+    kit.add(new THREE.TorusGeometry(0.28, 0.09, 6, 14), '#3f7d3a', { x, y: 1.05, z, ry }, materials.foliage);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      kit.add(ball(0.07, 0), P.tomato, { x: x + Math.cos(a) * 0.28 * Math.cos(ry), y: 1.05 + Math.sin(a) * 0.28, z: z - Math.cos(a) * 0.28 * Math.sin(ry) + (ry ? 0 : 0.06) });
+    }
+  }
+  const R = 2.3;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * TAU + Math.PI / 8;
+    kit.add(cyl(0.1, 0.12, 0.7, 8), P.ink, { x: Math.cos(a) * R, y: 0.35, z: Math.sin(a) * R });
+    kit.add(ball(0.1, 1), P.ink, { x: Math.cos(a) * R, y: 0.74, z: Math.sin(a) * R });
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = 'memorial';
+  g.userData.surface = 'stone';
+  return g;
+}
+
 /** Hot-air balloon (≈ 14 m tall): gored envelope, burner and a wicker basket. Origin at the basket. */
 export function hotAirBalloon({ seed = 2, colors = [P.tomato, P.sunflower, P.teal, '#fff8ee', P.violet, P.cobalt] } = {}) {
   const kit = new Kit('balloon');

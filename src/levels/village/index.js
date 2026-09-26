@@ -1,7 +1,7 @@
 // Puddleby Green — location 1 (village square). Spec: docs/levels/puddleby-green.md
-//   layout.js   terrain, roads, square, buildings, trees, backdrop
-//   dressing.js market, street furniture, allotments, fête field, flowers, hedges
-//   jobs.js     10 contracts + 2 secret jobs + 3 Golden Spanners (tells, reactions, their villagers)
+//   layout.js   terrain, roads, the 55 x 40 m square, buildings, trees, backdrop
+//   dressing.js market rows, street furniture, the fête green under the van, allotments, flanks
+//   jobs.js     11 contracts + 2 secret jobs + 3 Golden Spanners (tells, reactions, nags, decoys)
 //   life.js     ambient villagers, animals, vehicles, chimney smoke
 //   custom.js   bespoke set pieces (kiosk, marquee, bouncy castle, allotment beds...)
 import * as THREE from 'three';
@@ -33,9 +33,12 @@ export default {
     S.cast.finish();
     ctx.root.userData.village = { S, L, D, J, life };
     return {
-      perch: { position: PERCH.clone(), yaw: 0, pitch: -0.125, yawLimit: [-1.309, 1.309], pitchLimit: [-0.698, 0.262] },
-      shadowCenter: new THREE.Vector3(0, 0, -8),
-      shadowRadius: 82,
+      // raised + pulled in: a 16 m eye 20-60 m from the fête and the square, looking down ~23 degrees
+      perch: { position: PERCH.clone(), yaw: 0, pitch: -0.4, yawLimit: [-0.96, 0.96], pitchLimit: [-1.05, 0.26] },
+      shadowCenter: new THREE.Vector3(0, 0, 2),
+      shadowRadius: 64,
+      // suggested intro swoop framing for the tighter diorama (start radius / height / arc in radians)
+      intro: { radius: 92, height: 56, arc: 1.4 },
     };
   },
 };

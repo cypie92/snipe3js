@@ -62,6 +62,25 @@ function armsIdle(o, T, s, style) {
   }
 }
 
+/**
+ * Cross fist raised high beside the head and shaken (S = 'R' | 'L'); k = weight 0..1. The other arm
+ * goes to the hip. Stubby arms: the fist sits above the head, out to the side, so it reads in silhouette.
+ */
+function fistUp(o, k, shake, S, opt = {}) {
+  const X = S === 'R' ? 'L' : 'R';
+  o['aO' + S] = lerp(o['aO' + S], opt.aO ?? 2.2, k); o['aF' + S] = lerp(o['aF' + S], opt.aF ?? 0.3, k);
+  o['eS' + S] = lerp(o['eS' + S], -(opt.eS ?? 0.75) - 0.35 * shake, k); o['eB' + S] = lerp(o['eB' + S], (opt.eB ?? 0.4) + 0.12 * shake, k);
+  o['aT' + S] = lerp(o['aT' + S], 0, k); o['wW' + S] = lerp(o['wW' + S], 0.35 * shake, k);
+  if (opt.both) {
+    o['aO' + X] = lerp(o['aO' + X], opt.aO ?? 2.2, k); o['aF' + X] = lerp(o['aF' + X], opt.aF ?? 0.3, k);
+    o['eS' + X] = lerp(o['eS' + X], -(opt.eS ?? 0.75) + 0.35 * shake, k); o['eB' + X] = lerp(o['eB' + X], (opt.eB ?? 0.4) - 0.12 * shake, k);
+    o['aT' + X] = lerp(o['aT' + X], 0, k);
+  } else { // other hand on the hip
+    o['aO' + X] = lerp(o['aO' + X], 0.62, k); o['aF' + X] = lerp(o['aF' + X], -0.12, k);
+    o['eS' + X] = lerp(o['eS' + X], 1.75, k); o['eB' + X] = lerp(o['eB' + X], 0.15, k); o['aT' + X] = lerp(o['aT' + X], 0, k);
+  }
+}
+
 /** Walk / run gait from phase `g` (radians, 2π per stride). k: 0 walk .. 1 run. */
 function gait(o, g, s, k = 0) {
   const e = s.energy;
@@ -555,9 +574,7 @@ export const ACTIONS = {
     const T = t * s.tempo + s.phase;
     const up = smooth(t / 0.2);
     const shake = Math.sin(T * 22);
-    o.aOR = 1.7 * up; o.aFR = 0.5 * up; o.eSR = -(1.25 + 0.35 * shake) * up; o.eBR = 0.3 * up; o.wWR = 0.3 * shake;
-    if (opt.both) { o.aOL = 1.7 * up; o.aFL = 0.5 * up; o.eSL = -(1.25 - 0.35 * shake) * up; o.eBL = 0.3 * up; }
-    else { o.aOL = 0.62; o.aFL = -0.12; o.eSL = 1.75; o.eBL = 0.15; }
+    fistUp(o, up, shake, opt.hand || s.fist || 'R', opt); // Person picks the free hand (opts.hand to force)
     const stomp = Math.max(0, Math.sin(T * 6.5)) * win(T % 3.1, 0.2, 1.7);
     o.lFL = 0.22 * stomp; o.kL = 0.45 * stomp; o.by = 0.02 * stomp;
     o.srx = 0.12; o.nrx = 0.05 + 0.04 * Math.sin(T * 11); o.nry = 0.1 * Math.sin(T * 3);
@@ -687,7 +704,18 @@ export const ACTION_ICONS = {
   point: ['bang', 3.0, 1.3, 1, 0.3], panic: ['bang', 1.7, 1.0, 1, 0.1], alarm: ['bang', 1.5, 1.0, 1.05, 0.1],
   whistle: ['bang', 2.2, 0.9, 0.9, 0.2], dance: ['note', 1.8, 1.0, 0.9, 0.3], jig: ['note', 1.9, 1.0, 0.9, 0.3],
   shakeFist: ['anger', 3.4, 1.3, 0.9, 0.3], angry: ['anger', 3.6, 1.3, 0.9, 0.4],
+  row: (opt) => (opt.lost ? ['question', 6, 1.5, 1, 3.9] : null), // lost rowers: "which way's the harbour?"
 };
+/** Hands an action needs: whatever the person carries in them (ice cream, fish...) is hidden meanwhile. */
+export const BUSY_HANDS = {
+  row: 'LR', paddle: 'LR', pull: 'LR', swim: 'LR', tread: 'LR', lie: 'LR', jig: 'LR', impatient: 'LR', alarm: 'LR',
+  whistle: 'LR', lookout: 'LR', clap: 'LR', cheer: 'LR', checkWatch: 'LR', dig: 'L', hawk: 'L', scratch: 'R', chase: 'LR',
+};
+/** Tell sticker for an action + its options ([icon, period, duration, size, first delay] or null). */
+export function actionIcon(name, opts = {}) {
+  const ic = ACTION_ICONS[name];
+  return typeof ic === 'function' ? ic(opts) : ic || null;
+}
 export const ACTION_NAMES = Object.keys(ACTIONS);
 export const GAIT_ACTIONS = new Set(['walk', 'run', 'panic', 'chase']);
 
@@ -710,8 +738,7 @@ export function reactPose(o, t, s) {
   const fist = win(t, 0.78, 2.05, 0.18, 0.3);
   o.bry += s.reactFace * fist;
   const shake = Math.sin(t * 24);
-  o.aOR += 1.7 * fist; o.aFR += 0.5 * fist; o.eSR = -(1.25 + 0.35 * shake) * fist; o.eBR += 0.3 * fist; o.wWR = 0.3 * shake * fist;
-  o.aOL += 0.62 * fist; o.aFL += -0.12 * fist; o.eSL = 1.75 * fist; o.eBL += 0.15 * fist;
+  fistUp(o, fist, shake, s.fist || 'R');
   o.srx = 0.13 * fist; o.nrx = 0.05 * fist - 0.12 * flail; o.nry = 0.12 * Math.sin(t * 7) * fist;
   const stomp = Math.max(0, Math.sin(t * 13)) * fist;
   o.lFL += 0.2 * stomp; o.kL += 0.45 * stomp;

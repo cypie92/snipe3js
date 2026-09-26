@@ -11,7 +11,7 @@ import { buildPerson } from './personBuild.js';
 import { resolveConfig, lookKey, PRESET_NAMES, voiceFor } from './personConfig.js';
 import {
   PersonPose, ACTIONS, ACTION_NAMES, ACTION_PROPS, GAIT_ACTIONS, WATER_ACTIONS, SEATED_ACTIONS, ACTION_ICONS,
-  reactPose, celebratePose, REACT_DURATION, CELEBRATE_DURATION,
+  reactPose, celebratePose, REACT_DURATION, CELEBRATE_DURATION, BUSY_HANDS, actionIcon,
 } from './personActions.js';
 import { Blender, clamp, damp, dampAngle, lerp, bump, wrapAngle, TAU, smooth, win } from './anim.js';
 import { IconPop, Snore, blobShadow, makeFlash, rippleMaterial, trackView, view, iconType } from './icons.js';
@@ -173,7 +173,7 @@ export class Person {
     if (name === 'fish') this._fishOpts = { waterY: opts.waterY ?? 0, cast: opts.cast ?? 2.4 };
     if (name === 'row' && opts.oars !== false) this._showOars(opts);
     else if (this.oars) for (const m of this.oars) m.visible = false;
-    if (changed) { this._iconT = ACTION_ICONS[name]?.[4] ?? 0.35; emitCharacterEvent('action', this, name, opts); }
+    if (changed) { this._iconT = actionIcon(name, opts)?.[4] ?? 0.35; emitCharacterEvent('action', this, name, opts); }
     if (!opts._perform) this._perform = null;
     return this;
   }
@@ -260,10 +260,18 @@ export class Person {
       pr.bone = n.bone;
       this.autoProps.push(pr);
     }
+    const busy = BUSY_HANDS[this.action] || '';
     for (const h of ['L', 'R']) {
       const f = this.fixedProps[h];
-      if (f) f.mesh.visible = !this.autoProps.some((a) => (!a.bone && a.hand === h) || a.type === f.type);
+      if (f) f.mesh.visible = !busy.includes(h) && !this.autoProps.some((a) => (!a.bone && a.hand === h) || a.type === f.type);
     }
+    this.s.fist = this._freeHand();
+  }
+
+  /** The hand to shake a fist with: the empty one (right if both are empty or both full). */
+  _freeHand() {
+    const vis = (h) => { const p = this.heldProp(h); return !!p && p.mesh.visible !== false; };
+    return vis('R') && !vis('L') ? 'L' : 'R';
   }
 
   _placeOnBone(pr, bone) {
@@ -436,7 +444,7 @@ export class Person {
       if (tl.t <= 0 && !this.icon.active) { this.tell(tl.type, { duration: tl.duration }); tl.t = tl.every; }
       return;
     }
-    const ic = ACTION_ICONS[cur];
+    const ic = actionIcon(cur, this.blender.cur.opts);
     if (!ic || !Person.autoIcons || !this.autoIcons || this.blender.cur.opts.icon === false) return;
     this._iconT -= dt;
     if (this._iconT <= 0 && !this.icon.active) {

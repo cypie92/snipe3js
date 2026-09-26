@@ -117,7 +117,7 @@ function cobblePlaza(poly, { seed = 3, base = P.cobble, name = 'square' } = {}) 
 /** A flat inlay on the plaza (a different cobble, a stone band...) from a shape in world XZ. */
 function inlay(shape, mat, y = 0.104, tile = 3.2) {
   const g = new THREE.ShapeGeometry(shape, 24);
-  g.rotateX(Math.PI / 2);
+  g.rotateX(-Math.PI / 2); // shapes are drawn in (x, -z): this lays them flat, facing up
   const p = g.attributes.position;
   const uv = new Float32Array(p.count * 2);
   for (let i = 0; i < p.count; i++) { uv[i * 2] = p.getX(i) / tile; uv[i * 2 + 1] = p.getZ(i) / tile; }
@@ -445,8 +445,8 @@ export function buildLayout(ctx, S) {
     const n = hash3(Math.floor(x / 7), 1.7, Math.floor(z / 7)) * 0.5 + hash3(Math.floor(x / 19), 4.2, Math.floor(z / 19)) * 0.5;
     c.copy(base).lerp(n > 0.5 ? light : dark, Math.abs(n - 0.5) * 0.7);
     // mowing stripes on the green (N-S, toward the van) and the lawns round the square (E-W)
-    if (inPoly(x, z, GREEN)) c.lerp(Math.floor((x + 300) / 3) % 2 ? light : dark, 0.2);
-    else if (Math.hypot(x - WORLD_C[0], z - WORLD_C[1]) < 60 && !inPoly(x, z, ALLOT)) c.lerp(Math.floor((z + 300) / 3) % 2 ? light : dark, 0.1);
+    if (inPoly(x, z, GREEN)) c.lerp(Math.floor((x + 300) / 3) % 2 ? light : dark, 0.32);
+    else if (Math.hypot(x - WORLD_C[0], z - WORLD_C[1]) < 60 && !inPoly(x, z, ALLOT)) c.lerp(Math.floor((z + 300) / 3) % 2 ? light : dark, 0.16);
     if (inPoly(x, z, ALLOT)) c.lerp(soil, 0.4);
     // darker, lusher grass under trees and hugging walls
     let shadeK = 0;

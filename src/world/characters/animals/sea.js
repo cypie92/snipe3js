@@ -101,7 +101,17 @@ export class Seal extends Animal {
   /** World position of the nose tip (for balancing / catching a ball). */
   nosePosition(out = new THREE.Vector3()) {
     this.bones.head.updateWorldMatrix(true, false);
-    return out.set(0, 0.62, 0.62).applyMatrix4(this.bones.head.matrixWorld);
+    return out.set(0, 0.07, 0.29).applyMatrix4(this.bones.head.matrixWorld); // bind nose tip (0, .565, .62) in head space
+  }
+
+  /** Keeps the balanced beach ball sitting on top of the nose whatever the head is doing. */
+  afterUpdate(dt, o) {
+    if (o.pawL <= 0.01) return;
+    const B = this.bones;
+    B.head.updateWorldMatrix(true, false);
+    const p = this.nosePosition(_v);
+    p.y += 0.14 * B.head.matrixWorld.getMaxScaleOnAxis();
+    B.ball.position.copy(B.head.worldToLocal(p));
   }
 
   /**
@@ -166,7 +176,7 @@ Seal.ACTIONS = {
   },
   balance(o, t, s, opt) { // beach ball on the nose
     const T = t * s.tempo + s.phase;
-    o.body = -0.5; o.neck = -0.75; o.head = -0.55 + 0.06 * Math.sin(T * 2.3); o.headZ = 0.08 * Math.sin(T * 1.7);
+    o.body = -0.42; o.neck = -0.5; o.head = -0.3 + 0.06 * Math.sin(T * 2.3); o.headZ = 0.08 * Math.sin(T * 1.7);
     o.kneeB = 0.3; o.tailX = -0.25;
     o.wingL = 0.9 + 0.3 * Math.sin(T * 2.1); o.wingR = 0.9 - 0.3 * Math.sin(T * 2.1);
     o.pawL = opt.ball === false ? 0 : 1; o.lid = 0.25;

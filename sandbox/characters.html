@@ -12,6 +12,7 @@
 //   react=<sec> trigger react() at that time (noorigin=1: no hit.origin -> camera fallback)   celebrate=<sec>   look=1 (everyone looks at camera)
 //   n=<count> random villagers   seed=<n>   only=<index> show one item   theme=beach|harbour (random villagers)
 //   aopt=k:v,k2:v2 action options (e.g. action=lie&aopt=pose:deckchair)   set=harbourline|harbour (Barnacle Bay)
+//   set=tells (tell stickers)  set=species&species=Seal[&actions=a,b]  set=acts&actions=row,lie~pose=front[&who=<preset>]
 import * as THREE from 'three';
 import { createStage } from './stage.js';
 import { Person, Crowd, Walker, ANIMALS, PigeonFlock, GullFlock, Seal, Crab, SealCatch, Pelican, setCharacterLook, setCharacterScale } from '../src/world/characters/index.js';
@@ -188,6 +189,28 @@ if (set === 'tells') {
   const acts = ['scratch', 'shrug', 'lookUp', 'point', 'panic', 'alarm', 'dance', 'sleep', 'jig', 'shakeFist'];
   const row = acts.map((a, i) => { const p = Person.random(new Rng(700 + i)); p.setAction(a, a === 'sleep' ? { stand: true } : {}, 0); return { root: p.root, actor: p, label: a }; });
   placeRow(row, 0, 1.6);
+}
+// set=species&species=Seal&actions=idle,bark,...: one animal per action (default: all its actions)
+if (set === 'species') {
+  const Cls = ANIMALS[params.get('species') || 'Seal'];
+  const acts = (params.get('actions') || Cls.actions.join(',')).split(',');
+  const row = acts.map((a, i) => { const an = new Cls({ seed: 11 + i, action: a }); return { root: an.root, actor: an, label: a }; });
+  placeRow(row, 0, num('spacing', 1.6));
+  for (const it of row) if (it.actor.species === 'crab' && it.actor.gaitActions.has(it.actor.action)) it.root.rotation.y = Math.PI / 2; // travelling along the row, face to camera
+  for (const it of row) if (it.actor.constructor.WET_ACTIONS?.has(it.actor.action)) { pool(it.root.position.x, it.root.position.z, 0.7, 0.9); it.root.position.y = WATER_Y; }
+}
+// set=acts&actions=row,lie~pose=front,lookout~height=1.4: one villager per action (+ mock dressing); who=<preset> uses a preset
+if (set === 'acts') {
+  const val = (v) => (v === 'true' ? true : v === 'false' ? false : Number.isNaN(Number(v)) ? v : Number(v));
+  const list = (params.get('actions') || 'row,paddle,pull,jig,shakeFist,eat~food=chips').split(',');
+  const row = list.map((spec, i) => {
+    const [name, ...kv] = spec.split('~');
+    const opts = { ...aopt, ...Object.fromEntries(kv.map((e) => { const [k, v] = e.split('='); return [k, val(v)]; })) };
+    const p = params.get('who') ? Person.preset(params.get('who'), { seed: 500 + i }) : Person.random(new Rng(num('seed', 7) * 100 + i), { theme: theme || 'harbour' });
+    p.setAction(name, opts, 0);
+    return { root: p.root, actor: p, label: kv.length ? `${name} ${kv.join(' ')}` : name };
+  });
+  placeRow(row, 0, num('spacing', 1.9));
 }
 const HARBOUR_PRESETS = ['docker', 'captain', 'lifeguard', 'fishmonger', 'swimmer', 'sunbather', 'sailorKid'];
 if (set === 'harbourline') {
