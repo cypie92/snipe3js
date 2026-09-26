@@ -641,11 +641,12 @@ const LEAVES = ['#5fae44', '#4f9a3c', '#6cbb4a', '#7cc653'];
  * bloom colours — inside a chunky stone edging. One merged vertex-coloured geometry (~6 tris/m^2).
  * userData.heightAt(x, z) (local) lets instanced flowers stand on its surface.
  */
-export function flowerCarpet(r, { seed = 1, colors, edge = '#e8dcc4', dome = 0.1 } = {}) {
+export function flowerCarpet(r, { seed = 1, colors, edge = '#e8dcc4', dome = 0.1, raised = 0 } = {}) {
   const rng = new Rng(`carpet-${seed}`);
   const pal = colors || rng.shuffle(BLOOMS).slice(0, rng.int(2, 3));
-  const H = r * dome + 0.12;
-  const hAt = (d) => 0.06 + (H - 0.06) * Math.sqrt(Math.max(0, 1 - (d / r) ** 2));
+  const H = r * Math.max(dome, raised ? 0.2 : 0) + 0.12 + raised;
+  const base0 = 0.06 + raised;
+  const hAt = (d) => base0 + (H - base0) * Math.sqrt(Math.max(0, 1 - (d / r) ** 2));
   const cell = 0.3;
   const rings = Math.max(3, Math.round(r / cell));
   const ringPts = [];
@@ -693,8 +694,13 @@ export function flowerCarpet(r, { seed = 1, colors, edge = '#e8dcc4', dome = 0.1
   g.computeVertexNormals();
   const kit = new Kit('carpet');
   kit.buckets.set(materials.foliage, [g]);
-  kit.add(new THREE.TorusGeometry(r + 0.06, 0.13, 5, Math.max(16, Math.round(r * 9))), [shade(edge, -0.12), edge], { y: 0.05, rx: Math.PI / 2 });
-  const grp = kit.build(new THREE.Group(), { shadows: false });
+  const segs = Math.max(16, Math.round(r * 9));
+  if (raised) {
+    // a stone planter wall so the bed stands proud of the lawn instead of lying flat like a pizza
+    kit.add(new THREE.CylinderGeometry(r + 0.14, r + 0.2, raised + 0.02, segs, 1, true).translate(0, raised / 2, 0), [shade(edge, -0.18), shade(edge, -0.05)]);
+    kit.add(new THREE.TorusGeometry(r + 0.1, 0.14, 5, segs), [shade(edge, -0.08), edge], { y: raised + 0.04, rx: Math.PI / 2 });
+  } else kit.add(new THREE.TorusGeometry(r + 0.06, 0.13, 5, segs), [shade(edge, -0.12), edge], { y: 0.05, rx: Math.PI / 2 });
+  const grp = kit.build(new THREE.Group(), { shadows: !!raised });
   grp.name = 'flowerCarpet';
   grp.userData.surface = 'leaves';
   grp.userData.heightAt = (x, z) => hAt(Math.min(r, Math.hypot(x, z)));
@@ -775,33 +781,283 @@ export function picnicBlanket({ w = 2.2, d = 1.7, color = P.tomato } = {}) {
  * with flags poking out, tied with rope. Origin = the wall point; the bracket sticks out along +Z.
  * parts: { bundle (pivot at the hook) }
  */
-export function buntingBundle({ out = 0.55, colors = [P.tomato, P.sunflower, P.teal, P.bubblegum, P.cobalt] } = {}) {
+export function buntingBundle({ out = 0.62, colors = [P.tomato, P.sunflower, P.teal, P.bubblegum, P.cobalt, P.lime, P.violet] } = {}) {
   const kit = new Kit('bracket');
-  kit.add(cbox(0.12, 0.34, 0.08, 0.03), P.ink, { y: 0, z: 0.04 });
-  kit.add(box(0.06, 0.06, out), P.ink, { y: 0.1, z: out / 2 });
-  kit.add(box(0.05, 0.05, out * 0.8), P.ink, { y: -0.05, z: out * 0.42, rx: 0.5 });
+  kit.add(cbox(0.14, 0.4, 0.08, 0.03), P.ink, { y: 0, z: 0.04 });
+  kit.add(box(0.07, 0.07, out), P.ink, { y: 0.1, z: out / 2 });
+  kit.add(box(0.05, 0.05, out * 0.8), P.ink, { y: -0.06, z: out * 0.42, rx: 0.5 });
   const g = kit.build(new THREE.Group());
   g.name = 'buntingBracket';
   const bundle = new THREE.Group();
   bundle.name = 'bundle';
   bundle.position.set(0, 0.07, out - 0.04);
   const bk = new Kit('bundle');
-  bk.add(new THREE.TorusGeometry(0.06, 0.018, 4, 10), '#c9a46a', { y: -0.06 });
-  bk.add(cyl(0.012, 0.012, 0.22, 5), '#c9a46a', { y: -0.2 });
-  bk.at({ y: -0.46 }, () => {
-    bk.add(new THREE.CylinderGeometry(0.24, 0.24, 0.72, 12), '#fff1d6', { rz: Math.PI / 2 });
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * TAU;
-      const x = -0.3 + (i % 5) * 0.15;
-      bk.add(new THREE.ConeGeometry(0.1, 0.2, 3), colors[i % colors.length], { x, y: Math.sin(a) * 0.26, z: Math.cos(a) * 0.26, rx: a + Math.PI / 2 });
+  bk.add(new THREE.TorusGeometry(0.07, 0.02, 4, 10), '#c9a46a', { y: -0.06 });
+  bk.add(cyl(0.014, 0.014, 0.2, 5), '#c9a46a', { y: -0.19 });
+  bk.at({ y: -0.52 }, () => {
+    // a fat roll wound from rainbow cloth: coloured bands round the drum
+    const L0 = 1.0, R0 = 0.34, bands = 7;
+    for (let i = 0; i < bands; i++) {
+      bk.add(new THREE.CylinderGeometry(R0 + (i % 2) * 0.015, R0 + (i % 2) * 0.015, L0 / bands + 0.004, 14), colors[i % colors.length], { x: -L0 / 2 + (L0 / bands) * (i + 0.5), rz: Math.PI / 2 });
     }
-    for (const x of [-0.25, 0.25]) bk.add(new THREE.TorusGeometry(0.25, 0.025, 4, 14), '#c9a46a', { x, ry: Math.PI / 2 });
-    for (const x of [-0.37, 0.37]) bk.add(new THREE.CircleGeometry(0.24, 12), '#e8d2a0', { x, ry: x > 0 ? Math.PI / 2 : -Math.PI / 2 });
+    // flags poking out all round
+    for (let i = 0; i < 26; i++) {
+      const a = (i / 26) * TAU * 3.1;
+      const x = -0.42 + (i % 7) * 0.14;
+      bk.add(new THREE.ConeGeometry(0.12, 0.26, 3), colors[(i * 3) % colors.length], { x, y: Math.sin(a) * (R0 + 0.06), z: Math.cos(a) * (R0 + 0.06), rx: a + Math.PI / 2 });
+    }
+    for (const x of [-0.36, 0.36]) bk.add(new THREE.TorusGeometry(R0 + 0.01, 0.03, 4, 16), '#c9a46a', { x, ry: Math.PI / 2 });
+    for (const x of [-0.505, 0.505]) bk.add(new THREE.CircleGeometry(R0, 14), '#fff1d6', { x, ry: x > 0 ? Math.PI / 2 : -Math.PI / 2 });
+    // a dangling tail of flags
+    for (let i = 0; i < 4; i++) bk.add(new THREE.ConeGeometry(0.1, 0.22, 3), colors[i % colors.length], { x: 0.3 + i * 0.05, y: -R0 - 0.12 - i * 0.2, z: 0.04, rx: Math.PI });
   });
   bk.build(bundle);
   g.add(bundle);
   g.userData.parts = { bundle };
   g.userData.surface = 'soft';
+  return g;
+}
+
+// ------------------------------------------------------------------ round 2: fête + flank pieces
+/** Long raised flower border (length along local X): timber edging + a faceted mound of blooms. */
+export function flowerBorder(len, w = 0.9, { seed = 1, colors, edge = P.woodLight, h = 0.32 } = {}) {
+  const rng = new Rng(`border-${seed}`);
+  const pal = colors || rng.shuffle(BLOOMS).slice(0, 3);
+  const kit = new Kit('border');
+  kit.add(cbox(len + 0.16, h, w + 0.16, 0.04), [shade(edge, -0.2), shade(edge, -0.05)], { y: h / 2 });
+  const nx = Math.max(4, Math.round(len / 0.32)), nz = Math.max(2, Math.round(w / 0.3));
+  const pos = [], col = [];
+  const c = new THREE.Color();
+  const hAt = (x, z) => h + 0.05 + 0.2 * Math.cos((z / w) * Math.PI) * (0.8 + 0.2 * Math.sin(x * 2.1 + seed));
+  const V = (i, j) => { const x = -len / 2 + (i / nx) * len, z = -w / 2 + (j / nz) * w; return [x, hAt(x, z) + (hash(i * 31 + j * 7 + seed) - 0.5) * 0.06, z]; };
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < nz; j++) {
+      const a = V(i, j), b = V(i + 1, j), cc = V(i + 1, j + 1), d = V(i, j + 1);
+      for (const [A, Bv, Cc, k] of [[a, d, b, 0], [b, d, cc, 1]]) {
+        const n = hash(i * 17 + j * 5 + k * 3 + seed);
+        const patch = Math.sin(i * 0.9 + seed) + Math.cos(j * 1.7 - seed);
+        c.set(n < 0.35 ? LEAVES[Math.floor(n * 40) % LEAVES.length] : pal[Math.floor((patch + 2) * 0.75) % pal.length]).offsetHSL(0, 0, (n - 0.5) * 0.06);
+        for (const v of [A, Bv, Cc]) { pos.push(...v); col.push(c.r, c.g, c.b); }
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  kit.buckets.set(materials.foliage, [g]);
+  const grp = kit.build(new THREE.Group());
+  grp.name = 'flowerBorder';
+  grp.userData.surface = 'leaves';
+  return grp;
+}
+
+const waterMat = () => {
+  if (!waterMat.m) {
+    waterMat.m = new THREE.MeshStandardMaterial({ color: '#58b7e8', roughness: 0.06, metalness: 0.15, envMapIntensity: 1.5 });
+    waterMat.m.name = 'tankWater';
+  }
+  return waterMat.m;
+};
+
+/**
+ * Dunk tank (front = +Z): a striped water tank, a hinged plank seat over the water and a big
+ * bullseye on an arm. parts: { seat (pivot on the back edge; rotation.x < 0 drops it), target
+ * (bullseye group), water (surface mesh), board }. userData: waterY, seatY.
+ */
+export function dunkTank({ text = 'DUNK THE SARGE!', sub = '3 balls 50p' } = {}) {
+  const kit = new Kit('dunkTank');
+  const W = 2.4, Dp = 1.9, H = 1.3;
+  // tank: striped side panels + a rim
+  for (const [x, z, w, d] of [[0, Dp / 2, W, 0.1], [0, -Dp / 2, W, 0.1], [W / 2, 0, 0.1, Dp], [-W / 2, 0, 0.1, Dp]]) {
+    const n = Math.max(3, Math.round((w > d ? w : d) / 0.4));
+    for (let i = 0; i < n; i++) {
+      const t = -0.5 + (i + 0.5) / n;
+      kit.add(box(w > d ? w / n + 0.004 : w, H, w > d ? d : d / n + 0.004), i % 2 ? CREAM : RED, { x: x + (w > d ? t * w : 0), y: H / 2, z: z + (w > d ? 0 : t * d) });
+    }
+  }
+  kit.add(cbox(W + 0.24, 0.12, Dp + 0.24, 0.04), P.cobalt, { y: H + 0.04 });
+  kit.add(cbox(W + 0.3, 0.12, Dp + 0.3, 0.04), shade(P.cobalt, -0.2), { y: 0.06 });
+  // frame: two posts at the back with a cross beam, seat bracket
+  for (const sx of [-1, 1]) kit.add(cbox(0.14, 2.9, 0.14, 0.03), P.sunflower, { x: sx * (W / 2 - 0.1), y: 1.45, z: -Dp / 2 - 0.08 });
+  kit.add(cbox(W, 0.14, 0.14, 0.03), P.sunflower, { y: 2.84, z: -Dp / 2 - 0.08 });
+  // ladder at the back
+  for (const sx of [-0.25, 0.25]) kit.add(box(0.06, 2.1, 0.06), P.woodLight, { x: sx + 0.7, y: 1.05, z: -Dp / 2 - 0.45, rx: -0.2 });
+  for (let i = 0; i < 5; i++) kit.add(box(0.5, 0.05, 0.05), P.woodLight, { x: 0.7, y: 0.35 + i * 0.38, z: -Dp / 2 - 0.4 + i * 0.07 });
+  // bullseye arm on the right-hand side
+  kit.add(cbox(0.12, 2.2, 0.12, 0.03), P.sunflower, { x: W / 2 + 0.75, y: 1.1, z: 0.2 });
+  kit.add(box(0.8, 0.08, 0.08), P.sunflower, { x: W / 2 + 0.36, y: 1.9, z: 0.2 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'dunkTank';
+  // water surface (seen from the perch above)
+  const water = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.04, Dp - 0.12), waterMat());
+  water.position.y = H - 0.14;
+  water.receiveShadow = true;
+  water.name = 'water';
+  g.add(water);
+  // seat plank: pivot at its back edge so it can flip down
+  const seat = new THREE.Group();
+  seat.name = 'seat';
+  seat.position.set(0, 1.92, -Dp / 2 + 0.05);
+  const sk = new Kit('seat');
+  sk.add(cbox(1.1, 0.1, 0.62, 0.03), P.woodLight, { z: 0.31 });
+  sk.add(cbox(1.1, 0.06, 0.06, 0.02), P.woodDark, { y: -0.06, z: 0.05 });
+  sk.build(seat);
+  g.add(seat);
+  // bullseye: red/white rings, big enough to read from the van
+  const target = new THREE.Group();
+  target.name = 'target';
+  target.position.set(W / 2 + 0.75, 2.32, 0.28);
+  const tk = new Kit('bullseye');
+  const rings = [[0.5, RED], [0.4, CREAM], [0.3, RED], [0.2, CREAM], [0.1, RED]];
+  rings.forEach(([r, c], i) => tk.add(cyl(r, r, 0.06, 24), c, { z: 0.02 + i * 0.012, rx: Math.PI / 2 }));
+  tk.add(cyl(0.53, 0.53, 0.05, 24), P.ink, { z: -0.01, rx: Math.PI / 2 });
+  tk.build(target);
+  g.add(target);
+  // sign on top of the frame
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.62), boardMaterial(text, { bg: P.tomato, sub, font: 0.6 }));
+  board.position.set(0, 3.3, -Dp / 2 - 0.02);
+  board.name = 'board';
+  g.add(board);
+  const bb = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.7, 0.06), materials.solid(P.sunflower));
+  bb.position.set(0, 3.3, -Dp / 2 - 0.07);
+  bb.castShadow = true;
+  g.add(bb);
+  g.userData.parts = { seat, target, water, board };
+  g.userData.waterY = H - 0.12;
+  g.userData.seatY = 1.97;
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/**
+ * Opening ribbon across a gateway (along local X, centred): two halves pinned at the posts that
+ * swing down when cut, and a big bow in the middle. parts: { left, right, bow }.
+ */
+export function openingRibbon({ span = 6.6, y = 1.15, color = '#e8413c' } = {}) {
+  const g = new THREE.Group();
+  g.name = 'ribbon';
+  const half = span / 2;
+  const mk = (sx) => {
+    const piv = new THREE.Group();
+    piv.position.set(sx * half, y, 0);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(half, 0.16, 0.02).translate(-sx * half / 2, 0, 0), materials.solid(color, { roughness: 0.5 }));
+    m.castShadow = true;
+    piv.add(m);
+    g.add(piv);
+    return piv;
+  };
+  const left = mk(-1), right = mk(1);
+  const bow = new THREE.Group();
+  bow.name = 'bow';
+  bow.position.set(0, y, 0.03);
+  const bk = new Kit('bow');
+  for (const sx of [-1, 1]) {
+    bk.add(new THREE.TorusGeometry(0.22, 0.07, 6, 14), color, { x: sx * 0.24, sx: 1.2, sy: 0.75 });
+    bk.add(box(0.12, 0.42, 0.02), color, { x: sx * 0.12, y: -0.3, rz: sx * 0.35 });
+  }
+  bk.add(ball(0.1, 1), shade(color, -0.1), {});
+  bk.build(bow);
+  g.add(bow);
+  g.userData.parts = { left, right, bow };
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** A dumpy green water butt with a brass tap (Mr Grubb's decoy). */
+export function waterButt() {
+  const kit = new Kit('waterButt');
+  kit.add(lathe([[0, 0], [0.38, 0], [0.44, 0.2], [0.46, 0.55], [0.44, 0.9], [0.4, 1.02], [0, 1.02]], 14), [shade('#3f8a4e', -0.1), '#3f8a4e']);
+  for (const y of [0.3, 0.75]) kit.add(new THREE.TorusGeometry(0.455, 0.025, 4, 18), shade('#3f8a4e', -0.2), { y, rx: Math.PI / 2 });
+  kit.add(cyl(0.42, 0.42, 0.06, 16), '#2f6d3e', { y: 1.05 });
+  kit.add(cyl(0.03, 0.03, 0.16, 6), P.gold, { y: 0.24, z: 0.5, rx: Math.PI / 2 }, materials.glossy);
+  kit.add(cbox(0.9, 0.2, 0.9, 0.04), '#b9ad98', { y: -0.1 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'waterButt';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** Duck pond: a glassy water disc in a pebbly rim, reeds and lily pads. */
+export function pond({ r = 4.5, seed = 3 } = {}) {
+  const rng = new Rng(`pond-${seed}`);
+  const kit = new Kit('pond');
+  const n = 28;
+  const pts = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * TAU; const k = 1 + (hash(i * 3 + seed) - 0.5) * 0.18; pts.push([Math.cos(a) * r * k, Math.sin(a) * r * 0.8 * k]); }
+  const rim = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x * 1.12, z * 1.12)));
+  const rimG = new THREE.ExtrudeGeometry(rim, { depth: 0.1, bevelEnabled: false });
+  rimG.rotateX(-Math.PI / 2);
+  kit.add(rimG, '#a99a7c');
+  for (let i = 0; i < 22; i++) {
+    const a = rng.range(0, TAU), k = rng.range(1.02, 1.14);
+    kit.add(ball(rng.range(0.14, 0.26), 0), rng.pick(['#c9bda3', '#b3a58a', '#ddd2bb']), { x: Math.cos(a) * r * k, y: 0.1, z: Math.sin(a) * r * 0.8 * k, sy: 0.6 });
+  }
+  for (let i = 0; i < 9; i++) {
+    const a = rng.range(0.3, 2.6), k = rng.range(0.82, 0.98);
+    const x = Math.cos(a) * r * k, z = Math.sin(a) * r * 0.8 * k;
+    for (let j = 0; j < 4; j++) kit.add(new THREE.ConeGeometry(0.035, rng.range(0.9, 1.5), 4), rng.pick(['#5a8f3c', '#6fa648', '#4f7f34']), { x: x + rng.range(-0.2, 0.2), y: 0.55, z: z + rng.range(-0.2, 0.2), rz: rng.range(-0.15, 0.15) });
+    kit.add(new THREE.CapsuleGeometry(0.05, 0.22, 3, 6), '#7a4a26', { x, y: 1.25, z });
+  }
+  for (let i = 0; i < 6; i++) {
+    const a = rng.range(0, TAU), d = rng.range(0.3, 0.75) * r;
+    kit.add(cyl(0.3, 0.3, 0.02, 10), '#5fae44', { x: Math.cos(a) * d, y: 0.13, z: Math.sin(a) * d * 0.8 });
+  }
+  const g = kit.build(new THREE.Group());
+  const water = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, z))), 1).rotateX(Math.PI / 2), waterMat());
+  water.position.y = 0.11;
+  water.receiveShadow = true;
+  water.name = 'pondWater';
+  g.add(water);
+  g.name = 'pond';
+  g.userData.surface = 'water';
+  g.userData.waterY = 0.11;
+  return g;
+}
+
+/** Car-boot trestle: odds and ends for sale (a lamp, books, a teapot, a record player...). */
+export function bootTable({ seed = 1 } = {}) {
+  const rng = new Rng(`boot-${seed}`);
+  const kit = new Kit('bootTable');
+  kit.add(box(1.9, 0.05, 0.75), '#f3eadb', { y: 0.74 });
+  kit.add(box(1.92, 0.3, 0.02), rng.pick([P.teal, P.bubblegum, P.sunflower]), { y: 0.6, z: 0.38 });
+  for (const sx of [-1, 1]) kit.add(box(0.05, 0.74, 0.62), P.woodDark, { x: sx * 0.8, y: 0.37 });
+  let x = -0.8;
+  while (x < 0.75) {
+    const k = rng.int(0, 4), c = rng.pick([P.tomato, P.cobalt, P.sunflower, P.violet, P.teal, '#fff8ee']);
+    if (k === 0) { for (let i = 0; i < 3; i++) kit.add(box(0.07, 0.24, 0.18), rng.pick([P.tomato, P.cobalt, P.lime, '#8b5e3c']), { x: x + i * 0.08, y: 0.89, z: rng.range(-0.1, 0.1) }); x += 0.32; }
+    else if (k === 1) { kit.add(ball(0.12, 1), c, { x: x + 0.12, y: 0.88, z: 0, sy: 0.85 }, materials.glossy); kit.add(cyl(0.02, 0.03, 0.12, 5), c, { x: x + 0.26, y: 0.9, z: 0, rz: -0.9 }); x += 0.36; }
+    else if (k === 2) { kit.add(cyl(0.05, 0.07, 0.36, 8), c, { x: x + 0.1, y: 0.95, z: 0 }); kit.add(cyl(0.12, 0.17, 0.16, 10), '#fff1d6', { x: x + 0.1, y: 1.2, z: 0 }); x += 0.3; }
+    else if (k === 3) { kit.add(cbox(0.38, 0.1, 0.32, 0.02), '#8b5e3c', { x: x + 0.2, y: 0.82, z: 0 }); kit.add(cyl(0.13, 0.13, 0.01, 14), P.ink, { x: x + 0.2, y: 0.88, z: 0 }); x += 0.44; }
+    else { kit.add(cbox(0.3, 0.22, 0.24, 0.03), c, { x: x + 0.16, y: 0.88, z: 0 }); x += 0.36; }
+  }
+  kit.add(cbox(0.5, 0.3, 0.4, 0.04), P.woodLight, { x: 0.4, y: 0.15, z: -0.7 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'bootTable';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** Hot-air balloon (≈ 14 m tall): gored envelope, burner and a wicker basket. Origin at the basket. */
+export function hotAirBalloon({ seed = 2, colors = [P.tomato, P.sunflower, P.teal, '#fff8ee', P.violet, P.cobalt] } = {}) {
+  const kit = new Kit('balloon');
+  const prof = [];
+  for (let i = 0; i <= 14; i++) {
+    const t = i / 14;
+    const y = 3.2 + t * 10.2;
+    const r = t < 0.72 ? 1.2 + Math.sin((t / 0.72) * Math.PI * 0.5) * 3.8 : 5 * Math.cos(((t - 0.72) / 0.28) * Math.PI * 0.5);
+    prof.push([Math.max(0.02, r), y]);
+  }
+  const env = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 18);
+  kit.addFaces(env, (x, y, z, c) => c.set(colors[Math.floor(((Math.atan2(z, x) / TAU + 1) % 1) * 18) % colors.length]));
+  kit.add(cbox(1.3, 1.0, 1.3, 0.12), '#b0804e', { y: 0.5 });
+  kit.add(cbox(1.36, 0.14, 1.36, 0.05), '#7a4a26', { y: 1.0 });
+  for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) kit.add(cyl(0.025, 0.025, 2.4, 4), '#7a4a26', { x: sx * 0.6, y: 2.1, z: sz * 0.6 });
+  kit.add(cyl(0.3, 0.36, 0.34, 8), '#6b7280', { y: 3.05 });
+  void seed;
+  const g = kit.build(new THREE.Group());
+  g.name = 'hotAirBalloon';
+  g.traverse((o) => { if (o.isMesh) o.castShadow = false; });
   return g;
 }
 

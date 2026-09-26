@@ -648,6 +648,16 @@ export const ACTIONS = {
     o.smile = 0.6; o.mouth = 0.15; o.lid = 0.15; o.eyeY = -0.4;
   },
 
+  alarm(o, t, s) { // "Over here! Help!": both arms waving overhead, hopping on the spot
+    const T = t * s.tempo;
+    const w = Math.sin(T * 9);
+    const h = hop(T, 0.5);
+    o.by = 0.09 * h * s.energy; o.bsq = 0.08 * (h - 0.4); o.kL = o.kR = 0.3 * h; o.lFL = o.lFR = 0.15 * h;
+    o.aOL = 2.05 + 0.3 * w; o.aOR = 2.05 - 0.3 * w; o.aFL = o.aFR = 0.35; o.eBL = o.eBR = 0.15;
+    o.wWL = 0.5 * w; o.wWR = -0.5 * w; o.srz = 0.08 * w; o.nrz = 0.1 * w; o.nrx = -0.12;
+    o.mouth = 0.6 + 0.3 * Math.max(0, Math.sin(T * 11)); o.browY = 0.9; o.lid = -0.2; o.smile = -0.2;
+  },
+
   chase(o, t, s) { // running after something, arms outstretched ("come back, deckchair!")
     const T = t * s.tempo;
     gait(o, s.gait, s, 1);
@@ -667,8 +677,17 @@ export const ACTION_PROPS = {
 export const WATER_ACTIONS = new Set(['swim', 'tread']);
 /** Actions sitting/lying on something: a bad hit keeps the character on it. */
 export const SEATED_ACTIONS = new Set(['sit', 'sleep', 'row', 'paddle']);
-/** Periodic sticker icons: action -> [icon, period s, duration s]. */
-export const ACTION_ICONS = { jig: ['note', 1.9, 1.0], shakeFist: ['anger', 3.4, 1.3], whistle: ['bang', 2.2, 0.8], impatient: ['question', 6.5, 1.2] };
+/**
+ * Automatic tell stickers: action -> [icon, period s, duration s, size factor, first delay s].
+ * They read unscoped from the perch (see icons.js TELL). Pass { icon: false } in the action options
+ * (Crowd does for its background extras) or set person.autoIcons = false to keep someone quiet.
+ */
+export const ACTION_ICONS = {
+  scratch: ['question', 3.2, 1.5, 1, 0.3], shrug: ['question', 3.0, 1.3, 1, 0.4], lookUp: ['question', 3.4, 1.5, 1, 0.5],
+  point: ['bang', 3.0, 1.3, 1, 0.3], panic: ['bang', 1.7, 1.0, 1, 0.1], alarm: ['bang', 1.5, 1.0, 1.05, 0.1],
+  whistle: ['bang', 2.2, 0.9, 0.9, 0.2], dance: ['note', 1.8, 1.0, 0.9, 0.3], jig: ['note', 1.9, 1.0, 0.9, 0.3],
+  shakeFist: ['anger', 3.4, 1.3, 0.9, 0.3], angry: ['anger', 3.6, 1.3, 0.9, 0.4],
+};
 export const ACTION_NAMES = Object.keys(ACTIONS);
 export const GAIT_ACTIONS = new Set(['walk', 'run', 'panic', 'chase']);
 

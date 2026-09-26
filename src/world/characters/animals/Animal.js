@@ -2,11 +2,13 @@
 // update). Each species supplies a cached skinned blueprint (one draw call), an action library over
 // the generic AnimalPose channels, and applyPose() mapping channels onto its bones.
 import * as THREE from 'three';
-import { materials } from '../../../gfx/materials.js';
 import { Rng } from '../../../core/rng.js';
 import { instantiate, G, shade } from '../rig.js';
 import { Blender, createPoseType, clamp, damp, dampAngle, wrapAngle, bump, TAU, win, smooth } from '../anim.js';
-import { IconPop, Snore, blobShadow } from '../icons.js';
+import { IconPop, Snore, blobShadow, trackView, view, iconType } from '../icons.js';
+import { characterMaterial, CHARACTER } from '../look.js';
+import { emitCharacterEvent } from '../events.js';
+import { setWet } from '../wet.js';
 
 export const AnimalPose = createPoseType([
   'bx', 'by', 'bz', 'brx', 'bry', 'brz', 'bsq',
@@ -46,15 +48,16 @@ export class Animal {
     const bp = C.blueprint(this.config);
     this.meta = bp.meta || {};
     this.tris = bp.tris;
-    const { mesh, bones } = instantiate(bp, materials.toy);
+    const { mesh, bones } = instantiate(bp, characterMaterial());
     this.mesh = mesh;
     this.bones = bones;
+    trackView(mesh);
     const h = this.meta.height || 0.5;
     mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, h * 0.5, 0), Math.max(h, this.meta.length || h) * 1.4 + 0.5);
     this.root = new THREE.Group();
     this.root.name = opts.name || this.species;
     this.body = new THREE.Group();
-    this.scale = opts.scale ?? this.config.scale ?? 1;
+    this.scale = (opts.scale ?? this.config.scale ?? 1) * (opts.ignoreGlobalScale ? 1 : CHARACTER.scale);
     this.body.scale.setScalar(this.scale);
     this.root.add(this.body);
     this.body.add(mesh);
@@ -62,7 +65,7 @@ export class Animal {
     this.shadowSize = this.meta.shadow || 0.5;
     this.shadow = opts.shadow === false ? null : blobShadow(this.shadowSize);
     if (this.shadow) this.body.add(this.shadow);
-    this.icon = new IconPop(this.body, h + 0.35, 0.5);
+    this.icon = new IconPop(this.body, h + 0.12, 0.5);
     this.snore = new Snore(this.body);
     this.snore.origin.set(0.1, h * 0.8, (this.meta.headZ || 0.1));
     this.s = {
@@ -94,8 +97,31 @@ export class Animal {
 
   setAction(name, opts = {}, fade = 0.3) {
     if (!this.constructor.ACTIONS[name]) name = 'idle';
-    this.blender.set(name, opts, fade);
+    if (this.blender.set(name, opts, fade)) emitCharacterEvent('action', this, name, opts);
     this.snore.set(name === 'sleep');
+    if (!opts._perform) this._perform = null;
+    return this;
+  }
+
+  /** Play an action for `seconds`, then return to the previous one. Returns seconds. */
+  perform(name, seconds = 2, opts = {}, fade = 0.25) {
+    const back = this._perform?.back || { name: this.action, opts: this.blender.cur.opts };
+    this.setAction(name, { ...opts, _perform: true }, fade);
+    this._perform = { t: 0, dur: seconds, back };
+    return seconds;
+  }
+
+  /** Pop a tell sticker ('!', '?', '♪', 'heart', ...). Returns the duration. */
+  tell(type = '!', { duration = 1.4, size } = {}) {
+    const t = iconType(type);
+    this.icon.show(t, duration, size ?? this.icon.size);
+    emitCharacterEvent('tell', this, t);
+    return duration;
+  }
+
+  /** Repeat a tell sticker every `every` seconds (null to stop). */
+  setTell(type, { every = 8, duration = 1.4 } = {}) {
+    this._tell = type ? { type, every, duration, t: 0.2 } : null;
     return this;
   }
 
@@ -109,9 +135,17 @@ export class Animal {
 
   /** Startled hop + "!" (species may extend via onReact). Returns duration. */
   react(hit = {}) {
-    this._react = { t: 0, dur: this.reactDuration || 1.4 };
+    this._react = { t: 0, dur: this.reactDuration || 1.4, face: 0 };
+    const from = hit.origin || hit.from || (hit.ray && hit.ray.origin) || (view.has ? view.position : null);
+    if (from && !this.flying) { // turn to glare / bark at the shooter
+      this.root.updateWorldMatrix(true, false);
+      _v.copy(from);
+      this.root.worldToLocal(_v);
+      this._react.face = clamp(wrapAngle(Math.atan2(_v.x, _v.z)), -2.8, 2.8);
+    }
     this.icon.show('bang', Math.min(1.2, this._react.dur));
     this.onReact?.(hit);
+    emitCharacterEvent('react', this, hit);
     return this._react.dur;
   }
 
@@ -119,6 +153,7 @@ export class Animal {
     if (this._react) return 0;
     this._celebrate = { t: 0 };
     this.icon.show('heart', 1.1);
+    emitCharacterEvent('celebrate', this);
     return 1.2;
   }
 
@@ -139,6 +174,22 @@ export class Animal {
     dt = Math.min(dt || 0, 0.1);
     this.time += dt;
     const s = this.s;
+    if (this._perform && !this._react && (this._perform.t += dt) >= this._perform.dur) {
+      const { back } = this._perform;
+      this._perform = null;
+      this.setAction(back.name, back.opts, 0.3);
+    }
+    if (this._tell && !this._react) {
+      this._tell.t -= dt;
+      if (this._tell.t <= 0 && !this.icon.active) { this.tell(this._tell.type, { duration: this._tell.duration }); this._tell.t = this._tell.every; }
+    } else if (!this._react && !this._celebrate) { // per-species action stickers (e.g. the pelican's huff)
+      const ic = this.constructor.ICONS?.[this.blender.cur.name];
+      if (ic && this.blender.cur.opts.icon !== false) {
+        if (this._iconAction !== this.blender.cur.name) { this._iconAction = this.blender.cur.name; this._iconT = ic[4] ?? 0.3; }
+        this._iconT -= dt;
+        if (this._iconT <= 0 && !this.icon.active) { this.icon.show(ic[0], ic[2], this.icon.size * (ic[3] ?? 1)); this._iconT = ic[1]; }
+      } else this._iconAction = null;
+    }
     if (this.controller) this.controller.update(dt, t);
     const moving = this.gaitActions?.has(this.blender.cur.name) || this.gaitActions?.has(this.blender.prev?.name);
     if (moving) {
@@ -151,6 +202,7 @@ export class Animal {
       r.t += dt;
       const w = this.reactPose(this._ov.reset(), r.t);
       if (this.keepY) this._ov.by += o.by;
+      this._ov.bry = o.bry + r.face * win(r.t, 0.25, r.dur, 0.25, 0.4);
       o.mixIn(this._ov, w);
       if (r.t >= r.dur) { this._react = null; this.onReactEnd?.(); }
     } else if (this._celebrate) {
@@ -180,6 +232,11 @@ export class Animal {
     if (s.blinkT <= 0) { s.blinkAge = 0; s.blinkT = this.rng.range(1.5, 5); }
     o.lid = Math.max(o.lid, bump(s.blinkAge, 0, 0.14));
     this.applyPose(o);
+    const W = this.constructor.WET_ACTIONS;
+    if (W) {
+      const wet = W.has(this.blender.cur.name) || (W.has(this.blender.prev?.name) && this.blender.w < 1);
+      if (wet !== !!this.mesh.userData.wet) setWet(this.mesh, wet);
+    }
     this.afterUpdate?.(dt, o);
     this.icon.update(dt);
     this.snore.update(this.time);

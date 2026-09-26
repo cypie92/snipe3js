@@ -12,7 +12,8 @@ import { VIEWMODEL_LAYER } from './post.js';
  * sunAzim: degrees around Y measured from +Z (the perch side) toward +X. -110 = a raking side/back key
  * from the left, beyond the diorama: long soft shadows run diagonally toward the camera, roofs and side
  * walls model strongly, and the perch-facing fronts are carried by the cool lilac fill (placed opposite
- * the sun, i.e. on the perch side) plus sky light. Colours are sRGB hex. fog = horizon haze colour (sky, fog and cloud
+ * the sun, i.e. on the perch side) plus sky light. fillAzim/fillElev (optional) aim the cool fill; by
+ * default it sits opposite the sun. Colours are sRGB hex. fog = horizon haze colour (sky, fog and cloud
  * haze share it so distant hills melt into the horizon).
  */
 export const PRESETS = {
@@ -20,7 +21,7 @@ export const PRESETS = {
     zenith: '#3b8fe8', horizon: '#a3d0f5', haze: '#dcebf3', below: '#c0d6c8',
     sun: '#ffeed6', sunIntensity: 3.1, sunElev: 30, sunAzim: -110,
     hemiSky: '#98acff', hemiGround: '#8a9470', hemiIntensity: 1.05,
-    fill: '#a99fff', fillIntensity: 0.85,
+    fill: '#b0a8ff', fillIntensity: 1.05, fillAzim: 28, fillElev: 32,
     fogNear: 70, fogFar: 950, env: 0.22,
     cloudLit: '#fffdf8', cloudShade: '#a3afd8', cloudHaze: 0.6,
     grade: {},
@@ -29,7 +30,7 @@ export const PRESETS = {
     zenith: '#3a8ff0', horizon: '#aed8f8', haze: '#e1f0f8', below: '#c0d6c8',
     sun: '#fff8ec', sunIntensity: 3.3, sunElev: 48, sunAzim: 115,
     hemiSky: '#a6b8ff', hemiGround: '#8d9c6c', hemiIntensity: 1.1,
-    fill: '#aaa3ff', fillIntensity: 0.75,
+    fill: '#b2abff', fillIntensity: 0.95, fillAzim: -28, fillElev: 34,
     fogNear: 90, fogFar: 1050, env: 0.26,
     cloudLit: '#ffffff', cloudShade: '#adb9dc', cloudHaze: 0.55,
     grade: { contrast: 0.16 },
@@ -38,7 +39,7 @@ export const PRESETS = {
     zenith: '#5d8fe0', horizon: '#f6cfa2', haze: '#ffe1c0', below: '#d8c49a',
     sun: '#ffbe78', sunIntensity: 3.3, sunElev: 20, sunAzim: 118,
     hemiSky: '#c6b9f0', hemiGround: '#8a7a5a', hemiIntensity: 1.0,
-    fill: '#a39cff', fillIntensity: 0.85,
+    fill: '#a8a0ff', fillIntensity: 1.05, fillAzim: -30, fillElev: 30,
     fogNear: 60, fogFar: 850, env: 0.24,
     cloudLit: '#ffe6cc', cloudShade: '#b097c6', cloudHaze: 0.65,
     grade: { gain: [1.05, 0.99, 0.93], lift: [0.03, 0.012, 0.05], vibrance: 0.18 },
@@ -148,7 +149,7 @@ export class Environment {
     this.sky = new THREE.Mesh(
       new THREE.SphereGeometry(1500, 48, 24),
       new THREE.ShaderMaterial({
-        vertexShader: skyVert, fragmentShader: skyFrag, side: THREE.BackSide, depthWrite: false, fog: false,
+        name: 'sky', vertexShader: skyVert, fragmentShader: skyFrag, side: THREE.BackSide, depthWrite: false, fog: false,
         uniforms: {
           zenith: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, haze: { value: new THREE.Color() },
           below: { value: new THREE.Color() }, sunColor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -271,9 +272,18 @@ export class Environment {
     const d = this.shadowRadius * 1.4 + 70;
     this.sun.target.position.copy(this.shadowCenter);
     this.sun.position.copy(this.shadowCenter).addScaledVector(this.sunDir, d);
-    // fill: from the far side, low, slightly off-axis
-    _v.set(-this.sunDir.x, 0, -this.sunDir.z).normalize();
-    this.fill.position.copy(this.shadowCenter).addScaledVector(_v, 100).setY(this.shadowCenter.y + 55);
+    // cool fill: aimed by the preset (perch side, so fronts facing the player stay colourful), or
+    // by default opposite the sun
+    const p = this.params || {};
+    if (p.fillAzim !== undefined) {
+      const az = THREE.MathUtils.degToRad(p.fillAzim);
+      const el = THREE.MathUtils.degToRad(p.fillElev ?? 30);
+      _v.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+      this.fill.position.copy(this.shadowCenter).addScaledVector(_v, 110);
+    } else {
+      _v.set(-this.sunDir.x, 0, -this.sunDir.z).normalize();
+      this.fill.position.copy(this.shadowCenter).addScaledVector(_v, 100).setY(this.shadowCenter.y + 55);
+    }
     this.fill.target.position.copy(this.shadowCenter);
   }
 
@@ -350,7 +360,7 @@ export class Environment {
     g.setIndex(idx);
     g.computeBoundingSphere();
     this.cloudMat = new THREE.ShaderMaterial({
-      vertexShader: cloudVert, fragmentShader: cloudFrag, fog: false,
+      name: 'clouds', vertexShader: cloudVert, fragmentShader: cloudFrag, fog: false,
       uniforms: {
         uTime: { value: 0 }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color() },
         uLit: { value: new THREE.Color() }, uShade: { value: new THREE.Color() }, uHaze: { value: new THREE.Color() },

@@ -236,7 +236,7 @@ export function createWater(opts = {}) {
       uShape: { value: new THREE.Vector4(type, hw, hd, 0) },
       uSdf: { value: sdf ? sdf.tex : blankSdf },
       uSdfRect: { value: sdf ? sdf.rect : new THREE.Vector4(0, 0, 1, 1) },
-      uFoamWidth: { value: foamWidth },
+      uFoamWidth: { value: Math.max(0.05, foamWidth) }, // > 0: foam smoothstep edges must differ
       uDepthScale: { value: opts.depthScale ?? Math.max(0.6, minSide * 0.6) },
       uRippleScale: { value: rippleScale },
       uSparkle: { value: sparkle },
@@ -287,7 +287,7 @@ const ringFrag = /* glsl */ `
     if (vK < 0.0 || vK > 1.0) discard;
     float r = length(vP);
     float w = 0.06 + 0.1 * vR * (1.0 - vK);
-    float aa = fwidth(r) * 1.2;
+    float aa = max(fwidth(r) * 1.2, 1e-4); // smoothstep edges must never coincide
     float ring1 = 1.0 - smoothstep(w * 0.5 - aa, w * 0.5 + aa, abs(r - vR));
     float ring2 = 1.0 - smoothstep(w * 0.35 - aa, w * 0.35 + aa, abs(r - vR * 0.62));
     float a = (ring1 + ring2 * 0.6 * (1.0 - vK)) * (1.0 - vK) * (1.0 - vK) * 0.85;

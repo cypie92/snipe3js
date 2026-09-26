@@ -666,10 +666,10 @@ function buildFaceExtras(rb, b, d, cfg, C, hm, surf, meta) {
       const p = V(x, ey, surf.z(x, ey)).addScaledVector(n, 0.022).applyMatrix4(hm);
       const m = new THREE.Matrix4().compose(p, qFromNormal(n, 0.6), V(1, 1, 1));
       const rr = Math.max(ew, eh) * 1.1;
-      rb.add(G.torus(rr, 0.017, 4, 12), gcol, m, b.head);
-      rb.add(G.sphere(8, 5), (px, py, pz, c) => c.set(px < -0.2 && py > 0.2 ? '#f4fbff' : '#8fdcff'), M(m, { sx: rr, sy: rr, sz: 0.012 }), b.head);
+      rb.add(G.torus(rr, 0.017, 3, 10), gcol, m, b.head);
+      rb.add(G.sphere(6, 4), (px, py, pz, c) => c.set(px < -0.2 && py > 0.2 ? '#f4fbff' : '#8fdcff'), M(m, { sx: rr, sy: rr, sz: 0.012 }), b.head);
     }
-    rb.add(G.torus(1, 0.012, 3, 18), gcol, M(hm, { y: ey + 0.02, rx: Math.PI / 2 - 0.12, sx: d.Rx * 1.06, sy: d.Rz * 1.06 }), b.head); // strap
+    rb.add(G.torus(1, 0.012, 3, 14), gcol, M(hm, { y: ey + 0.02, rx: Math.PI / 2 - 0.12, sx: d.Rx * 1.06, sy: d.Rz * 1.06 }), b.head); // strap
     rb.add(G.capsule(0.01, ex * 2 - Math.max(ew, eh) * 2.3, 1, 4), gcol, M(hm, { y: ey + 0.012, z: surf.z(0, ey) + 0.024, rz: Math.PI / 2 }), b.head);
   } else if (cfg.glasses) {
     const gcol = cfg.glassesColor || P.ink;
@@ -752,7 +752,7 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
   // closed shapes so a hat still looks solid from below (lying down, tumbling through the air)
   const lining = shade(col, 0.62);
   const dome = (c, t, seg = [12, 4]) => { add(G.hemi(...seg), c, t); add(G.disc(seg[0]), lining, t); };
-  const brim = (pts, seg, c, t, th = 0.035 * R) => add(lathe([...pts.slice().reverse().map(([r, y]) => [r, y - th]), ...pts], seg), c, t);
+  const brim = (pts, seg, c, t, th = 0.035 * R) => add(lathe([...pts.slice(0, -1).reverse().map(([r, y]) => [r, y - th]), ...pts], seg - 2), c, t);
   let top = 0.6 * R;
   switch (h.type) {
     case 'flatcap':
@@ -798,7 +798,7 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
       dome(col, { y: -0.05 * R, sx: 1.01 * R, sy: 0.84 * R, sz: 1.05 * R }, [12, 4]);
       brim([[2.0 * R, -0.16 * R], [1.6 * R, -0.03 * R], [1.0 * R, 0.02 * R], [0.9 * R, 0.03 * R]], 14, (x, y, z, c) => c.set(Math.hypot(x, z) > 1.93 * R && h.type === 'straw' ? shade(col, 0.85) : col), { y: -0.02 * R });
       add(G.cyl(1.02 * R, 1.03 * R, 0.16 * R, 12), h.band || P.bubblegum, { y: 0.06 * R, sz: 1.04 });
-      if (h.type === 'sunhat') add(G.sphere(8, 6), h.flower || P.sunflower, { x: 0.6 * R, y: 0.1 * R, z: 0.72 * R, s: 0.16 * R });
+      if (h.type === 'sunhat') add(G.sphere(6, 4), h.flower || P.sunflower, { x: 0.6 * R, y: 0.1 * R, z: 0.72 * R, s: 0.16 * R });
       top = 0.75 * R;
       break;
     case 'fisherman':
@@ -870,13 +870,12 @@ function buildHat(rb, b, d, cfg, C, hm, meta) {
     case 'swimcap': { // rubber swim cap with a few flower bumps
       dome(col, { y: -0.3 * R, rx: -0.42, sx: 1.08 * R, sy: 1.05 * R, sz: 1.1 * R }, [12, 5]);
       if (h.flowers !== false) {
-        for (const [yaw, el] of [[0.5, 0.9], [-0.9, 0.6], [2.2, 0.8], [-2.4, 0.45], [1.3, 0.35], [3.0, 0.2]]) {
+        for (const [yaw, el] of [[0.5, 0.9], [-0.9, 0.6], [2.2, 0.8], [-2.4, 0.45], [1.3, 0.35]]) {
           const dir = V(Math.sin(yaw) * Math.cos(el), Math.sin(el), Math.cos(yaw) * Math.cos(el));
           const p = dir.clone().multiply(V(1.07 * R, 1.04 * R, 1.09 * R)).add(V(0, -0.3 * R, 0));
           if (p.z > 0.5 * R && p.y < 0.2 * R) continue; // keep the forehead clear
           const q = new THREE.Quaternion().setFromUnitVectors(V(0, 0, 1), dir);
-          add(G.sphere(6, 4), col2, new THREE.Matrix4().compose(p, q, V(0.16 * R, 0.16 * R, 0.07 * R)));
-          add(G.sphere(5, 3), h.pom || '#fff8ee', new THREE.Matrix4().compose(p.clone().addScaledVector(dir, 0.05 * R), q, V(0.06 * R, 0.06 * R, 0.04 * R)));
+          add(G.sphere(6, 3), (x, y, z, c) => c.set(z > 0.55 ? (h.pom || '#fff8ee') : col2), new THREE.Matrix4().compose(p, q, V(0.16 * R, 0.16 * R, 0.07 * R)));
         }
       }
       top = 0.8 * R;

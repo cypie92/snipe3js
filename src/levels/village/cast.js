@@ -5,6 +5,16 @@ import { Person } from '../../world/characters/index.js';
 import { BlobShadows } from '../../world/characters/icons.js';
 
 const _v = new THREE.Vector3();
+const WOMAN_HAIR = ['bun', 'bob', 'pigtails', 'long', 'ponytail'];
+
+/** Babble voice for a villager (the lead's speech bubbles read root.userData.voice). */
+function voiceOf(cfg = {}, preset) {
+  if (cfg.kid || cfg.age === 'kid') return 'kid';
+  if (preset === 'vicar' || preset === 'tourist') return 'posh';
+  if (cfg.elder || cfg.age === 'elder' || preset === 'oldLady') return 'old';
+  if (preset === 'bride' || cfg.top?.type === 'dress' || cfg.bottom?.type === 'skirt' || WOMAN_HAIR.includes(cfg.hair?.style)) return 'woman';
+  return 'man';
+}
 
 export class Cast {
   constructor(ctx) {
@@ -20,10 +30,11 @@ export class Cast {
   }
 
   /** Create + register a villager. opts: Person options (preset allowed). */
-  person(opts, x, z, ry = 0, action, actionOptions, { y = 0, name, lines, blob = true } = {}) {
+  person(opts, x, z, ry = 0, action, actionOptions, { y = 0, name, lines, blob = true, voice } = {}) {
     const p = new Person({ ...opts, shadow: false });
     p.root.position.set(x, y, z);
     p.root.rotation.y = ry;
+    p.root.userData.voice = voice || voiceOf(p.config, opts.preset);
     if (action) p.setAction(action, actionOptions || {}, 0);
     if (name) p.root.name = name;
     this.ctx.actor(p, { name: name || opts.preset || 'villager' });
@@ -112,7 +123,7 @@ export class Cast {
    * Sun shadows only for characters near the perch (the far ones keep their contact blob). Saves a
    * shadow-pass draw call + ~3k triangles per distant villager.
    */
-  shadowLod(dt, near = 58) {
+  shadowLod(dt, near = 46) {
     this.lodT = (this.lodT ?? 0) - dt;
     if (this.lodT > 0) return;
     this.lodT = 0.5;

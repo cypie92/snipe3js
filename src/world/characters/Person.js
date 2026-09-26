@@ -3,8 +3,9 @@
 //   const p = new Person({ seed: 7, hat: 'bowler' });  scene.add(p.root);  p.setAction('wave');
 //   p.update(dt, t) every frame.  p.react(hit) -> seconds.  p.lookAt(vec3 | object | null).
 import * as THREE from 'three';
-import { materials } from '../../gfx/materials.js';
 import { Rng } from '../../core/rng.js';
+import { characterMaterial, CHARACTER } from './look.js';
+import { emitCharacterEvent } from './events.js';
 import { instantiate } from './rig.js';
 import { buildPerson } from './personBuild.js';
 import { resolveConfig, lookKey, PRESET_NAMES } from './personConfig.js';
@@ -12,8 +13,8 @@ import {
   PersonPose, ACTIONS, ACTION_NAMES, ACTION_PROPS, GAIT_ACTIONS, WATER_ACTIONS, SEATED_ACTIONS, ACTION_ICONS,
   reactPose, celebratePose, REACT_DURATION, CELEBRATE_DURATION,
 } from './personActions.js';
-import { Blender, clamp, damp, dampAngle, lerp, bump, wrapAngle, TAU, smooth } from './anim.js';
-import { IconPop, Snore, blobShadow, makeFlash, rippleMaterial } from './icons.js';
+import { Blender, clamp, damp, dampAngle, lerp, bump, wrapAngle, TAU, smooth, win } from './anim.js';
+import { IconPop, Snore, blobShadow, makeFlash, rippleMaterial, trackView, view, iconType } from './icons.js';
 import { makeProp, makeOar, FishLine, ROD_TIP, PROP_TYPES } from './props.js';
 import { setWet } from './wet.js';
 
@@ -54,19 +55,25 @@ export class Person {
 
   static get presets() { return PRESET_NAMES; }
   static get actions() { return ACTION_NAMES; }
+  /** Global switch for the automatic tell stickers that come with actions (scratch "?", point "!"...). */
+  static autoIcons = true;
 
   constructor(opts = {}) {
     const cfg = resolveConfig(opts);
+    if (CHARACTER.scale !== 1 && !opts.ignoreGlobalScale) cfg.scale *= CHARACTER.scale;
     this.config = cfg;
     this.kind = 'person';
     const bp = blueprintFor(cfg);
     this.meta = bp.meta;
     this.tris = bp.tris;
     const d = this.meta.d;
-    const { mesh, bones } = instantiate(bp, materials.toy);
+    const { mesh, bones } = instantiate(bp, characterMaterial());
     this.mesh = mesh;
     this.bones = bones;
     mesh.name = 'person-mesh';
+    trackView(mesh);
+    this.autoIcons = opts.autoIcons ?? true;
+    this._tell = null;
     mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.1, 0), 2.3);
 
     this.root = new THREE.Group();
@@ -81,7 +88,7 @@ export class Person {
     if (this.shadow) this.body.add(this.shadow);
     this.root.userData.character = this;
 
-    const iconY = Math.max(d.top, d.headC + (this.meta.hatTop || 0)) + 0.42;
+    const iconY = Math.max(d.top, d.headC + (this.meta.hatTop || 0)) + 0.1;
     this.icon = new IconPop(this.body, iconY, 0.62 / Math.max(0.8, cfg.scale));
     this.snore = new Snore(this.body);
     this.snore.origin.set(0.22, d.headC + 0.3, 0.15);
@@ -165,7 +172,7 @@ export class Person {
     if (name === 'fish') this._fishOpts = { waterY: opts.waterY ?? 0, cast: opts.cast ?? 2.4 };
     if (name === 'row' && opts.oars !== false) this._showOars(opts);
     else if (this.oars) for (const m of this.oars) m.visible = false;
-    if (changed) this._iconT = 0;
+    if (changed) { this._iconT = ACTION_ICONS[name]?.[4] ?? 0.35; emitCharacterEvent('action', this, name, opts); }
     if (!opts._perform) this._perform = null;
     return this;
   }
@@ -179,6 +186,23 @@ export class Person {
     this.setAction(name, { ...opts, _perform: true }, fade);
     this._perform = { t: 0, dur: seconds, back };
     return seconds;
+  }
+
+  /**
+   * Pop a tell sticker above the head: '!' | '?' | '!?' | '♪' | 'z' | 'heart' | 'anger' (or bang,
+   * question, surprise, note). Sized to read from the perch unscoped. Returns the duration.
+   */
+  tell(type = '!', { duration = 1.6, size } = {}) {
+    const t = iconType(type);
+    this.icon.show(t, duration, size ?? this.icon.size);
+    emitCharacterEvent('tell', this, t);
+    return duration;
+  }
+
+  /** Repeat a tell sticker every `every` seconds until setTell(null) (e.g. a job owner asking for help). */
+  setTell(type, { every = 8, duration = 1.6 } = {}) {
+    this._tell = type ? { type, every, duration, t: 0.2 } : null;
+    return this;
   }
 
   /** In water? (swim / tread): the root is on the surface and the body below it is hidden. */
@@ -272,13 +296,20 @@ export class Person {
     s.reactSpin = keep ? 0 : (this.rng.chance(0.5) ? 1 : -1);
     s.reactKeep = keep;
     s.reactFace = 0;
-    const from = hit.origin || hit.from || (hit.ray && hit.ray.origin) || (hit.direction && hit.point ? _v.copy(hit.point).addScaledVector(hit.direction, -40) : null);
+    s.reactLook = 0; s.reactPitch = 0;
+    const from = hit.origin || hit.from || (hit.ray && hit.ray.origin) ||
+      (hit.direction && hit.point ? _v.copy(hit.point).addScaledVector(hit.direction, -40) : null) ||
+      (view.has ? view.position : null);
     if (from) {
       this.root.updateWorldMatrix(true, false);
       _v2.copy(from);
       this.root.worldToLocal(_v2);
-      s.reactFace = keep && keep !== 'water' ? 0 : clamp(wrapAngle(Math.atan2(_v2.x, _v2.z)), -2.6, 2.6);
+      const yaw = wrapAngle(Math.atan2(_v2.x, _v2.z));
+      s.reactFace = keep && keep !== 'water' ? 0 : clamp(yaw, -2.8, 2.8);
+      s.reactLook = keep && keep !== 'water' ? yaw : 0; // seated / lying: turn head & shoulders instead
+      s.reactPitch = Math.atan2(_v2.y - this.meta.d.headC * this.config.scale, Math.hypot(_v2.x, _v2.z) + 1e-3);
     }
+    emitCharacterEvent('react', this, hit);
     this._react = { t: 0, hatPopped: false, angry: false };
     this._celebrate = null;
     this.icon.show('surprise', 1.0);
@@ -291,6 +322,7 @@ export class Person {
     if (this._react) return 0;
     this._celebrate = { t: 0 };
     this.icon.show('heart', 1.3);
+    emitCharacterEvent('celebrate', this);
     return CELEBRATE_DURATION;
   }
 
@@ -396,11 +428,18 @@ export class Person {
   }
 
   _updateActionIcon(dt, cur) {
+    if (this._react || this._celebrate) return;
+    const tl = this._tell;
+    if (tl) { // level-driven repeating tell wins over action icons
+      tl.t -= dt;
+      if (tl.t <= 0 && !this.icon.active) { this.tell(tl.type, { duration: tl.duration }); tl.t = tl.every; }
+      return;
+    }
     const ic = ACTION_ICONS[cur];
-    if (!ic || this._react || this._celebrate) return;
+    if (!ic || !Person.autoIcons || !this.autoIcons || this.blender.cur.opts.icon === false) return;
     this._iconT -= dt;
     if (this._iconT <= 0 && !this.icon.active) {
-      this.icon.show(ic[0], ic[2], this.icon.size * 0.8);
+      this.icon.show(ic[0], ic[2], this.icon.size * (ic[3] ?? 0.9));
       this._iconT = ic[1] * (0.85 + this.rng.random() * 0.3);
     }
   }
@@ -452,6 +491,11 @@ export class Person {
       if (s.reactKeep === 'seat') this._ov.srx -= 0.1;
     }
     o.mixIn(this._ov, w);
+    { // shake the fist AT Jack: look up/over toward the shooter
+      const k = win(r.t, 0.7, 2.1, 0.2, 0.3) * w;
+      if (s.reactLook) { o.sry += clamp(s.reactLook * 0.45, -0.7, 0.7) * k; o.nry += clamp(s.reactLook * 0.55, -0.9, 0.9) * k; }
+      o.nrx -= clamp(s.reactPitch, -0.2, 0.6) * 0.7 * k;
+    }
     if (!r.hatPopped && r.t > 0.1) { r.hatPopped = true; this._popHat(); }
     if (!r.angry && r.t > 0.85) { r.angry = true; this.icon.show('anger', 1.15, this.icon.size * 0.85); }
     if (r.t > 1.95 && this.hatState?.phase === 'ground') this._returnHat();

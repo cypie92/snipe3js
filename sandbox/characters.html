@@ -9,20 +9,22 @@
 // Character line-up studio (real renderer/post/lighting via stage.js).
 // URL params (plus stage.js ones: cam, dist, zoom, yaw, preset, quality, labels, focus):
 //   set=all|presets|random|animals|crowd   action=<name> (everyone)   t=<sec> freeze clock at t
-//   react=<sec> trigger react() at that time   celebrate=<sec>   look=1 (everyone looks at camera)
+//   react=<sec> trigger react() at that time (noorigin=1: no hit.origin -> camera fallback)   celebrate=<sec>   look=1 (everyone looks at camera)
 //   n=<count> random villagers   seed=<n>   only=<index> show one item   theme=beach|harbour (random villagers)
 //   aopt=k:v,k2:v2 action options (e.g. action=lie&aopt=pose:deckchair)   set=harbourline|harbour (Barnacle Bay)
 import * as THREE from 'three';
 import { createStage } from './stage.js';
-import { Person, Crowd, Walker, ANIMALS, PigeonFlock } from '../src/world/characters/index.js';
+import { Person, Crowd, Walker, ANIMALS, PigeonFlock, GullFlock, Seal, Crab, SealCatch, Pelican, setCharacterLook, setCharacterScale } from '../src/world/characters/index.js';
 import { Rng } from '../src/core/rng.js';
-import { part, merge, rbox, meshOf, cyl, cone, sphere, box } from '../src/world/geo.js';
+import { part, merge, rbox, meshOf, cyl, cone, sphere, box, ico, jitter } from '../src/world/geo.js';
 import { materials } from '../src/gfx/materials.js';
 import { P } from '../src/gfx/palette.js';
 
 window.__chars = { THREE, Person, Crowd, Walker, ANIMALS, PigeonFlock, Rng };
 const params = new URLSearchParams(location.search);
 const num = (k, d) => (params.has(k) ? Number(params.get(k)) : d);
+if (params.has('rim')) setCharacterLook({ rim: num('rim', 0.45) });   // rim=0 disables the distance rim
+if (params.has('cscale')) setCharacterScale(num('cscale', 1));       // global character scale
 const set = params.get('set') || 'all';
 const action = params.get('action');
 const theme = params.get('theme') || undefined;
@@ -181,11 +183,77 @@ if (all || set === 'random') {
     placeRow(row, set === 'random' ? -r * 2.6 : -3.1 - r * 1.7, set === 'random' ? 1.35 : 1.3, !all);
   }
 }
+// set=tells: every action that pops a tell sticker (+ a sleeper) for perch-distance readability checks
+if (set === 'tells') {
+  const acts = ['scratch', 'shrug', 'lookUp', 'point', 'panic', 'alarm', 'dance', 'sleep', 'jig', 'shakeFist'];
+  const row = acts.map((a, i) => { const p = Person.random(new Rng(700 + i)); p.setAction(a, a === 'sleep' ? { stand: true } : {}, 0); return { root: p.root, actor: p, label: a }; });
+  placeRow(row, 0, 1.6);
+}
 const HARBOUR_PRESETS = ['docker', 'captain', 'lifeguard', 'fishmonger', 'swimmer', 'sunbather', 'sailorKid'];
 if (set === 'harbourline') {
   const row = HARBOUR_PRESETS.map((name, i) => ({ p: apply(Person.preset(name, { seed: 301 + i * 41 })), name }))
     .map(({ p, name }) => ({ root: p.root, actor: p, label: name }));
   placeRow(row, 0, 1.7);
+}
+// set=harbour: a mini Barnacle Bay diorama (quay, basin, rock, beach) exercising every harbour character
+if (set === 'harbour') {
+  const Q = 1.0; // quay top height
+  const put = (ch, x, y, z, ry = 0, label) => { ch.root.position.set(x, y, z); ch.root.rotation.y = ry; stage.add(ch.root, 0, 0, 0, label); actors.push(ch); items.push({ object: ch.root, x, z }); return ch; };
+  // set: water, quay, bollards, sand, rock
+  pool(0, -4, 14, 5.2);
+  add(meshOf([part(rbox(28, Q, 3.4, 0.12), [P.stoneDark, P.stone], { y: Q / 2 }), part(rbox(28.2, 0.14, 0.5, 0.06), P.stone, { y: Q, z: 1.5 })], materials.toy), 0, 0, -10.2);
+  const bollards = [3.5, 5.5, 7.5, 9.5].map((x) => new THREE.Vector3(x, Q + 0.46, -8.75));
+  for (const b of bollards) add(meshOf([part(cyl(0.16, 0.2, 0.42, 10), P.metalDark, { y: 0.21 }), part(cyl(0.24, 0.24, 0.06, 10), P.metalDark, { y: 0.43 })], materials.toy), b.x, Q, b.z);
+  add(new THREE.Mesh(new THREE.PlaneGeometry(30, 8.5).rotateX(-Math.PI / 2), materials.solid(P.sand, { roughness: 0.95 })), 0, 0.02, 4.9);
+  add(meshOf([part(jitter(ico(1, 1), 0.12), [P.stoneDark, P.stone], { sx: 2.0, sy: 0.75, sz: 1.3 })], materials.facet), 8.6, 0, -2.6);
+  const fishBox = add(meshOf([part(rbox(0.9, 0.45, 0.6, 0.05), P.cobalt, { y: 0.225 }), part(rbox(0.8, 0.08, 0.5, 0.03), '#9fc2de', { y: 0.45 })], materials.toy), 0.2, Q, -9.6);
+  // quay folk
+  put(Person.preset('docker', { seed: 41, action: 'scratch' }), -10, Q, -9.6, 0.3, 'docker');
+  put(Person.preset('docker', { seed: 42, action: 'point' }), -8.6, Q, -9.8, -0.4, 'docker');
+  put(Person.preset('captain', { seed: 43, action: 'checkWatch' }), -5.5, Q, -9.5, 0.2, 'captain');
+  const fred = put(Person.preset('fishmonger', { seed: 44, action: 'shakeFist' }), -1.4, Q, -9.5, 0.9, 'fishmonger (Fred)');
+  const pel = put(new Pelican({ seed: 3, action: 'gulp' }), 1.4, Q, -9.4, -1.1, 'pelican');
+  const gulls = new GullFlock({ seed: 8, count: 9, area: { x: 7, z: -9.6, w: 6, d: 1.4 }, groundY: Q, perches: bollards, water: { y: WATER_Y, area: { x: 1, z: -4, w: 12, d: 5 } }, circle: { x: 2, z: -4 } });
+  stage.scene.add(gulls.root); actors.push(gulls);
+  // water
+  put(Person.preset('swimmer', { seed: 45 }), -7.5, WATER_Y, -4.2, 0.2, 'swimmer');
+  const sw2 = put(Person.random(new Rng(46), { theme: 'beach', top: { type: 'swimsuit', color: P.teal, color2: '#fff8ee' }, bottom: { type: 'trunks', color: P.teal }, hat: { type: 'swimcap', color: P.sunflower, color2: P.tomato }, glasses: 'goggles' }), -4, WATER_Y, -5, 0, 'swim lap');
+  new Walker(sw2, [[-5, -5.5], [-1.5, -5.5], [-1.5, -3.2], [-5, -3.2]], { loop: true, speed: 0.7, action: 'swim', groundY: () => WATER_Y });
+  rowboat(3.2, -4.6, 0.62);
+  const rower = put(Person.random(new Rng(47), { theme: 'harbour', action: 'row', actionOptions: { lost: true, bias: 0.4 } }), 3.2, 0.12, -4.6, Math.PI, 'lost rower');
+  dinghy(-9.8, -1.8);
+  put(Person.preset('sailorKid', { seed: 48, action: 'paddle' }), -9.8, 0.12, -1.8, 0.6, 'Kit');
+  // seals on the rock (catch) + one sliding in
+  const sA = put(new Seal({ seed: 1 }), 7.9, 0.66, -2.5, Math.PI / 2, 'seals');
+  const sB = put(new Seal({ seed: 2 }), 9.4, 0.66, -2.7, -Math.PI / 2);
+  const game = new SealCatch(sA, sB); stage.scene.add(game.ball); actors.push({ update: (dt) => game.update(dt) });
+  const sC = put(new Seal({ seed: 5 }), 9.8, 0.6, -1.6, 0.4, 'seal');
+  const slideAt = num('slide', 0.5); let slid = false;
+  actors.push({ update: (dt, t) => { if (!slid && t >= slideAt) { slid = true; sC.slideInto(new THREE.Vector3(10.4, WATER_Y, -1.6)); } } });
+  // beach
+  towel(-8.5, 3.2); put(Person.preset('sunbather', { seed: 49 }), -8.5, 0, 3.2, 0.1, 'sunbather');
+  deckchair(-6, 3.4); put(Person.random(new Rng(50), { theme: 'beach', action: 'lie', actionOptions: { pose: 'deckchair' } }), -6, 0, 3.4, 0, 'deckchair');
+  sandcastle(-2.6, 3.8); put(Person.random(new Rng(51), { age: 'kid', theme: 'beach', action: 'dig' }), -2.6, 0, 3.8, 0.4, 'digger');
+  put(Person.random(new Rng(52), { age: 'kid', theme: 'beach', action: 'dig' }), -1.7, 0, 4.9, -2.4);
+  const tourist = put(Person.random(new Rng(53), { theme: 'beach', accessory: 'chips', top: { type: 'hawaiian' } }), 1.8, 0, 3.4, 0, 'chips');
+  const stealAt = num('steal', 0.6); let stolen = false;
+  actors.push({ update: (dt, t) => { if (!stolen && t >= stealAt) { stolen = true; gulls.stealChip(tourist); } } });
+  lifeguardChair(5.4, 2.6, 1.4); put(Person.preset('lifeguard', { seed: 54, action: 'lookout', actionOptions: { height: 1.4 } }), 5.4, 0, 2.5, Math.PI, 'lifeguard');
+  put(Person.preset('fisherman', { seed: 55, action: 'pull', actionOptions: { height: 0.6 } }), -11.5, 0, 1.4, Math.PI, 'Old Salty');
+  { // his net rope runs down into the water
+    const a = new THREE.Vector3(-11.5, 0.62, 0.85), b = new THREE.Vector3(-11.2, WATER_Y, -1.6);
+    const d = b.clone().sub(a);
+    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, d.length(), 6), materials.solid('#e3c28a'));
+    rope.position.copy(a).add(b).multiplyScalar(0.5); rope.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    stage.scene.add(rope);
+    add(meshOf([part(sphere(0.14, 10, 8), (x, y, z, c) => c.set(y > 0 ? P.tomato : '#fff8ee'), {})], materials.toy), -11.2, WATER_Y + 0.05, -1.7);
+  }
+  const crab = put(new Crab({ seed: 1 }), 9, 0.02, 5, 0, 'crabs');
+  new Walker(crab, [[8, 5.5], [11.5, 5.5]], { pingPong: true, speed: 0.5, action: 'scuttle' });
+  put(new Crab({ seed: 2, action: 'snap' }), 10.6, 0.02, 3.8, -0.6);
+  put(new Crab({ seed: 3, action: 'wave' }), 7.6, 0.02, 3.6, 0.5);
+  window.__harbour = { fred, pel, gulls, tourist, rower, game, fishBox };
+  stage.extent = 26;
 }
 if (set === 'crowd') {
   const crowd = new Crowd({ seed: num('seed', 3), area: { x: 0, z: 0, w: 22, d: 14 }, count: num('n', 36), groups: 5,
@@ -215,6 +283,14 @@ const cx = params.has('only') ? stage.frameTarget.x : (Math.min(...xs) + Math.ma
 const cz = params.has('only') ? stage.frameTarget.z : (Math.min(...zs) + Math.max(...zs)) / 2;
 const width = params.has('only') ? 2.4 : (Math.max(...xs) - Math.min(...xs)) + 2;
 if (set === 'crowd') stage.frame(new THREE.Vector3(0, 0, 0), 24);
+else if (set === 'harbour' && cam !== 'scope') {
+  const c = stage.camera;
+  c.fov = num('fov', 42);
+  c.position.set(num('cx', 0), num('h', 13), num('d', 19));
+  c.updateProjectionMatrix();
+  const tgt = new THREE.Vector3(0, 0, num('tz', -2.5));
+  stage.controls.target.copy(tgt); c.lookAt(tgt); stage.controls.update();
+} else if (set === 'harbour') stage.frame(new THREE.Vector3(0, 0.5, -2.5), 26);
 else if (cam === 'front') {
   const c = stage.camera;
   c.fov = num('fov', 30);
@@ -238,7 +314,7 @@ const reactAt = params.has('react') ? num('react', 0) : null;
 const celebAt = params.has('celebrate') ? num('celebrate', 0) : null;
 let fired = false, fired2 = false;
 function step(dt, t) {
-  if (reactAt != null && !fired && t >= reactAt) { fired = true; for (const a of actors) a.react?.({ origin: stage.camera.position }); }
+  if (reactAt != null && !fired && t >= reactAt) { fired = true; for (const a of actors) a.react?.(params.get('noorigin') ? {} : { origin: stage.camera.position.clone() }); }
   if (celebAt != null && !fired2 && t >= celebAt) { fired2 = true; for (const a of actors) a.celebrate?.(); }
   for (const a of actors) a.update(dt, t);
 }
@@ -246,6 +322,7 @@ if (T != null) {
   let t = 0;
   const dt = 1 / 30;
   step(0, 0);
+  stage.renderer.render(0); // one warm-up frame so characters have seen the camera (react fallback)
   while (t < T - 1e-6) { const h = Math.min(dt, T - t); t += h; step(h, t); }
 } else stage.onUpdate(step);
 
@@ -263,9 +340,13 @@ window.__stats = {
   const r = stage.renderer.renderer;
   const measure = () => { r.info.autoReset = false; r.info.reset(); r.render(stage.scene, stage.camera); const o = { calls: r.info.render.calls, tris: r.info.render.triangles }; r.info.autoReset = true; return o; };
   const all = measure();
-  const vis = actors.map((a) => { const v = a.root.visible; a.root.visible = false; return v; });
+  const withRoot = actors.filter((a) => a.root);
+  const vis = withRoot.map((a) => { const v = a.root.visible; a.root.visible = false; return v; });
+  const hidden = [];
+  if (set === 'harbour') stage.scene.traverse((o) => { if (o.isMesh && o.visible && !o.isSkinnedMesh && !withRoot.some((a) => a.root === o || a.root.getObjectById(o.id))) { o.visible = false; hidden.push(o); } });
   const base = measure();
-  actors.forEach((a, i) => { a.root.visible = vis[i]; });
+  withRoot.forEach((a, i) => { a.root.visible = vis[i]; });
+  for (const o of hidden) o.visible = true;
   window.__stats.calls = all.calls - base.calls;
   window.__stats.frameTris = all.tris - base.tris;
 }

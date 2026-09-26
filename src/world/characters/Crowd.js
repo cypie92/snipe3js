@@ -145,7 +145,7 @@ export class Crowd {
           if (it.until <= 0) it.p.setAction(it.base);
         } else if (it.next <= 0) {
           const f = this.rng.pick(FLAVOURS);
-          it.p.setAction(f, f === 'talk' ? { role: 'speak' } : {});
+          it.p.setAction(f, f === 'talk' ? { role: 'speak', icon: false } : { icon: false }); // extras: no tell stickers
           it.until = this.rng.range(2, 4.5);
           it.next = it.until + this.rng.range(6, 16);
         }

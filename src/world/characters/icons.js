@@ -1,5 +1,7 @@
-// Procedural sticker icons ("!?", "!", "?", "z", note, heart, anger mark) drawn on canvas and shown
+// Procedural sticker icons ("!?", "!", "?", "z", note, heart, anger cloud) drawn on canvas and shown
 // as camera-facing sprites, plus the soft contact-shadow blob used under every character.
+// Tell stickers keep a minimum ON-SCREEN size (a fraction of the view height) so they read from the
+// perch unscoped at 40-100 m, and never get smaller than their natural world size when scoped / close.
 // All textures/materials are created once and shared by every character.
 import * as THREE from 'three';
 import { P } from '../../gfx/palette.js';
@@ -8,6 +10,51 @@ import { clamp, easeOutBack, smooth } from './anim.js';
 const INK = P.ink;
 const S = 256;
 const cache = new Map();
+const CREAM = '#fff8ee';
+
+/** Global tell-sticker tuning (the level / tech-art may tweak it). */
+export const TELL = {
+  screen: 0.045, // minimum sticker height as a fraction of the viewport height
+  maxWorld: 5.5, // cap on the enlarged world size (m)
+  zScreen: 0.034, // snore "z" size as a fraction of the viewport height
+};
+
+// ---- camera tracking: the last camera that rendered a character (react() falls back to it) ----
+export const view = { camera: null, position: new THREE.Vector3(), has: false };
+/** Record the rendering camera whenever `obj` is drawn (chains an existing onBeforeRender). */
+export function trackView(obj) {
+  const prev = obj.onBeforeRender;
+  obj.onBeforeRender = function (renderer, scene, camera, ...rest) {
+    if (camera && camera.isPerspectiveCamera) {
+      view.camera = camera;
+      view.position.setFromMatrixPosition(camera.matrixWorld);
+      view.has = true;
+    }
+    prev.call(this, renderer, scene, camera, ...rest);
+  };
+}
+
+const _fw = new THREE.Vector3();
+const _fc = new THREE.Vector3();
+const _fsize = new THREE.Vector2();
+/**
+ * Sprite onBeforeRender: grow the sprite (and its offset from the anchor) so it is at least
+ * `userData.px` * viewport-height tall on screen. userData: { anchor, off, size (animated), full }.
+ */
+function fitToScreen(renderer, scene, camera) {
+  const u = this.userData;
+  if (!camera?.isPerspectiveCamera || !u.anchor) return;
+  _fw.copy(u.anchor).applyMatrix4(this.parent.matrixWorld);
+  const dist = _fw.distanceTo(_fc.setFromMatrixPosition(camera.matrixWorld));
+  renderer.getSize(_fsize);
+  const worldPerPx = (2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / (camera.zoom * Math.max(1, _fsize.y));
+  const parentScale = this.parent.matrixWorld.getMaxScaleOnAxis();
+  const need = Math.min(u.px * _fsize.y * worldPerPx, TELL.maxWorld) / parentScale;
+  const f = Math.max(1, need / Math.max(1e-4, u.full));
+  this.scale.set(u.size * f, u.size * f, 1);
+  this.position.copy(u.off).multiplyScalar(f).add(u.anchor);
+  this.updateMatrixWorld();
+}
 
 function canvas() {
   const c = document.createElement('canvas');
@@ -112,6 +159,25 @@ function grump(x, y, s) {
   };
 }
 
+// Cream speech-bubble badge with a thick ink outline + hard drop shadow; the tail points down.
+function badge(ctx, fill = CREAM) {
+  const shape = (c, grow) => {
+    c.beginPath();
+    c.arc(128, 104, 90 + grow, Math.PI * 0.62, Math.PI * 2.38);
+    c.lineTo(128, 236 + grow * 1.4);
+    c.closePath();
+  };
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.fillStyle = INK;
+  ctx.translate(0, 8); shape(ctx, 12); ctx.fill(); ctx.translate(0, -8);
+  shape(ctx, 12); ctx.fill();
+  ctx.fillStyle = fill; shape(ctx, 0); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.8)'; // glossy highlight
+  ctx.beginPath(); ctx.ellipse(92, 58, 30, 14, -0.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
 function flashDraw(ctx) {
   const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
   g.addColorStop(0, 'rgba(255,255,255,1)');
@@ -131,16 +197,20 @@ function flashDraw(ctx) {
 const DRAW = {
   flash: flashDraw,
   surprise(ctx) { // "!?"
-    sticker(ctx, bang(84, 30, 190), P.tomato);
-    sticker(ctx, question(170, 30, 190), P.sunflower);
+    badge(ctx);
+    sticker(ctx, bang(96, 36, 134), P.tomato, { outline: 9, shadow: 5 });
+    sticker(ctx, question(158, 36, 134), P.cobalt, { outline: 9, shadow: 5 });
   },
-  bang(ctx) { sticker(ctx, bang(128, 28, 196), P.tomato); },
-  question(ctx) { sticker(ctx, question(128, 28, 196), P.sunflower); },
-  z(ctx) { sticker(ctx, zed(60, 64, 136, 124), '#dff3ff', { outline: 12, shadow: 7 }); },
-  note(ctx) { sticker(ctx, note(104, 36, 176), P.violet); },
-  heart(ctx) { sticker(ctx, heart(128, 40, 200), P.bubblegum); },
-  anger(ctx) { sticker(ctx, grump(128, 100, 200), '#9aa8c4', { outline: 12, shadow: 7 }); },
+  bang(ctx) { badge(ctx, '#fff1d6'); sticker(ctx, bang(128, 30, 146), P.tomato, { outline: 10, shadow: 6 }); },
+  question(ctx) { badge(ctx); sticker(ctx, question(128, 30, 146), P.cobalt, { outline: 10, shadow: 6 }); },
+  z(ctx) { sticker(ctx, zed(58, 58, 140, 130), CREAM, { outline: 16, shadow: 9 }); },
+  note(ctx) { badge(ctx); sticker(ctx, note(110, 32, 144), P.violet, { outline: 10, shadow: 6 }); },
+  heart(ctx) { badge(ctx, '#ffe4ef'); sticker(ctx, heart(128, 44, 128), P.bubblegum, { outline: 10, shadow: 6 }); },
+  anger(ctx) { sticker(ctx, grump(128, 100, 200), '#9aa8c4', { outline: 14, shadow: 8 }); },
 };
+/** Friendly names for tell stickers. */
+export const ICON_ALIASES = { '!': 'bang', '?': 'question', '!?': 'surprise', '?!': 'surprise', '♪': 'note', note: 'note', z: 'z', zz: 'z', '♥': 'heart', grr: 'anger' };
+export const iconType = (t) => ICON_ALIASES[t] || t;
 
 export function iconMaterial(type) {
   const key = `icon:${type}`;
@@ -150,7 +220,7 @@ export function iconMaterial(type) {
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
-    const m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: true });
+    const m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false });
     m.name = key;
     cache.set(key, m);
   }
@@ -295,12 +365,17 @@ export class IconPop {
   }
 
   show(type, dur = 1.6, size = this.size) {
+    type = iconType(type);
     if (!this.sprite) {
       this.sprite = new THREE.Sprite(iconMaterial(type));
       this.sprite.raycast = () => {};
       this.sprite.renderOrder = 10;
+      this.sprite.center.set(0.5, 0); // grow upward from just above the head
+      Object.assign(this.sprite.userData, { anchor: new THREE.Vector3(), off: new THREE.Vector3(), size: 0, full: size, px: TELL.screen });
+      this.sprite.onBeforeRender = fitToScreen;
       this.parent.add(this.sprite);
     }
+    this.type = type;
     this.sprite.material = iconMaterial(type);
     this.sprite.visible = true;
     this.curSize = size;
@@ -320,8 +395,12 @@ export class IconPop {
     const outK = 1 - smooth((t - (this.dur - 0.22)) / 0.22);
     const k = clamp(Math.min(inK, outK), 0, 2);
     const s = this.curSize * k * (1 + Math.sin(t * 9) * 0.04);
+    const u = this.sprite.userData;
+    u.anchor.set(0, this.height, 0).add(this.base);
+    u.off.set(Math.sin(t * 3.1) * 0.03, Math.sin(t * 4.2) * 0.04 + (1 - Math.min(1, inK)) * -0.15, 0);
+    u.size = s; u.full = this.curSize; u.px = TELL.screen * (this.curSize / this.size);
     this.sprite.scale.set(s, s, 1);
-    this.sprite.position.set(Math.sin(t * 3.1) * 0.04, this.height + Math.sin(t * 4.2) * 0.05 + (1 - Math.min(1, inK)) * -0.2, 0).add(this.base);
+    this.sprite.position.copy(u.anchor).add(u.off);
     this.sprite.material.rotation = 0;
     if (t >= this.dur) { this.active = false; this.sprite.visible = false; }
   }
@@ -343,6 +422,8 @@ export class Snore {
         const s = new THREE.Sprite(iconMaterial('z'));
         s.raycast = () => {};
         s.renderOrder = 10;
+        Object.assign(s.userData, { anchor: new THREE.Vector3(), off: new THREE.Vector3(), size: 0, full: 0.46, px: TELL.zScreen });
+        s.onBeforeRender = fitToScreen;
         this.parent.add(s);
         return s;
       });
@@ -356,9 +437,13 @@ export class Snore {
     const per = 2.4;
     this.sprites.forEach((s, i) => {
       const k = (((t / per) + i / 3) % 1 + 1) % 1;
-      const size = (0.14 + 0.3 * k) * Math.min(1, (1 - k) * 4) * Math.min(1, k * 8);
+      const size = (0.16 + 0.3 * k) * Math.min(1, (1 - k) * 4) * Math.min(1, k * 8);
+      const u = s.userData;
+      u.anchor.copy(this.origin).add(this.base);
+      u.off.set(k * 0.35 + Math.sin(k * 7 + i) * 0.07, k * 0.75, 0);
+      u.size = size; u.px = TELL.zScreen;
       s.scale.set(size, size, 1);
-      s.position.set(this.origin.x + k * 0.35 + Math.sin(k * 7 + i) * 0.07, this.origin.y + k * 0.75, this.origin.z).add(this.base);
+      s.position.copy(u.anchor).add(u.off);
       s.material.rotation = 0;
     });
   }

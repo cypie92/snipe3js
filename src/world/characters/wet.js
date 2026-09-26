@@ -1,10 +1,10 @@
-// "Wet" materials for characters in water: identical to materials.toy, but every fragment whose
+// "Wet" materials for characters in water: identical to the character material, but every fragment whose
 // skinned, mesh-local height is below 0 is discarded. A character's mesh-local y = 0 is its root, so a
 // swimmer whose root sits ON the water surface shows only what is above the water (head, shoulders,
 // splashing arms) whatever the water shader does. A matching depth material keeps the underwater part
 // out of the shadow map. Shared by every wet character (one extra shader program, no extra draw calls).
 import * as THREE from 'three';
-import { materials } from '../../gfx/materials.js';
+import { characterMaterial, injectRim } from './look.js';
 
 let wet = null;
 let wetDepth = null;
@@ -21,9 +21,9 @@ function inject(shader) {
 /** Toy material that hides everything below the character's root (mesh-local y < 0). */
 export function wetMaterial() {
   if (!wet) {
-    wet = materials.toy.clone();
+    wet = characterMaterial().clone();
     wet.name = 'toy-wet';
-    wet.onBeforeCompile = inject;
+    wet.onBeforeCompile = (shader) => { injectRim(shader); inject(shader); };
     wet.customProgramCacheKey = () => 'toy-wet';
   }
   return wet;
@@ -49,7 +49,7 @@ export function setWet(mesh, on) {
     mesh.material = wetMaterial();
     mesh.customDepthMaterial = wetDepthMaterial();
   } else {
-    mesh.material = mesh.userData.dryMaterial || materials.toy;
+    mesh.material = mesh.userData.dryMaterial || characterMaterial();
     mesh.customDepthMaterial = undefined;
   }
 }

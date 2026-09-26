@@ -208,19 +208,28 @@ export class Gull extends Animal {
     }
     rb.add(G.sphere(8, 5), white, { y: 0.21, z: -0.24, sx: 0.06, sy: 0.02, sz: 0.09, rx: -0.1 }, b.tail);
     legs(rb, b, d, '#f0a8a8', 0.011);
+    b.chip = rb.bone('chip', b.jaw, [0, d.headY - 0.02, d.headZ + 0.13]); // a stolen chip (hidden until stolen)
+    rb.add(G.box(0.022, 0.022, 0.1), '#ffd166', { y: d.headY - 0.02, z: d.headZ + 0.13, ry: 0.5 }, b.chip);
     const bp = rb.build();
     bp.meta = { height: 0.42, length: 0.5, shadow: 0.32, shadowZ: 1.5, headZ: 0.14, hop: 0.15 };
     return bp;
   }
 
+  static WET_ACTIONS = new Set(['float']);
   get gaitActions() { return GAIT_WALK; }
   get stride() { return 0.2; }
   get defaultSpeed() { return 0.45; }
+  /** true while a stolen chip is in its beak */
+  holdingChip = false;
+  applyPose(o) {
+    super.applyPose(o);
+    this.bones.chip.scale.setScalar(this.holdingChip ? 1 : 0.001);
+  }
 
   /** setAction('circle', { center: Vector3, radius, height, speed, clockwise }) glides in circles. */
   afterUpdate(dt) {
     const c = this.blender.cur;
-    if (c.name !== 'circle') { this.hideShadow = false; return; }
+    if (c.name !== 'circle') { this.hideShadow = c.name === 'float' || this.airborne; return; }
     const o = c.opts;
     const r = o.radius ?? 8, h = o.height ?? 10, sp = o.speed ?? 4, dir = o.clockwise ? -1 : 1;
     const cen = o.center || this._circleC || (this._circleC = this.root.position.clone());
@@ -238,6 +247,12 @@ Gull.ACTIONS = {
     const k = win(T % 3, 0.8, 1.8, 0.1, 0.2);
     o.head = -0.8 * k; o.neck = -0.3 * k; o.jaw = (0.6 + 0.4 * Math.sin(T * 20)) * k; o.body = -0.15 * k;
     o.wingFold = 0.35 * k; o.wingL = o.wingR = 0.3 * k;
+  },
+  float(o, t, s) { // bobbing on the water (root on the surface)
+    const T = t * s.tempo + s.phase;
+    o.by = -0.1 + 0.012 * Math.sin(T * 2.3); o.body = 0.04 * Math.sin(T * 1.4); o.roll = 0.05 * Math.sin(T * 1.9);
+    o.headY = 0.7 * noise(T * 0.3, s.seed); o.legFL = 0.6 * Math.sin(T * 4); o.legFR = -0.6 * Math.sin(T * 4);
+    const sq = win(T % 7, 4.5, 5.4, 0.1, 0.2); o.head = -0.6 * sq; o.jaw = (0.5 + 0.5 * Math.sin(T * 20)) * sq;
   },
   circle(o, t, s, opt) {
     const T = t * s.tempo;
@@ -278,6 +293,7 @@ export class Duck extends Animal {
     return bp;
   }
 
+  static WET_ACTIONS = new Set(['swim', 'dabble']);
   get gaitActions() { return GAIT_WALK; }
   get stride() { return 0.16; }
   get defaultSpeed() { return 0.35; }
@@ -342,6 +358,10 @@ export class Pelican extends Animal {
     // lower mandible + stretchy throat pouch on the jaw bone
     rb.add(G.capsule(0.026, 0.36, 2, 6), shade(c.bill, 0.92), { y: d.headY - 0.055, z: d.headZ + 0.29, rx: Math.PI / 2 + 0.16, sx: 1.25, sz: 0.5 }, b.jaw);
     rb.add(G.sphere(12, 8), c.pouch, { y: d.headY - 0.095, z: d.headZ + 0.25, sx: 0.065, sy: 0.06, sz: 0.21, rx: 0.18 }, b.jaw);
+    // a fish poking out of the bill (shown while gulping; hidden otherwise)
+    b.fish = rb.bone('fish', b.jaw, [0, d.headY - 0.07, d.headZ + 0.42]);
+    rb.add(G.sphere(8, 6), (x, y, z, col) => col.set(y > 0.4 ? '#3f6a96' : '#9fc2de'), { y: d.headY - 0.07, z: d.headZ + 0.5, sx: 0.03, sy: 0.06, sz: 0.11, rx: 0.3 }, b.fish);
+    rb.add(G.cone(0.05, 0.07, 4), '#3f6a96', { y: d.headY - 0.1, z: d.headZ + 0.62, rx: -Math.PI / 2 + 0.3, sx: 0.35 }, b.fish);
     for (const s of [1, -1]) {
       const dir = V(s * 0.78, 0.2, 0.6).normalize();
       const ep = V(s * 0.075, d.eyeY, d.headZ + 0.055);
@@ -362,8 +382,9 @@ export class Pelican extends Animal {
     return bp;
   }
 
+  static ICONS = { huff: ['anger', 2.3, 1.2, 1, 0.15], gulp: ['heart', 4.0, 1.0, 0.8, 2.6] };
   get defaultAction() { return 'idle'; }
-  get gaitActions() { return GAIT_WALK; }
+  get gaitActions() { return PELICAN_GAIT; }
   get stride() { return 0.32; }
   get defaultSpeed() { return 0.5; }
   get jawOpen() { return 0.55; }
@@ -374,6 +395,32 @@ export class Pelican extends Animal {
     if (B.neck2) B.neck2.rotation.set(-o.neck * 0.6, o.neckY * 0.5, 0, 'YXZ');
     const p = 1 + Math.max(0, o.pouch);
     B.jaw.scale.set(1 + (p - 1) * 0.5, p, 1);
+    B.fish.scale.setScalar(Math.max(0.001, clamp(o.pawL, 0, 1)));
+    B.fish.rotation.y = 0.35 * Math.sin(this.time * 16) * clamp(o.pawL, 0, 1); // tail wiggle
+  }
+
+  /**
+   * Take off and fly away (the thief escapes). opts: heading (radians, default: current facing), speed
+   * (m/s, 5), climb (m/s, 2.5), duration (s, 6: then the pelican hides), onDone(pelican). Returns duration.
+   */
+  flyOff(opts = {}) {
+    this.setAction('flyOff', opts, 0.2);
+    return opts.duration ?? 6;
+  }
+
+  afterUpdate(dt) {
+    const c = this.blender.cur;
+    if (c.name !== 'flyOff') { this._fly = null; this.hideShadow = false; return; }
+    const o = c.opts, t = c.t;
+    const f = this._fly || (this._fly = { yaw: o.heading ?? this.root.rotation.y, done: false });
+    const speed = t < 0.7 ? 1.4 * (t / 0.7) : Math.min(o.speed ?? 5, 1.4 + (t - 0.7) * 3.5);
+    const climb = t < 0.7 ? 0 : Math.min(o.climb ?? 2.5, (t - 0.7) * 3);
+    this.root.position.x += Math.sin(f.yaw) * speed * dt;
+    this.root.position.z += Math.cos(f.yaw) * speed * dt;
+    this.root.position.y += climb * dt;
+    this.root.rotation.y = f.yaw;
+    this.hideShadow = t > 0.9;
+    if (!f.done && t > (o.duration ?? 6)) { f.done = true; this.root.visible = false; o.onDone?.(this); }
   }
   reactPose(o, t) {
     const w = super.reactPose(o, t);
@@ -383,6 +430,7 @@ export class Pelican extends Animal {
     return w;
   }
 }
+const PELICAN_GAIT = new Set(['walk', 'waddle']);
 Pelican.ACTIONS = {
   idle(o, t, s) {
     const T = t * s.tempo + s.phase;
@@ -404,13 +452,38 @@ Pelican.ACTIONS = {
     o.wingFold = 1.35; o.wingL = o.wingR = 0.35 + 0.75 * f; o.by = 0.03 * Math.max(0, f);
     o.head = -0.1; o.neck = -0.1; o.jaw = 0.25 * Math.max(0, Math.sin(T * 3.5)); o.body = -0.12; o.bsq = -0.04 * f;
   },
-  gulp(o, t, s) { // the thief swallows something big: head back, pouch bulges and wobbles
-    const T = (t * s.tempo) % 4;
-    const up = win(T, 0.2, 3.2, 0.3, 0.4);
-    o.head = -0.9 * up; o.neck = -0.55 * up; o.body = -0.2 * up;
-    o.jaw = 0.9 * win(T, 0.25, 0.9, 0.1, 0.2);
-    o.pouch = (0.9 * win(T, 0.6, 3.0, 0.2, 0.6)) * (1 + 0.15 * Math.sin(T * 18));
-    o.bsq = 0.04 * Math.sin(T * 9) * up;
+  gulp(o, t, s, opt) { // the thief: fish flapping in the bill, head back, GULP, pouch bulges and wobbles
+    const T = (t * s.tempo) % 4.4;
+    const up = win(T, 0.5, 3.6, 0.3, 0.4);
+    o.pawL = opt.fish === false ? 0 : 1 - smooth((T - 0.9) / 0.35); // fish vanishes down the hatch
+    o.head = -0.9 * up + 0.1 * Math.sin(T * 14) * (1 - up); o.neck = -0.55 * up; o.body = -0.2 * up;
+    o.jaw = 0.25 * (1 - up) + 0.9 * win(T, 0.55, 1.2, 0.1, 0.2);
+    o.pouch = (0.95 * win(T, 1.0, 3.4, 0.2, 0.6)) * (1 + 0.15 * Math.sin(T * 18));
+    o.bsq = 0.04 * Math.sin(T * 9) * up; o.lid = 0.4 * win(T, 1.2, 3.2);
+  },
+  waddle(o, t, s) { // exaggerated side-to-side waddle (off in a huff, or sneaking up on the fish box)
+    const g = s.gait, sg = Math.sin(g);
+    o.legFL = 0.45 * sg; o.legFR = -0.45 * sg; o.roll = 0.3 * Math.cos(g); o.yaw = 0.16 * sg;
+    o.by = 0.03 * Math.abs(Math.cos(g)); o.head = 0.2 + 0.1 * Math.sin(2 * g); o.neck = 0.18 + 0.12 * Math.sin(2 * g);
+    o.headZ = -0.18 * Math.cos(g); o.pouch = 0.12 * Math.sin(2 * g + 1);
+    o.wingFold = 0.35; o.wingL = o.wingR = 0.3 + 0.1 * Math.cos(g);
+  },
+  huff(o, t, s) { // indignant: wings flapping half-open, bill clattering, stamping
+    const T = t * s.tempo + s.phase;
+    const f = Math.sin(T * 11);
+    o.wingFold = 0.9; o.wingL = o.wingR = 0.55 + 0.45 * f;
+    o.head = -0.55; o.neck = -0.35; o.body = -0.18; o.jaw = 0.25 + 0.6 * Math.max(0, Math.sin(T * 17));
+    const stamp = Math.max(0, Math.sin(T * 6));
+    o.legFL = 0.35 * stamp; o.legFR = 0.35 * Math.max(0, -Math.sin(T * 6)); o.by = 0.03 * stamp; o.bsq = -0.05 * stamp;
+    o.pouch = 0.2 * Math.sin(T * 7); o.lid = 0.45; o.headY = 0.25 * Math.sin(T * 2.3);
+  },
+  flyOff(o, t, s) { // run-up, then big flaps up and away (Pelican.flyOff moves the root)
+    const run = t < 0.7;
+    const f = Math.sin(t * (run ? 16 : 7));
+    o.wingFold = run ? 0.9 : 1.4; o.wingL = o.wingR = (run ? 0.5 : 0.25) + (run ? 0.5 : 0.8) * f;
+    o.body = run ? -0.1 : 0.35; o.neck = run ? 0.1 : 0.5; o.head = -0.25;
+    o.legFL = run ? 0.6 * Math.sin(t * 20) : -1.2; o.legFR = run ? -0.6 * Math.sin(t * 20) : -1.2;
+    o.by = run ? 0.04 * Math.abs(Math.sin(t * 20)) : 0; o.jaw = 0.3 * Math.max(0, Math.sin(t * 5));
   },
   snap(o, t, s) {
     const T = t * s.tempo + s.phase;

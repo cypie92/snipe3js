@@ -1,4 +1,6 @@
 // Puddleby Green: terrain, roads, the cobbled square, buildings, trees and the backdrop.
+// Compact "toy box" plan: Jack's van sits at (0, 44) with the fête green right under it, the square
+// (55 x 40 m) beyond, buildings hugging three sides, and the hills closing in round the edges.
 // Everything static is handed to the StaticBatcher; gameplay pieces are returned in `L`.
 import * as THREE from 'three';
 import * as B from '../../world/kit/buildings/index.js';
@@ -6,23 +8,25 @@ import * as N from '../../world/kit/nature/index.js';
 import { materials } from '../../gfx/materials.js';
 import { P } from '../../gfx/palette.js';
 import { hash3 } from '../../core/rng.js';
-import { put, local, facePerch, inPoly, segDist, v3 } from './util.js';
+import { put, local, facePerch, inPoly, segDist, v3, PERCH } from './util.js';
 import { gravelPad } from './custom.js';
 
 // ---------------------------------------------------------------- key coordinates (x, z)
-export const SQUARE = [[-30, -44.5], [30, -44.5], [35, -10], [37, 14.5], [-50.5, 14.5], [-44.6, -3], [-33, -29], [-31, -38]];
-export const FOUNTAIN = [0, -12];
-export const ROAD_PTS = [[-104, 26], [-88, 41], [-66, 46.4], [-20, 47], [20, 47], [58, 46.6], [82, 44.2], [100, 37]];
-export const LANE_PTS = [[53.2, 43.2], [55.6, 34], [56.5, 10], [56.4, -40], [57.6, -72], [62, -96]];
-export const ROAD_Z = 47;
-export const ALLOT = [[-53, 18.5], [-17, 18.5], [-17, 39], [-53, 39]];
-export const FETE = [[13, 18.5], [49, 18.5], [49, 39], [13, 39]];
-export const GREEN_NE = [[23, -68], [54, -68], [54, -41], [23, -41]];
-// west row: fronts along a line facing ROT_W (toward the square, turned toward the perch)
-export const ROT_W = 1.15;
-export const ROT_E = -0.95;
-const DIR_W = [-Math.cos(ROT_W), Math.sin(ROT_W)]; // along the row (north -> south)
-const N_W = [Math.sin(ROT_W), Math.cos(ROT_W)]; // front normal
+export const WORLD_C = [0, -4]; // centre of the diorama (the backdrop's hills ring it)
+export const SQUARE = [[-25.5, -24.5], [25.5, -24.5], [29, -6], [30, 16], [-30, 16], [-29, -6]];
+export const FOUNTAIN = [0, -5];
+export const GREEN = [[-27, 19], [27, 19], [29, 38], [-29, 38]]; // the fête green under the van
+export const ALLOT = [[-45, 23], [-26, 23], [-26, 41], [-45, 41]];
+export const VAN = [0, 44];
+// the road: a U round the village, passing behind the van
+export const ROAD_PTS = [[-40, -78], [-50, -50], [-54, -15], [-54, 20], [-50, 42], [-34, 53], [0, 56], [34, 53], [50, 42], [54, 20], [54, -15], [50, -50], [40, -78]];
+// west row fronts face ROT_W (east, turned a touch toward the perch); east row mirrors it
+export const ROT_W = 1.4;
+export const ROT_E = -1.4;
+const DIR_W = [-Math.cos(ROT_W), Math.sin(ROT_W)]; // along the west row (north -> south)
+const N_W = [Math.sin(ROT_W), Math.cos(ROT_W)]; // west row front normal
+const DIR_E = [Math.cos(ROT_W), Math.sin(ROT_W)]; // along the east row (north -> south)
+const N_E = [Math.sin(ROT_E), Math.cos(ROT_E)];
 
 /** Centre of a building whose front midpoint is at (fx, fz), facing yaw ry, depth d. */
 function behind(fx, fz, ry, d) {
@@ -30,39 +34,41 @@ function behind(fx, fz, ry, d) {
 }
 
 // ---------------------------------------------------------------- ground
-function groundMesh(ctx) {
-  const size = 270, segs = 90, R = 132;
-  const g = new THREE.PlaneGeometry(size, size, segs, segs).rotateX(-Math.PI / 2).toNonIndexed();
-  const pos = g.attributes.position;
-  const keep = [];
-  const cz = -8;
-  for (let i = 0; i < pos.count; i += 3) {
-    const x = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
-    const z = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3 + cz;
-    if (Math.hypot(x, z - cz) < R) keep.push(i);
-  }
-  const out = new Float32Array(keep.length * 9);
-  const col = new Float32Array(keep.length * 9);
-  const c = new THREE.Color(), base = new THREE.Color(P.grass), light = new THREE.Color(P.grassLight), dark = new THREE.Color(P.grassDark);
-  keep.forEach((i, k) => {
-    for (let v = 0; v < 3; v++) {
-      const x = pos.getX(i + v), z = pos.getZ(i + v) + cz;
-      out.set([x, 0, z], k * 9 + v * 3);
-      // soft patchy variation + mowing stripes on the greens
-      const n = hash3(Math.floor(x / 9), 1.7, Math.floor(z / 9)) * 0.5 + hash3(Math.floor(x / 23), 4.2, Math.floor(z / 23)) * 0.5;
-      c.copy(base).lerp(n > 0.55 ? light : dark, Math.abs(n - 0.55) * 0.55);
-      const mow = inPoly(x, z, FETE) || inPoly(x, z, GREEN_NE) || (x > -12 && x < 12 && z > 16 && z < 41);
-      if (mow) c.lerp(Math.floor((x + 200) / 3.2) % 2 ? light : dark, 0.16);
-      if (inPoly(x, z, ALLOT)) c.lerp(new THREE.Color('#9bb85a'), 0.35);
-      col.set([c.r, c.g, c.b], k * 9 + v * 3);
+/**
+ * Lawn: a fine 1.5 m grid over the diorama core and a coarse 4.5 m ring out to the hills, flat
+ * shaded per triangle so mowing stripes, worn tracks and darker grass under trees and along walls
+ * stay crisp. `shade(x, z)` returns the colour (see buildLayout).
+ */
+function groundMesh(ctx, colorAt) {
+  const R = 94, [wx, wz] = WORLD_C;
+  const core = { x0: -58.5, x1: 58.5, z0: -49.5, z1: 58.5 };
+  const pos = [], col = [];
+  const c = new THREE.Color();
+  const quad = (x0, z0, s) => {
+    const cx = x0 + s / 2, cz = z0 + s / 2;
+    if (Math.hypot(cx - wx, cz - wz) > R) return;
+    // two triangles, each flat-coloured from its own centroid
+    const tris = [[[x0, z0], [x0, z0 + s], [x0 + s, z0]], [[x0 + s, z0], [x0, z0 + s], [x0 + s, z0 + s]]];
+    for (const t of tris) {
+      const tx = (t[0][0] + t[1][0] + t[2][0]) / 3, tz = (t[0][1] + t[1][1] + t[2][1]) / 3;
+      colorAt(tx, tz, c);
+      for (const [x, z] of t) { pos.push(x, 0, z); col.push(c.r, c.g, c.b); }
     }
-  });
+  };
+  for (let x = core.x0; x < core.x1 - 1e-6; x += 1.5) for (let z = core.z0; z < core.z1 - 1e-6; z += 1.5) quad(x, z, 1.5);
+  for (let x = -99; x < 99; x += 4.5) {
+    for (let z = -103.5; z < 94.5; z += 4.5) {
+      if (x >= core.x0 - 1e-6 && x + 4.5 <= core.x1 + 1e-6 && z >= core.z0 - 1e-6 && z + 4.5 <= core.z1 + 1e-6) continue;
+      quad(x, z, 4.5);
+    }
+  }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(out, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.computeVertexNormals();
   const m = new THREE.Mesh(geo, materials.toy);
   m.receiveShadow = true;
+  m.castShadow = false;
   m.name = 'ground';
   ctx.surface(m, 'grass');
   return m;
@@ -81,7 +87,6 @@ function roundedPoly(pts, r = 4, seg = 4) {
     const p1 = p.clone().add(db.normalize().multiplyScalar(rr));
     for (let k = 0; k <= seg; k++) {
       const t = k / seg;
-      // quadratic bezier p0 -> p -> p1
       const x = (1 - t) * (1 - t) * p0.x + 2 * (1 - t) * t * p.x + t * t * p1.x;
       const y = (1 - t) * (1 - t) * p0.y + 2 * (1 - t) * t * p.y + t * t * p1.y;
       out.push([x, y]);
@@ -109,6 +114,42 @@ function cobblePlaza(poly, { seed = 3, base = P.cobble, name = 'square' } = {}) 
   return grp;
 }
 
+/** A flat inlay on the plaza (a different cobble, a stone band...) from a shape in world XZ. */
+function inlay(shape, mat, y = 0.104, tile = 3.2) {
+  const g = new THREE.ShapeGeometry(shape, 24);
+  g.rotateX(Math.PI / 2);
+  const p = g.attributes.position;
+  const uv = new Float32Array(p.count * 2);
+  for (let i = 0; i < p.count; i++) { uv[i * 2] = p.getX(i) / tile; uv[i * 2 + 1] = p.getZ(i) / tile; }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.translate(0, y, 0);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat);
+  m.receiveShadow = true;
+  m.castShadow = false;
+  return m;
+}
+
+const circleShape = (cx, cz, r, r0 = 0, n = 48) => {
+  const s = new THREE.Shape();
+  for (let i = 0; i <= n; i++) { const a = (i / n) * Math.PI * 2; const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r; if (i) s.lineTo(x, -z); else s.moveTo(x, -z); }
+  if (r0 > 0) {
+    const hole = new THREE.Path();
+    for (let i = 0; i <= n; i++) { const a = -(i / n) * Math.PI * 2; const x = cx + Math.cos(a) * r0, z = cz + Math.sin(a) * r0; if (i) hole.lineTo(x, -z); else hole.moveTo(x, -z); }
+    s.holes.push(hole);
+  }
+  return s;
+};
+const rectShape = (cx, cz, w, d, ry = 0) => {
+  const s = new THREE.Shape();
+  const c = Math.cos(ry), sn = Math.sin(ry);
+  [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].forEach(([lx, lz], i) => {
+    const x = cx + lx * c + lz * sn, z = cz - lx * sn + lz * c;
+    if (i) s.lineTo(x, -z); else s.moveTo(x, -z);
+  });
+  return s;
+};
+
 /** Flat ground pieces (roads, paving, kerbs) cast no visible shadow: skip them in the shadow pass. */
 function noShadow(obj) {
   obj.traverse((o) => { if (o.isMesh) o.castShadow = false; });
@@ -116,8 +157,8 @@ function noShadow(obj) {
 }
 
 /**
- * Kit workaround: the buildings kit's addCollider() meshes are invisible but lack
- * userData.collider, so Shooting ignores them. Flag them so the enlarged hit areas work.
+ * Kit workaround (the kit now flags these itself; kept as a harmless guard): the buildings kit's
+ * addCollider() meshes are invisible and must carry userData.collider for Shooting to hit them.
  */
 export function flagColliders(obj) {
   obj.traverse((o) => { if (o.isMesh && o.name === 'collider' && !o.visible) o.userData.collider = true; });
@@ -127,48 +168,71 @@ export function flagColliders(obj) {
 // ---------------------------------------------------------------- the layout
 export function buildLayout(ctx, S) {
   const root = ctx.root;
-  const L = { anchors: {}, rotW: ROT_W, rotE: ROT_E };
+  const L = { anchors: {}, rotW: ROT_W, rotE: ROT_E, footprints: [], shade: [] };
   const batch = S.batch;
+  const rng = ctx.rng;
   const add = (obj, x, z, ry = 0, y = 0) => put(root, obj, x, z, ry, y);
+  /** Remember a building's footprint (world rect) for ground shading + tree clearance. */
+  const foot = (x, z, ry, w, d, pad = 0) => L.footprints.push({ x, z, ry, w: w + pad * 2, d: d + pad * 2 });
 
-  // ---- ground, roads, pavements
-  root.add(groundMesh(ctx));
+  // ---- square (cobbles + colour zones)
   const square = cobblePlaza(SQUARE, { seed: 5 });
   root.add(noShadow(square));
   ctx.surface(square, 'stone');
   L.square = square;
+  const [FX, FZ] = FOUNTAIN;
+  const warm = B.cobbleTexture({ seed: 8, base: '#e2c7a0', tile: 2.4 });
+  const setts = B.cobbleTexture({ seed: 9, base: '#bdb4a6', tile: 2.2 });
+  const brick = B.cobbleTexture({ seed: 10, base: '#d99a78', tile: 1.8 });
+  const stone = materials.solid('#f1e8d8', { roughness: 0.8 });
+  const zones = new THREE.Group();
+  zones.name = 'squareZones';
+  // fountain rosette: warm cobbles in a pale stone ring with eight spokes
+  zones.add(inlay(circleShape(FX, FZ, 8.2, 4.1), warm, 0.103, 2.4));
+  zones.add(inlay(circleShape(FX, FZ, 8.8, 8.2), stone, 0.106));
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const r0 = 4.4, r1 = 8.2;
+    zones.add(inlay(rectShape(FX + Math.cos(a) * (r0 + r1) / 2, FZ + Math.sin(a) * (r0 + r1) / 2, 0.36, r1 - r0, Math.PI / 2 - a), stone, 0.107));
+  }
+  // darker setts: the cart track from the fête gate to the fountain and on to the terrace
+  zones.add(inlay(rectShape(0, 12.4, 4.2, 7.4), setts, 0.102, 2.2));
+  zones.add(inlay(rectShape(0, -20.4, 4.2, 7.6), setts, 0.102, 2.2));
+  // brick paving under the two market rows
+  for (const [x, z, w] of [[-17.5, 9, 13.5], [17.5, 9, 13.5], [-16, -15.5, 12.5], [16, -15.5, 12.5]]) zones.add(inlay(rectShape(x, z, w, 4.6), brick, 0.102, 1.8));
+  root.add(zones);
+  batch.add(zones, 'stone');
 
-  const road = B.road({ points: ROAD_PTS, width: 7, edgeLines: false, seed: 2 });
+  // ---- road (a U round the village behind the van), pavements, paths
+  const road = B.road({ points: ROAD_PTS, width: 6.6, edgeLines: false, seed: 2 });
   root.add(noShadow(road));
   ctx.surface(road, 'stone');
   L.roadPath = road.userData.path;
-  const lane = B.road({ points: LANE_PTS, width: 6, kerbs: false, dashes: true, seed: 3 });
-  lane.position.y = -0.012;
-  root.add(noShadow(lane));
-  ctx.surface(lane, 'stone');
-  L.lanePath = lane.userData.path;
   batch.add(road, 'stone');
-  batch.add(lane, 'stone');
-  const paveS = B.pavement({ points: [[-86, 38.2], [-66, 42.2], [-20, 42.8], [20, 42.8], [44, 42.5], [50.4, 42.3]], width: 2.6, kerbSide: 1, seed: 3 });
-  const paveE = B.pavement({ points: [[50.9, 40.6], [52.3, 29.5], [52.3, 0], [52.1, -40], [53.4, -72]], width: 2.4, kerbSide: -1, seed: 4 });
-  const paveSouth = B.pavement({ points: [[-60, 51.4], [-20, 51.2], [20, 51.2], [58, 50.9], [80, 48.6]], width: 1.8, kerbSide: -1, seed: 6 });
-  for (const p of [paveS, paveE, paveSouth]) { root.add(noShadow(p)); ctx.surface(p, 'stone'); batch.add(p, 'stone'); }
-  // paths: square -> road, church door, allotments, fête field
-  const paths = [
-    B.pavement({ points: [[0, 14], [0.4, 28], [0, 41.8]], width: 3.2, seed: 7 }),
-    B.pavement({ points: [[-29.6, -42.6], [-33.2, -44.2], [-36.3, -44.7]], width: 2.6, seed: 8 }),
-    B.pavement({ points: [[-16, 14], [-16.4, 24], [-17.6, 29]], width: 2, seed: 9 }),
-    B.pavement({ points: [[12, 14], [12.6, 21]], width: 2.4, seed: 10 }),
-    B.pavement({ points: [[26, -41], [29, -44.5], [31, -47]], width: 2, seed: 11 }),
+  const pave = [
+    // north pavement in front of the terrace
+    B.pavement({ points: [[-16.5, -26.1], [16.5, -26.1]], width: 2.6, seed: 3 }),
+    // west row + east row fronts
+    B.pavement({ points: [[-27.7, -22.6], [-31.9, 12.6]], width: 2.4, seed: 4 }),
+    B.pavement({ points: [[27.7, -22.6], [30.4, -8.6]], width: 2.4, seed: 5 }),
+    // church path: square corner -> lych gate
+    B.pavement({ points: [[-24.2, -23.2], [-25.8, -27.8], [-27.4, -31.2]], width: 2.2, seed: 6 }),
+    // van -> fête gate
+    B.pavement({ points: [[0, 38.2], [0.3, 31], [-0.2, 19.2]], width: 2.6, seed: 7 }),
+    // allotment path + pub garden path
+    B.pavement({ points: [[-29.5, 17.5], [-33.5, 24.5], [-39.5, 26.5]], width: 1.8, seed: 8 }),
+    B.pavement({ points: [[29.5, 15.5], [33.5, 21], [38.5, 24]], width: 1.8, seed: 9 }),
+    // oak green path to Pete's bench
+    B.pavement({ points: [[18.6, -24.8], [20.6, -27.6]], width: 1.8, seed: 10 }),
   ];
-  for (const p of paths) { root.add(noShadow(p)); ctx.surface(p, 'stone'); batch.add(p, 'stone'); }
-  const layby = gravelPad(15, 22);
-  add(noShadow(layby), 0, 61.5);
+  for (const p of pave) { root.add(noShadow(p)); ctx.surface(p, 'stone'); batch.add(p, 'stone'); }
+  const layby = gravelPad(9, 15);
+  add(noShadow(layby), VAN[0], VAN[1] + 2.5);
   batch.add(layby, 'dust');
 
-  // ---- backdrop (hills, fields, windmill, spire, sea)
-  const bd = B.backdrop({ seed: 7, inner: 114, radius: 820, windmillAngle: -0.55, spireAngle: 0.3, seaAngle: 0.75, hedgeRange: 300, loneTrees: 40 });
-  bd.position.z = -8;
+  // ---- backdrop: the hills close in right behind the village
+  const bd = B.backdrop({ seed: 7, inner: 72, radius: 820, windmillAngle: -0.62, spireAngle: 0.32, seaAngle: 0.78, hedgeRange: 300, loneTrees: 40 });
+  bd.position.set(WORLD_C[0], 0, WORLD_C[1]);
   root.add(bd);
   ctx.surface(bd, 'grass');
   ctx.onUpdate(bd.userData.update);
@@ -176,7 +240,7 @@ export function buildLayout(ctx, S) {
 
   // ---- fountain (centre of the square)
   const fountain = flagColliders(B.fountain({ seed: 'puddleby', radius: 3.6, valveSide: 1 }));
-  add(fountain, FOUNTAIN[0], FOUNTAIN[1]);
+  add(fountain, FX, FZ);
   ctx.surface(fountain, 'stone');
   ctx.onUpdate(fountain.userData.update);
   // let Game's post-build compile() see the flowing-water shaders (the kit hides them while dry;
@@ -185,124 +249,132 @@ export function buildLayout(ctx, S) {
   fountain.userData.parts.droplets.visible = true;
   L.fountain = fountain;
 
-  // ---- church (NW) with the wedding
+  // ---- church (NW) with the wedding at its gate
   const church = flagColliders(B.church({ seed: 'st-puddle', graves: 8, time: 10 * 3600 + 52 * 60 }));
-  const CH = [-40.5, -53.8], CHR = 0.45;
+  const CH = [-31.5, -43], CHR = 0.5;
   add(church, CH[0], CH[1], CHR);
   ctx.surface(church, 'stone');
   ctx.onUpdate((dt, t) => church.userData.update(dt, t));
   batch.addMeshes(church, 'stone');
   L.church = church;
   L.churchAt = { x: CH[0], z: CH[1], ry: CHR };
-  // churchyard wall + yews + gate
+  foot(CH[0], CH[1], CHR, 19, 19);
   const cw = (lx, lz) => local(CH[0], CH[1], CHR, lx, lz);
-  const wall = B.lowWall([cw(-12, 10.2), cw(-12, -11), cw(12, -11), cw(12, 10.2), cw(3.2, 10.2)], { seed: 4, height: 0.85 });
-  root.add(wall);
-  batch.add(wall, 'stone');
-  const wall2 = B.lowWall([cw(-3.2, 10.2), cw(-12, 10.2)], { seed: 5, height: 0.85 });
-  root.add(wall2);
-  batch.add(wall2, 'stone');
+  const walls = [
+    B.lowWall([cw(-3.2, 11.4), cw(-11, 11.4), cw(-11, -10.4), cw(11.5, -10.4), cw(11.5, 11.4), cw(3.2, 11.4)], { seed: 4, height: 0.85 }),
+  ];
+  for (const w of walls) { root.add(w); batch.add(w, 'stone'); }
   L.anchors.churchDoor = church.userData.parts.door.getWorldPosition(new THREE.Vector3());
+  L.churchGate = cw(0, 11.4);
 
   // ---- terrace of five (N)
   const terrace = B.terrace(5, { seed: 'puddle-row', startNumber: 1, numberStep: 2, floors: [2, 3], house: { backDetail: false }, walls: [P.wallButter, P.wallMint, P.wallRose, P.wallSky, P.wallCream, P.wallLilac] });
-  add(terrace, 0, -47.6);
+  const TZ = -31.5;
+  add(terrace, 0, TZ);
   ctx.surface(terrace, 'stone');
   L.terrace = terrace;
+  L.terraceAt = { x: 0, z: TZ };
+  foot(0, TZ + 0.3, 0, 27.6, 7.7);
   L.anchors.terraceChimneys = terrace.userData.parts.chimneyTops.map((o) => o.getWorldPosition(new THREE.Vector3()));
   L.anchors.terraceDoors = terrace.userData.parts.doors.map((o) => o.getWorldPosition(new THREE.Vector3()));
   batch.add(terrace, 'stone');
 
-  // NW cottage + NE gnome house
-  const cottageNW = B.house({ backDetail: false, seed: 'nw-cottage', floors: 2, roofStyle: 'hip', wall: P.wallPeach, number: 12 });
-  add(cottageNW, -19.4, -53.2, 0.1);
-  L.anchors.cottageNWChimneys = cottageNW.userData.parts.chimneyTops.map((o) => o.getWorldPosition(new THREE.Vector3()));
-  batch.add(cottageNW, 'stone');
+  // NE: the gnome house behind the oak
   const gnomeHouse = B.house({ backDetail: false, seed: 'gnome-house', floors: 2, roofStyle: 'gable', gag: 'gnome', wall: P.wallSky, number: 14, roof: P.roofTerracotta });
-  add(gnomeHouse, 21.8, -49, -0.12);
+  const GH = [37.5, -35], GHR = -0.55;
+  add(gnomeHouse, GH[0], GH[1], GHR);
+  foot(GH[0], GH[1], GHR, 7.4, 7);
   L.gnomeHouse = gnomeHouse;
   L.anchors.gnomeChimneys = gnomeHouse.userData.parts.chimneyTops.map((o) => o.getWorldPosition(new THREE.Vector3()));
   batch.addMeshes(gnomeHouse, 'stone');
 
   // ---- west row: house, bakery, post office, hardware, house
   const west = [
-    { mk: () => B.house({ backDetail: false, seed: 'w1', floors: 3, wall: P.wallLilac, roofStyle: 'mansard', number: 2 }), w: 6, s: 0 },
-    { mk: () => B.shop({ kind: 'bakery', seed: 31, floors: 2, width: 7, depth: 6, text: 'CRUMB & SONS', sub: 'BAKERS' }), w: 7, s: 7.1 },
-    { mk: () => B.shop({ kind: 'post', seed: 32, floors: 2, width: 7.2, depth: 6, roofStyle: 'hip' }), w: 7.2, s: 14.6 },
-    { mk: () => B.shop({ kind: 'hardware', seed: 33, floors: 2, width: 6.8, depth: 6, text: 'NUTS & BOLTS' }), w: 6.8, s: 21.9 },
-    { mk: () => B.house({ backDetail: false, seed: 'w5', floors: 2, wall: P.wallMint, style: 'tudor', number: 10 }), w: 6, s: 28.7 },
+    { mk: () => B.house({ backDetail: false, seed: 'w1', floors: 2, wall: P.wallLilac, roofStyle: 'mansard', number: 2 }), s: 0 },
+    { mk: () => B.shop({ kind: 'bakery', seed: 31, floors: 2, width: 7, depth: 6, text: 'CRUMB & SONS', sub: 'BAKERS' }), s: 7.5 },
+    { mk: () => B.shop({ kind: 'post', seed: 32, floors: 2, width: 7.2, depth: 6, roofStyle: 'hip' }), s: 15.1 },
+    { mk: () => B.shop({ kind: 'hardware', seed: 33, floors: 2, width: 6.8, depth: 6, text: 'NUTS & BOLTS' }), s: 22.4 },
+    { mk: () => B.house({ backDetail: false, seed: 'w5', floors: 2, wall: P.wallMint, style: 'tudor', number: 10 }), s: 29.4 },
   ];
-  const F0 = [-32.6, -29.4];
+  const F0 = [-28.3, -20.4];
   L.west = west.map((b, i) => {
     const fx = F0[0] + DIR_W[0] * b.s, fz = F0[1] + DIR_W[1] * b.s;
     const obj = b.mk();
-    const d = obj.userData.size?.depth ?? 6;
+    const d = 6.6;
     const [cx, cz] = behind(fx, fz, ROT_W, d);
-    add(obj, cx, cz, ROT_W + (i === 4 ? -0.05 : 0));
+    add(obj, cx, cz, ROT_W + (i === 4 ? -0.04 : 0));
     ctx.surface(obj, 'stone');
+    foot(cx, cz, ROT_W, 7.4, 7.2);
     const rec = { obj, front: [fx, fz], centre: [cx, cz], chimneys: (obj.userData.parts.chimneyTops || []).map((o) => o.getWorldPosition(new THREE.Vector3())) };
     batch.add(obj, 'stone');
     return rec;
   });
   L.postOffice = L.west[2];
 
-  // ---- east side: cafe + house turned to the square, then the pub
+  // ---- east row: café + sweet shop, then the Wonky Pint
   const east = [
-    { mk: () => B.shop({ kind: 'cafe', seed: 41, floors: 2, width: 7, depth: 6, text: 'THE TEAPOT', sub: 'CAFE' }), f: [34.2, -31.5] },
-    { mk: () => B.shop({ kind: 'sweets', seed: 42, floors: 3, width: 6.4, depth: 6, roofStyle: 'mansard', text: 'SUGAR MICE' }), f: [38.4, -22.6] },
+    { mk: () => B.shop({ kind: 'cafe', seed: 41, floors: 2, width: 7, depth: 6, text: 'THE TEAPOT', sub: 'CAFE' }), s: 0 },
+    { mk: () => B.shop({ kind: 'sweets', seed: 42, floors: 3, width: 6.4, depth: 6, roofStyle: 'mansard', text: 'SUGAR MICE' }), s: 7.4 },
   ];
+  const E0 = [28.3, -20.4];
   L.east = east.map((b) => {
+    const fx = E0[0] + DIR_E[0] * b.s, fz = E0[1] + DIR_E[1] * b.s;
     const obj = b.mk();
-    const [cx, cz] = behind(b.f[0], b.f[1], ROT_E, 6);
+    const [cx, cz] = behind(fx, fz, ROT_E, 6.6);
     add(obj, cx, cz, ROT_E);
     ctx.surface(obj, 'stone');
-    const rec = { obj, front: b.f, chimneys: (obj.userData.parts.chimneyTops || []).map((o) => o.getWorldPosition(new THREE.Vector3())) };
+    foot(cx, cz, ROT_E, 7.4, 7.2);
+    const rec = { obj, front: [fx, fz], chimneys: (obj.userData.parts.chimneyTops || []).map((o) => o.getWorldPosition(new THREE.Vector3())) };
     batch.add(obj, 'stone');
     return rec;
   });
 
-  const pub = flagColliders(B.pub({ crooked: true, seed: 'wonky', tables: 2, signSide: -1 }));
-  const PUB = [42.5, 0.5], PUBR = -0.62;
+  const pub = flagColliders(B.pub({ crooked: true, seed: 'wonky', tables: 2, signSide: 1 }));
+  const PUB = [37.2, 3.6], PUBR = -1.25;
   add(pub, PUB[0], PUB[1], PUBR);
   ctx.surface(pub, 'wood');
   ctx.onUpdate(pub.userData.update);
   batch.addMeshes(pub, 'stone');
+  foot(PUB[0] - Math.sin(PUBR) * 0, PUB[1], PUBR, 12, 8.6);
   L.pub = pub;
   L.pubAt = { x: PUB[0], z: PUB[1], ry: PUBR };
   L.anchors.pubChimneys = pub.userData.parts.chimneyTops.map((o) => o.getWorldPosition(new THREE.Vector3()));
   L.anchors.pubDoor = pub.userData.parts.door.getWorldPosition(new THREE.Vector3());
   L.anchors.pubTables = pub.userData.parts.tables.map((o) => o.getWorldPosition(new THREE.Vector3()));
 
-  // ---- south-west: Mr Grubb's cottage (the tap is on its front wall)
+  // ---- south-west: Mr Grubb's cottage (the tap is by its front door) beside the allotments
   const grubb = B.house({ backDetail: false, seed: 'grubb', floors: 1, roofStyle: 'gable', gableFront: false, wall: '#fff1d6', roof: P.roofTeal, style: 'plain', number: 3, porch: 'hood', climber: true, pots: false, width: 6.4, depth: 5.4 });
-  const GR = [-47.5, 25.5], GRR = facePerch(-47.5, 25.5) - 0.12;
+  const GR = [-46.5, 16.5], GRR = facePerch(-46.5, 16.5) - 0.18;
   add(grubb, GR[0], GR[1], GRR);
   ctx.surface(grubb, 'stone');
   batch.add(grubb, 'stone');
+  foot(GR[0], GR[1], GRR, 7.1, 7);
   L.grubb = { obj: grubb, x: GR[0], z: GR[1], ry: GRR, w: 6.4, d: 5.4 };
   L.anchors.grubbChimneys = grubb.userData.parts.chimneyTops.map((o) => o.getWorldPosition(new THREE.Vector3()));
 
-  // more houses around the edges so the world never thins out
+  // more houses round the edges so the village never thins out (flanks + behind the terrace)
   const extras = [
-    { o: B.house({ backDetail: false, seed: 'e-1', floors: 2, roofStyle: 'hip', wall: P.wallButter }), x: -60, z: -24, ry: 1.2 },
-    { o: B.house({ backDetail: false, seed: 'e-2', floors: 1, roofStyle: 'gable', wall: P.wallRose, gag: 'birdhouse' }), x: -61, z: 4, ry: 1.0 },
-    { o: B.house({ backDetail: false, seed: 'e-3', floors: 2, wall: P.wallCream, style: 'brick' }), x: 8, z: -62, ry: 0.05 },
-    { o: B.house({ backDetail: false, seed: 'e-4', floors: 2, roofStyle: 'mansard', wall: P.wallMint }), x: -10, z: -63, ry: -0.05 },
-    { o: B.house({ backDetail: false, seed: 'e-5', floors: 2, wall: P.wallPeach, roofStyle: 'gable', gableFront: true }), x: 66, z: -14, ry: -1.35 },
-    { o: B.house({ backDetail: false, seed: 'e-6', floors: 1, wall: P.wallLilac }), x: 67, z: 8, ry: -1.2 },
-    { o: B.house({ backDetail: false, seed: 'e-7', floors: 2, wall: P.wallSky, roofStyle: 'hip' }), x: 65, z: -40, ry: -1.4 },
+    { o: B.house({ backDetail: false, seed: 'e-1', floors: 2, roofStyle: 'hip', wall: P.wallButter }), x: -44, z: -21, ry: 1.25 },
+    { o: B.house({ backDetail: false, seed: 'e-2', floors: 1, roofStyle: 'gable', wall: P.wallRose, gag: 'birdhouse' }), x: -44.5, z: -5.5, ry: 1.3 },
+    { o: B.house({ backDetail: false, seed: 'e-3', floors: 2, wall: P.wallCream, style: 'brick' }), x: 9, z: -46, ry: 0.05 },
+    { o: B.house({ backDetail: false, seed: 'e-4', floors: 2, roofStyle: 'mansard', wall: P.wallMint }), x: -8.5, z: -46.5, ry: -0.05 },
+    { o: B.house({ backDetail: false, seed: 'e-5', floors: 2, wall: P.wallPeach, roofStyle: 'gable', gableFront: true }), x: 45.5, z: -17.5, ry: -1.3 },
+    { o: B.house({ backDetail: false, seed: 'e-6', floors: 1, wall: P.wallLilac }), x: 62, z: 0, ry: -1.45 },
+    { o: B.house({ backDetail: false, seed: 'e-7', floors: 2, wall: P.wallSky, roofStyle: 'hip' }), x: 61, z: -24, ry: -1.35 },
+    { o: B.house({ backDetail: false, seed: 'e-8', floors: 1, wall: P.wallButter, roofStyle: 'gable', gag: 'gnome' }), x: -62.5, z: -2, ry: 1.45 },
   ];
   L.extraChimneys = [];
   for (const e of extras) {
     add(e.o, e.x, e.z, e.ry);
     ctx.surface(e.o, 'stone');
+    foot(e.x, e.z, e.ry, 7.4, 7);
     L.extraChimneys.push(...e.o.userData.parts.chimneyTops.map((o) => o.getWorldPosition(new THREE.Vector3())));
     batch.add(e.o, 'stone');
   }
 
-  // ---- trees: hero oak (NE green) + instanced woods around the edges
-  const oak = N.tree({ type: 'round', seed: 11, scale: 1.95 });
-  const OAK = [35.5, -53];
+  // ---- trees: the hero oak (NE, the kite's up it) + instanced woods round the edges
+  const oak = N.tree({ type: 'round', seed: 11, scale: 1.9 });
+  const OAK = [25.5, -35.5];
   add(oak, OAK[0], OAK[1], 0.4);
   ctx.surface(oak, 'leaves');
   oak.userData.parts.trunk.userData.surface = 'wood';
@@ -311,61 +383,109 @@ export function buildLayout(ctx, S) {
   L.oakAt = { x: OAK[0], z: OAK[1] };
   ctx.prop(oak, { surface: 'leaves', onHit: () => oak.userData.wobble(0.6) });
 
-  const rng = ctx.rng;
+  const inFoot = (x, z, pad = 0) => L.footprints.some((f) => {
+    const dx = x - f.x, dz = z - f.z, c = Math.cos(f.ry), s = Math.sin(f.ry);
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    return Math.abs(lx) < f.w / 2 + pad && Math.abs(lz) < f.d / 2 + pad;
+  });
+  const onRoad = (x, z, pad = 5.5) => { for (let i = 0; i < ROAD_PTS.length - 1; i++) if (segDist(x, z, ...ROAD_PTS[i], ...ROAD_PTS[i + 1]) < pad) return true; return false; };
   const treePts = [];
   const clear = (x, z) => {
-    if (inPoly(x, z, SQUARE) || inPoly(x, z, ALLOT) || inPoly(x, z, FETE)) return false;
-    if (Math.abs(z - ROAD_Z) < 9 && x > -80 && x < 50) return false;
-    if (x > 49 && x < 62 && z < 42 && z > -100) return false; // east lane
-    if (Math.hypot(x - CH[0], z - CH[1]) < 16) return false;
-    if (Math.hypot(x - OAK[0], z - OAK[1]) < 9) return false;
-    if (z > 44) return false;
+    if (inPoly(x, z, SQUARE) || inPoly(x, z, ALLOT) || inPoly(x, z, GREEN)) return false;
+    if (Math.hypot(x - WORLD_C[0], z - WORLD_C[1]) > 84) return false;
+    if (onRoad(x, z) || inFoot(x, z, 3)) return false;
+    if (Math.hypot(x - OAK[0], z - OAK[1]) < 9 || Math.hypot(x - CH[0], z - CH[1]) < 13) return false;
+    if (z > 30 && Math.abs(x) < 40) return false; // keep the green and the lay-by open
     return true;
   };
-  // back woods (north), west belt, east belt
-  for (let i = 0; i < 56; i++) {
-    const a = rng.range(-1.15, 1.15);
-    const r = rng.range(70, 104);
-    const x = Math.sin(a) * r, z = -8 - Math.cos(a) * r;
+  // back woods (north), and belts down both flanks in front of the hills
+  for (let i = 0; i < 44; i++) {
+    const a = rng.range(-1.2, 1.2), r = rng.range(52, 78);
+    const x = WORLD_C[0] + Math.sin(a) * r, z = WORLD_C[1] - Math.cos(a) * r;
     if (clear(x, z)) treePts.push({ x, z, type: rng.pick(['round', 'round', 'tall', 'conifer', 'conifer']) });
   }
   for (let i = 0; i < 26; i++) {
-    const x = rng.range(-95, -64), z = rng.range(-60, 36);
+    const x = rng.range(-78, -58), z = rng.range(-40, 40);
     if (clear(x, z)) treePts.push({ x, z, type: rng.pick(['round', 'tall', 'conifer']) });
   }
-  for (let i = 0; i < 22; i++) {
-    const x = rng.range(66, 96), z = rng.range(-70, 36);
+  for (let i = 0; i < 26; i++) {
+    const x = rng.range(58, 78), z = rng.range(-40, 40);
     if (clear(x, z)) treePts.push({ x, z, type: rng.pick(['round', 'tall', 'round', 'conifer']) });
   }
-  // copses hiding the road ends
-  for (let i = 0; i < 12; i++) treePts.push({ x: -96 + rng.range(-9, 9), z: 32 + rng.range(-9, 7), type: rng.pick(['round', 'conifer']) });
-  for (let i = 0; i < 10; i++) treePts.push({ x: 60 + rng.range(-8, 8), z: -86 + rng.range(-8, 8), type: rng.pick(['round', 'tall']) });
-  for (let i = 0; i < 12; i++) treePts.push({ x: 96 + rng.range(-9, 9), z: 40 + rng.range(-8, 6), type: rng.pick(['round', 'conifer', 'tall']) });
-  // gaps between buildings + yews in the churchyard + a few in the square's corners
+  // gaps between buildings + yews in the churchyard + orchard trees on the flanks
   const accents = [
-    { x: -15, z: -58.5, type: 'tall' }, { x: 15.5, z: -56, type: 'round' }, { x: 28, z: -60, type: 'fruit' },
-    { x: -56, z: -8, type: 'round' }, { x: -58, z: 14, type: 'fruit' }, { x: -52, z: -34, type: 'tall' },
-    { x: cw(-9, -5)[0], z: cw(-9, -5)[1], type: 'conifer', scale: 0.8 }, { x: cw(9.5, -8)[0], z: cw(9.5, -8)[1], type: 'conifer', scale: 0.9 },
-    { x: cw(-10, 6)[0], z: cw(-10, 6)[1], type: 'conifer', scale: 0.7 },
-    { x: 49, z: -30, type: 'round' }, { x: 50, z: -8, type: 'tall' }, { x: 47.5, z: -55, type: 'blossom' }, { x: 26, z: -62, type: 'blossom' },
+    { x: -17.5, z: -38.5, type: 'tall' }, { x: 17.5, z: -39, type: 'round' }, { x: 29.5, z: -45, type: 'fruit' },
+    { x: -37, z: -12.5, type: 'round' }, { x: -38.5, z: 2.5, type: 'fruit' }, { x: -52, z: 6, type: 'fruit' }, { x: -55, z: -12, type: 'tall' },
+    { x: cw(-8.5, -6)[0], z: cw(-8.5, -6)[1], type: 'conifer', scale: 0.8 }, { x: cw(9, -7.5)[0], z: cw(9, -7.5)[1], type: 'conifer', scale: 0.9 },
+    { x: cw(-8.5, 7.5)[0], z: cw(-8.5, 7.5)[1], type: 'conifer', scale: 0.7 },
+    { x: 45, z: -4.5, type: 'round' }, { x: 44.5, z: -30, type: 'tall' }, { x: 47, z: 8.5, type: 'blossom' }, { x: 19.5, z: -45.5, type: 'blossom' },
+    { x: 58.5, z: 14, type: 'fruit' }, { x: 47, z: 32.5, type: 'round' },
   ];
-  for (const a of accents) treePts.push(a);
-  // far trees that can't be seen from anywhere in the crow's nest (raycast-measured: hidden behind the
-  // terrace, church and pub). Positions come from the seeded scatter above; a miss just keeps the tree.
-  const HIDDEN = [[-55.84, -68.01], [9.43, -108.53], [-76.13, -52.99], [9.29, -105.04], [-5.37, -94.11], [4.01, -82.32],
-    [-4.58, -93.59], [-58.62, -76.49], [5.06, -95.55], [-61.29, -90.04], [3.68, -84.55], [-49.17, -74.63], [-6.42, -108.44],
-    [-49.41, -85.72], [-16.69, -90.92], [-7.27, -87.43], [76.56, -40.6], [87.37, -40.37], [93.2, -41.48], [95.26, -48.05],
-    [85.78, -35.3], [63.92, -80.81], [65.22, -82.18], [66.43, -86.23], [64.53, -89.42]];
-  const unseen = (p) => HIDDEN.some(([x, z]) => Math.abs(p.x - x) < 0.02 && Math.abs(p.z - z) < 0.02);
-  const nearT = treePts.filter((p) => Math.hypot(p.x, p.z + 8) < 74);
-  const farT = treePts.filter((p) => Math.hypot(p.x, p.z + 8) >= 74 && !unseen(p));
+  for (const a of accents) if (!inFoot(a.x, a.z, 1)) treePts.push(a);
+  const nearT = treePts.filter((p) => Math.hypot(p.x - PERCH.x, p.z - PERCH.z) < 70);
+  const farT = treePts.filter((p) => Math.hypot(p.x - PERCH.x, p.z - PERCH.z) >= 70);
   for (const [pts, cast, seed] of [[nearT, true, 21], [farT, false, 22]]) {
     const woods = N.forest(pts, { types: ['round', 'tall', 'conifer'], seed, scale: [0.9, 1.25], tint: 0.14 });
     for (const m of woods.children) { m.userData.surface = m.name.includes('crown') ? 'leaves' : 'wood'; m.castShadow = cast; }
     root.add(woods);
   }
   L.treePts = treePts;
+  L.inFoot = inFoot;
+  L.onRoad = onRoad;
+
+  // ---- ground: stripes, worn tracks, darker grass under trees and along walls
+  const base = new THREE.Color(P.grass), light = new THREE.Color(P.grassLight), dark = new THREE.Color(P.grassDark);
+  const worn = new THREE.Color('#c9b77e'), soil = new THREE.Color('#9bb85a'), deep = new THREE.Color('#4c9038');
+  const tracks = [
+    [[0, 38], [0.4, 19]], [[-6, 27], [-2.5, 21]], [[7, 25.5], [2.5, 21]], [[-17, 30], [-8, 25]], [[20, 25], [9, 22]],
+    [[27.5, 26], [33, 22]], [[-30, 18], [-24, 21]],
+  ];
+  const wornRings = [{ x: 8.5, z: 25.5, r0: 2.4, r1: 4.3 }];
+  const colorAt = (x, z, c) => {
+    const n = hash3(Math.floor(x / 7), 1.7, Math.floor(z / 7)) * 0.5 + hash3(Math.floor(x / 19), 4.2, Math.floor(z / 19)) * 0.5;
+    c.copy(base).lerp(n > 0.5 ? light : dark, Math.abs(n - 0.5) * 0.7);
+    // mowing stripes on the green (N-S, toward the van) and the lawns round the square (E-W)
+    if (inPoly(x, z, GREEN)) c.lerp(Math.floor((x + 300) / 3) % 2 ? light : dark, 0.2);
+    else if (Math.hypot(x - WORLD_C[0], z - WORLD_C[1]) < 60 && !inPoly(x, z, ALLOT)) c.lerp(Math.floor((z + 300) / 3) % 2 ? light : dark, 0.1);
+    if (inPoly(x, z, ALLOT)) c.lerp(soil, 0.4);
+    // darker, lusher grass under trees and hugging walls
+    let shadeK = 0;
+    for (const t of treePts) { const d = Math.hypot(x - t.x, z - t.z); if (d < 5.5) shadeK = Math.max(shadeK, (1 - d / 5.5) * 0.5); }
+    if (Math.hypot(x - OAK[0], z - OAK[1]) < 8) shadeK = Math.max(shadeK, 0.55);
+    if (inFoot(x, z, 1.4)) shadeK = Math.max(shadeK, 0.35);
+    if (shadeK) c.lerp(deep, shadeK);
+    // worn tracks across the green (where everyone cuts across) + a ring round the maypole
+    for (const [a, b] of tracks) { const d = segDist(x, z, a[0], a[1], b[0], b[1]); if (d < 1.3) c.lerp(worn, (1 - d / 1.3) * 0.55); }
+    for (const w of wornRings) { const d = Math.hypot(x - w.x, z - w.z); if (d > w.r0 && d < w.r1) c.lerp(worn, 0.35); }
+    // soften into the hills' grass at the rim
+    const rr = Math.hypot(x - WORLD_C[0], z - WORLD_C[1]);
+    if (rr > 74) c.lerp(new THREE.Color('#86c25a'), Math.min(1, (rr - 74) / 12) * 0.6);
+    return c;
+  };
+  root.add(groundMesh(ctx, colorAt));
+
+  // puddles (after last night's rain) on the cobbles, the lay-by and the green's worn track
+  const puddleMat = new THREE.MeshStandardMaterial({ color: '#8fb1d6', roughness: 0.04, metalness: 0.35, envMapIntensity: 1.6 });
+  puddleMat.name = 'puddle';
+  const puddles = new THREE.Group();
+  puddles.name = 'puddles';
+  for (const [x, z, sx, sz, y] of [[-4.6, 12.8, 1.5, 0.9, 0.108], [13.2, -21.2, 1.1, 0.7, 0.108], [-22.5, 1.5, 0.9, 1.3, 0.108], [1.6, 33.6, 1.3, 0.8, 0.02], [2.6, 41.6, 1.6, 1.0, 0.1], [-35.5, 22.5, 1.0, 0.7, 0.2]]) {
+    const g = new THREE.CircleGeometry(1, 14);
+    const p = g.attributes.position;
+    for (let i = 1; i < p.count; i++) { const k = 0.82 + hash3(i, x, z) * 0.3; p.setXY(i, p.getX(i) * k, p.getY(i) * k); }
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(g, puddleMat);
+    m.scale.set(sx, 1, sz);
+    m.position.set(x, y, z);
+    m.rotation.y = hash3(x, z, 3) * 3;
+    m.receiveShadow = true;
+    m.castShadow = false;
+    puddles.add(m);
+  }
+  root.add(puddles);
+  ctx.surface(puddles, 'water');
+  batch.add(puddles, 'water');
   return L;
 }
 
-export { behind, DIR_W, N_W, segDist, v3 };
+export { behind, DIR_W, N_W, DIR_E, N_E, segDist, v3 };

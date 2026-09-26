@@ -5,7 +5,7 @@ import { part, merge, xform } from '../../world/geo.js';
 import { materials } from '../../gfx/materials.js';
 import { iconMaterial } from '../../world/characters/icons.js';
 
-export const PERCH = new THREE.Vector3(0, 12, 62);
+export const PERCH = new THREE.Vector3(0, 16, 44);
 export const TAU = Math.PI * 2;
 export const v3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
