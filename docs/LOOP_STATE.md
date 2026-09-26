@@ -41,10 +41,12 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
       swoop (click starts the shift), two-tier hints (radio nudge → marker), first-shift coach marks,
       bullet-cam unscope + shake, voiced/capped/scope-clipped bubbles, reactions get shot origin,
       heartbeat on hold-breath, 'oi' on bad hits, vanished-row CSS bug, spanner ids, capture clock-off.
-- [ ] Round 2 running (resumed 09:55 UTC after a 2nd API-limit cut): level designer (pull world in,
-      flanks, ground variety, clue/hint rewrite, escalating tells, first-laugh job), tech artist (raking
-      light, ground shading, less fringing, tilt-shift, fewer programs), characters (tell icons, face
-      shooter), audio (babble voices, oi, heartbeat). Buildings/props (kit bugs + harbour) wait.
+- [x] Round 2 done (a weekly usage limit paused it 10:30–16:15 UTC): level pulled in (perch 0,16,44,
+      14 jobs, Dunk the Sarge first laugh, nags, decoys, cricket), tech art (raking light, grade, sky,
+      water, lens, 90→63 programs, NaN/AO fixes), characters (tell stickers, face shooter, voices,
+      full harbour cast incl. seals/crabs/gulls/pelican), audio (babble, vocals, loops, hold-breath).
+- [x] Lead: nest eye raised (railing only when looking down), loading-card/intro/capture fixes.
+- [ ] Review 2 running (review/REVIEW-2.md). Harbour kit (buildings/props) + Barnacle Bay level next.
 - Kit bugs to fix (found by the level designer, worked around in the level): buildings addCollider()
   doesn't flag colliders; church update overwrites weathervane rotation; bunting coil scale reset each
   frame; phone box glass opaque; birdseed spill point at bag origin.
