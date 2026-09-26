@@ -32,9 +32,14 @@ export class Hud {
     this.scope.append(this.mask, this.reticle, this.zoomBadge, this.rangeBadge, this.breath, this.breathLabel);
 
     this.clip = el('div', 'clipboard', `<div class="board"><div class="clip"></div><div class="paper">
-      <h3 class="loc">Today's Jobs</h3><div class="sub">Odd jobs &amp; long shots</div><ul class="jobs"></ul></div></div>
+      <h3 class="loc">Today's Jobs</h3><div class="sub">Odd jobs &amp; long shots</div><ul class="jobs"></ul>
+      <div class="brief-go"><button class="btn">Start the shift ▶</button><span>or click anywhere · clues stay on the clipboard (Tab)</span></div></div></div>
       <div class="tab-hint">TAB · clues / hide</div>`);
     this.jobsEl = this.clip.querySelector('.jobs');
+    this.briefBtn = this.clip.querySelector('.brief-go .btn');
+    this.briefDim = el('div', 'brief-dim hidden');
+    this.radioEl = el('div', 'radio hidden', '<div class="r-head">📻 Jack\'s radio</div><div class="r-title"></div><div class="r-text"></div><div class="r-foot">Press <b>H</b> again to mark it on screen</div>');
+    this.coachEl = el('div', 'coach hidden', '<span class="c-step"></span><span class="c-text"></span>');
 
     this.top = el('div', 'topbar', `<div class="chip timer"><small>TIME</small><span class="t">00:00</span></div>
       <div class="chip par"><small>PAR</small><span class="p">03:00</span></div>`);
@@ -83,7 +88,7 @@ export class Hud {
     tap('.jobs', () => this.toggleClipboard());
     tap('.pause', () => (game.paused ? game.resume() : game.pause()));
 
-    this.root.append(this.scope, this.cross, this.clip, this.top, this.tr, this.ammo, this.help, this.prompt,
+    this.root.append(this.briefDim, this.scope, this.cross, this.radioEl, this.coachEl, this.clip, this.top, this.tr, this.ammo, this.help, this.prompt,
       this.toasts, this.flashEl, this.hintMarker, this.hintArrow, this.touch, this.clockOffEl);
     root.appendChild(this.bars);
 
@@ -112,7 +117,9 @@ export class Hud {
     this.helpTimer = 0;
     this.help.style.opacity = '1';
     this.setClipMode('expanded');
-    this.clipAuto = 9; // seconds until the clipboard tucks itself into compact mode
+    this.clipAuto = 0;
+    this.radioEl.classList.add('hidden');
+    this.coach(null);
     this.clearHint();
   }
 
@@ -121,7 +128,7 @@ export class Hud {
     this.jobsEl.innerHTML = '';
     for (const j of jobs.list) {
       const secret = j.bonus && j.state !== 'done';
-      const li = el('li', `${j.state}${jobs.isLocked(j) ? ' locked' : ''}${secret ? ' secret' : ''}${j.id === flashId ? ' flash' : ''}`);
+      const li = el('li', `${j.state}${jobs.isLocked(j) ? ' locked' : ''}${secret ? ' secret' : ''}${j.id === flashId ? ' justdone' : ''}`);
       const prog = j.needed > 1 && j.state === 'open' ? ` <span style="opacity:.6">(${j.progress}/${j.needed})</span>` : '';
       li.innerHTML = `<div class="box"></div><div class="title">${secret ? 'Secret job ???' : j.title}${prog}</div>
         <div class="clue">${secret ? 'Something odd is going on somewhere…' : jobs.isLocked(j) ? 'Finish another job first.' : j.clue}</div>`;
@@ -161,6 +168,41 @@ export class Hud {
     this.flashEl.className = 'flash';
     void this.flashEl.offsetWidth;
     this.flashEl.className = `flash ${kind}`;
+  }
+
+  /** Centre-stage clipboard between the intro swoop and the first click. */
+  setBriefing(on) {
+    this.clip.classList.toggle('briefing', on);
+    this.briefDim.classList.toggle('hidden', !on);
+    for (const e of [this.top, this.tr, this.ammo, this.help, this.cross]) e.style.visibility = on ? 'hidden' : '';
+    this.setClipMode(on ? 'expanded' : 'compact');
+    if (!on) this.helpTimer = 0;
+  }
+
+  /** Spoken hint nudge (tier 1). */
+  radio(title, text) {
+    this.radioEl.querySelector('.r-title').textContent = title;
+    this.radioEl.querySelector('.r-text').textContent = `“${text}”`;
+    this.radioEl.classList.remove('hidden');
+    this.radioEl.style.animation = 'none';
+    void this.radioEl.offsetWidth;
+    this.radioEl.style.animation = '';
+    clearTimeout(this.radioTimer);
+    this.radioTimer = setTimeout(() => this.radioEl.classList.add('hidden'), 9000);
+  }
+
+  /** Tutorial coach mark (null hides it). */
+  coach(html, n, total) {
+    if (!html) {
+      this.coachEl.classList.add('hidden');
+      return;
+    }
+    this.coachEl.querySelector('.c-step').textContent = `${n}/${total}`;
+    this.coachEl.querySelector('.c-text').innerHTML = html;
+    this.coachEl.classList.remove('hidden');
+    this.coachEl.style.animation = 'none';
+    void this.coachEl.offsetWidth;
+    this.coachEl.style.animation = '';
   }
 
   showClockOff(on, left = 0) {

@@ -1,15 +1,17 @@
 // WebGL renderer + post-processing stack (pmndrs postprocessing + N8AO).
-// Pass order (high):  Render -> N8AO -> [DOF, only while scoped] -> Overlay (first-person rifle, after AO)
-//   -> Grade pass [scope lens CA, bloom, tone map, grade + silhouette darkening + vignette] -> SMAA (last).
+// Pass order (high): Render -> N8AO (half res) -> [DOF, only while scoped] -> Overlay (first-person rifle,
+//   drawn after AO) -> Grade pass [scope lens CA | FXAA, silhouette darkening, bloom, tone map, grade +
+//   vignette] -> SMAA (last).
 // The LAST pass must always stay enabled (pmndrs only routes the last pass to the screen); optional passes
 // (DOF, overlay) sit in the middle. Quality presets only change which passes exist and their resolution.
+// Runtime switches (setScope, setToggles, setGrade) only touch uniforms/enabled flags: no shader recompiles.
 import * as THREE from 'three';
 import {
   EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect, SMAAPreset, FXAAEffect,
   ToneMappingEffect, ToneMappingMode, DepthOfFieldEffect, EffectAttribute,
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
-import { EdgeEffect, GradeEffect, ScopeLensEffect, OverlayPass, setOverlayLayer, viewState } from '../gfx/post.js';
+import { EdgeEffect, GradeEffect, ScopeLensEffect, OverlayPass, VIEWMODEL_LAYER, viewState } from '../gfx/post.js';
 
 // Budget notes (1920x1080, DPR 1): high ~ 13 full-screen-equivalent passes (AO half-res), medium ~ 8, low ~ 2.
 export const QUALITY = {
@@ -29,22 +31,24 @@ export const QUALITY = {
 
 /** Look defaults. Environment presets may override any key via scene.userData.grade. */
 export const GRADE_DEFAULTS = {
-  exposure: 1.0,
-  lift: [0.018, 0.012, 0.045], // shadows drift toward blue-purple, never black
+  exposure: 1.03,
+  lift: [0.012, 0.01, 0.075], // shadows drift toward blue-purple, never black
   gain: [1.02, 1.0, 0.975], // a touch of sunshine in the highlights
   gamma: 1.0,
-  contrast: 0.14,
-  saturation: 1.04,
+  contrast: 0.16,
+  saturation: 1.05,
   vibrance: 0.22, // boosts dull colours more than already-saturated ones (no neon clipping)
-  green: [0.84, 0.012, 0.97], // calmer yellow-greens: saturation x, hue shift (turns), lightness x
+  green: [0.92, 0.01, 1.02], // calmer yellow-greens: saturation x, hue shift (turns), lightness x
   vignette: [0.55, 1.15, 0.22],
   vignetteColor: '#3b3560',
+  ground: [0.3, 0.42, 0.0], // graduated ground filter: strength, ramp from uv.y 0.42 down to the bottom edge
+  groundColor: '#8f9bd6', // multiplies: deepens + cools the near foreground
   outline: 0.34,
   outlineColor: '#35305a',
   outlineThreshold: 0.022,
   outlineFade: [150, 330],
   bloom: { intensity: 0.55, threshold: 1.05, smoothing: 0.35, radius: 0.72 },
-  ao: { radius: 2.6, falloff: 1.0, intensity: 3.0, color: '#2a2552' },
+  ao: { radius: 3.2, falloff: 1.0, intensity: 3.6, color: '#2a2552' },
 };
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -106,10 +110,11 @@ export class Renderer {
    */
   setViewmodel(root) {
     this.viewmodel = root;
-    if (root && this.overlayPass) {
-      setOverlayLayer(root);
-      this.overlayPass.root = root;
-    }
+    if (!root) return;
+    // with the overlay pass it lives on its own layer; without it (low) it renders in the main pass
+    const layer = this.overlayPass ? VIEWMODEL_LAYER : 0;
+    root.traverse((o) => o.layers.set(layer));
+    if (this.overlayPass) this.overlayPass.root = root;
   }
 
   /** Live grade tweaks (look-dev). Partial objects merge into the current grade. */
@@ -155,7 +160,10 @@ export class Renderer {
     if (q.ao) {
       const s = r.getDrawingBufferSize(new THREE.Vector2());
       const ao = new N8AOPostPass(scene, camera, Math.max(1, s.x), Math.max(1, s.y));
-      // Never auto-enable transparency mode: it re-renders the whole scene twice per frame.
+      // Never auto-enable transparency mode: it traverses the scene every frame and, once it finds any
+      // transparent material, re-renders the whole scene twice per frame. (Setting transparencyAware=false
+      // while it is already false does not clear the auto-detect flag, so clear it explicitly.)
+      ao.autoDetectTransparency = false;
       ao.configuration.transparencyAware = false;
       ao.configuration.gammaCorrection = false;
       ao.configuration.halfRes = !!q.aoHalfRes;
@@ -173,7 +181,7 @@ export class Renderer {
       // around the reticle target; optional unscoped "miniature" mode = only the very near foreground and
       // the far backdrop soften, the whole 25-150 m playfield stays sharp.
       const coc = this.dof.cocMaterial;
-      coc.uniforms.uNear = { value: new THREE.Vector2(0, 0) };
+      coc.uniforms.uNear = { value: new THREE.Vector2(-2, -1) };
       coc.uniforms.uFar = { value: new THREE.Vector2(1e6, 2e6) };
       const src = coc.fragmentShader;
       coc.fragmentShader = src
@@ -192,9 +200,9 @@ export class Renderer {
     if (q.overlay) {
       this.overlayPass = new OverlayPass(scene, camera, composer.depthRenderTarget);
       composer.addPass(this.overlayPass);
-      if (this.viewmodel) this.setViewmodel(this.viewmodel);
       this.passes.push('overlay(viewmodel)');
     }
+    if (this.viewmodel) this.setViewmodel(this.viewmodel);
 
     // Grade pass: one merged shader. pmndrs orders merged effects CONVOLUTION > DEPTH > NONE (stable):
     //   [scope lens CA | FXAA] -> silhouette darkening -> bloom -> tone map -> display-space grade.
@@ -230,6 +238,8 @@ export class Renderer {
     composer.addPass(gradePass);
     this.passes.push(`grade(${effects.map((e) => e.name.replace('Effect', '')).join('+')})`);
 
+    this.warm = 3; // render the (invisible) DOF chain for a few frames so its shaders compile at load
+
     let last = gradePass;
     if (q.aa === 'smaa') {
       last = new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.HIGH }));
@@ -247,7 +257,7 @@ export class Renderer {
     const t = this.toggles;
     this.renderer.toneMappingExposure = g.exposure;
     if (this.gradeFx) {
-      const neutral = { ...g, lift: [0, 0, 0], gain: [1, 1, 1], gamma: 1, contrast: 0, saturation: 1, vibrance: 0, green: [1, 0, 1] };
+      const neutral = { ...g, lift: [0, 0, 0], gain: [1, 1, 1], gamma: 1, contrast: 0, saturation: 1, vibrance: 0, green: [1, 0, 1], ground: [0, 0.45, 0] };
       this.gradeFx.apply(t.grade ? g : neutral);
       this.gradeFx.scopeRadius = SCOPE_RADIUS * Math.min(1, this.size.x / Math.max(1, this.size.y));
     }
@@ -299,7 +309,7 @@ export class Renderer {
   }
 
   findViewmodel() {
-    if (this.viewmodel || !this.camera || !this.overlayPass) return;
+    if (this.viewmodel || !this.camera) return;
     if (this.vmSearch++ % 30) return;
     const vm = this.camera.children.find((c) => c.name === 'viewmodel');
     if (vm) this.setViewmodel(vm);
@@ -308,36 +318,67 @@ export class Renderer {
   render(dt = 1 / 60) {
     this.syncGrade();
     this.findViewmodel();
-    const a = this.scope;
+    const zoom = Math.tan(THREE.MathUtils.degToRad(29)) / Math.tan(THREE.MathUtils.degToRad((this.camera.fov || 58) / 2));
+    // Scope lens effects follow the real magnification: the smallest scope is 2x, while cinematics that
+    // override the camera (bullet-cam fov 40-48 = ~1.3-1.5x) stay clean even if scopeT is still 1.
+    const a = this.scope * THREE.MathUtils.smoothstep(zoom, 1.7, 1.95);
     // Smooth focus pull (critically damped-ish, frame-rate independent).
     this.focusDistance += (this.focusTarget - this.focusDistance) * (1 - Math.exp(-Math.max(dt, 1 / 240) * 7));
+    // silhouettes matter most for small far objects; at high zoom targets are big, so ease off
+    if (this.edgeFx) this.edgeFx.strengthScale = 1 - 0.5 * THREE.MathUtils.smoothstep(zoom, 2, 8) * THREE.MathUtils.smoothstep(a, 0.3, 1);
     if (this.dofPass) {
       const scoped = a > 0.02 && this.toggles.dof;
       const mini = !scoped && this.toggles.tilt && this.cocPatched;
-      this.dofPass.enabled = scoped || mini;
+      const warm = this.warm > 0 && !scoped && !mini;
+      if (this.warm > 0) this.warm--;
+      this.dofPass.enabled = scoped || mini || warm;
       const coc = this.dof.cocMaterial;
+      if (warm) {
+        if (this.cocPatched) {
+          coc.uniforms.uNear.value.set(-2, -1);
+          coc.uniforms.uFar.value.set(1e6, 2e6);
+        }
+        this.dof.bokehScale = 0;
+      }
       if (scoped) {
         const f = this.focusDistance;
-        const R = THREE.MathUtils.clamp(f * 0.5, 8, 80);
+        // generous in-focus plateau (+-18% of the focus distance) so the target's neighbours stay readable
+        const R = THREE.MathUtils.clamp(f * 0.6, 10, 90);
         if (this.cocPatched) {
-          coc.uniforms.uNear.value.set(f - R, f - R * 0.22);
-          coc.uniforms.uFar.value.set(f + R * 0.22, f + R);
+          coc.uniforms.uNear.value.set(f - R, f - R * 0.3);
+          coc.uniforms.uFar.value.set(f + R * 0.3, f + R);
         } else {
           coc.focusDistance = f;
           coc.focusRange = R;
         }
         // Narrower field of view = shallower depth of field (like a real long lens).
-        const zoom = Math.tan(THREE.MathUtils.degToRad(29)) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
-        this.dof.bokehScale = THREE.MathUtils.smoothstep(a, 0.02, 1) * THREE.MathUtils.clamp(1.1 + zoom * 0.16, 1.3, 2.4);
+        this.dof.bokehScale = THREE.MathUtils.smoothstep(a, 0.02, 1) * THREE.MathUtils.clamp(1.0 + zoom * 0.1, 1.2, 1.8);
       } else if (mini) {
         coc.uniforms.uNear.value.set(5, 14);
         coc.uniforms.uFar.value.set(230, 560);
         this.dof.bokehScale = 1.3;
       }
     }
-    if (this.lens) this.lens.amount = this.toggles.lens ? 0.012 * THREE.MathUtils.smoothstep(a, 0.3, 1) : 0;
+    if (this.lens) this.lens.amount = this.toggles.lens ? 0.005 * THREE.MathUtils.smoothstep(a, 0.3, 1) : 0;
     if (this.gradeFx) this.gradeFx.scope = THREE.MathUtils.smoothstep(a, 0.3, 1);
     this.composer.render(dt);
+    this.sanitizeAO();
+  }
+
+  /**
+   * NaN guard at the earliest post stage: N8AO's composite is the first pass that reads the scene colour,
+   * so a stray NaN from any custom shader is zeroed there before the DOF blur or bloom could spread it into
+   * big black blocks. N8AO (re)creates this material lazily (first frame), so patch whatever is current.
+   */
+  sanitizeAO() {
+    const m = this.ao?.effectCompositerQuad?.material;
+    if (!m || m.userData.nanSafe) return;
+    m.userData.nanSafe = true;
+    const line = 'vec4 sceneTexel = texture2D(sceneDiffuse, vUv);';
+    if (!m.fragmentShader.includes(line)) return;
+    m.fragmentShader = m.fragmentShader.replace(line,
+      `${line}\n        if (any(isnan(sceneTexel)) || any(isinf(sceneTexel))) sceneTexel = vec4(0.0, 0.0, 0.0, 1.0);`);
+    m.needsUpdate = true;
   }
 
   /** Pass list + buffer sizes (perf notes / look-dev HUD). */

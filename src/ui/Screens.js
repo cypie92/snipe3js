@@ -134,6 +134,15 @@ export class Screens {
     return this.mount(s);
   }
 
+  /** Shown while a location is built (covers the synchronous build hitch). */
+  loading(def) {
+    const s = el('div', 'screen loading-card dim', `<div class="panel" style="text-align:center">
+      <div style="font-size:54px;line-height:1;animation:bob 1s ease-in-out infinite">🚐</div>
+      <h2 style="margin:6px 0 0">Driving to ${def?.name || 'the next job'}…</h2>
+      <div class="sub">${def?.location || ''} · pack a flask, it's a busy one</div></div>`);
+    return this.mount(s);
+  }
+
   intro(def) {
     const s = el('div', 'screen intro', `<div class="card"><div class="kicker">${def.day || 'Tuesday morning'}</div>
       <h1>${def.name}</h1><div class="where">${def.location} · ${this.game.jobs.main.length} jobs · Par ${fmt(def.parTime)}</div></div>`);

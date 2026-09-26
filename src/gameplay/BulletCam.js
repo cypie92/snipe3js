@@ -35,6 +35,11 @@ export class BulletCam {
     };
     this.bullet.visible = true;
     this.bullet.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
+    // leave the scope: no depth-of-field or lens fringing in the cinematic
+    g.rig.setScoped(false);
+    g.rig.scopeT = 0;
+    g.rig.fovNow = g.rig.baseFov;
+    this.shake = 0;
     g.rig.override = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), fov: 40 };
     g.hud.setCinematic(true);
     g.paused = false;
@@ -67,7 +72,7 @@ export class BulletCam {
         a.impacted = true;
         this.bullet.visible = false;
         a.onImpact();
-        g.rig.shake(0.6);
+        this.shake = 1;
         // pull back to admire the result
         a.camFrom = o.position.clone();
         a.camTo = a.to.clone().addScaledVector(a.dir, -9).addScaledVector(UP, 2.5).addScaledVector(a.side, 3);
@@ -79,6 +84,12 @@ export class BulletCam {
       _m.lookAt(o.position, a.to, UP);
       o.quaternion.slerp(new THREE.Quaternion().setFromRotationMatrix(_m), Math.min(1, realDt * 6));
       o.fov = 48;
+      if (this.shake > 0.01) {
+        const k2 = this.shake * this.shake * 0.25;
+        o.position.x += (Math.random() - 0.5) * k2;
+        o.position.y += (Math.random() - 0.5) * k2;
+        this.shake *= Math.exp(-realDt * 5);
+      }
       if (a.hold > 2.6) this.stop();
     }
     return true;

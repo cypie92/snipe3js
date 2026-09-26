@@ -79,6 +79,7 @@ export class Shooting {
     g.scoring.shots++;
     const { origin, dir } = rig.getAimRay(new THREE.Vector3(), new THREE.Vector3());
     const hit = this.pick(origin, dir);
+    if (hit) hit.origin = origin.clone(); // lets reactions turn to face the shooter
     const end = hit ? hit.point.clone() : origin.clone().addScaledVector(dir, 900);
     const dist = origin.distanceTo(end);
     const travel = Math.max(0.035, dist / BULLET_SPEED);
@@ -144,6 +145,7 @@ export class Shooting {
         g.fx.burst('stars', p.clone().add(new THREE.Vector3(0, 0.3, 0)), UP, { scale: 0.4 });
         g.popups.text(p, 'BAD HIT!', { cls: 'pop-bad' });
         sound.sfx('badHit', { position: p });
+        sound.sfx('oi', { position: p });
         g.hud.flash('bad');
         g.events.emit('badHit', spec);
         break;

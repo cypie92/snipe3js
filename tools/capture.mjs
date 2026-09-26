@@ -125,7 +125,7 @@ try {
   }
 
   if (only.includes('results')) {
-    await page.evaluate(() => { window.__game.freeze(false); window.__game.completeAll(); window.__game.step(2.5); });
+    await page.evaluate(() => { window.__game.freeze(false); window.__game.completeAll(); window.__game.step(2.5); window.__game.game.clockOff(0.2); window.__game.step(1.5); });
     await page.waitForTimeout(6500);
     await shot(page, '40-results');
   }

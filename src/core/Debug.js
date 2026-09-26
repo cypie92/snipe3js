@@ -53,6 +53,9 @@ export function installDebug(game) {
       const p = worldPos(t);
       game.rig.lookAtPoint(p);
       game.rig.swayMul = 0;
+      game.rig.recoil = 0;
+      game.rig.recoilVel = 0;
+      game.rig.recoilYaw = 0;
       game.rig.update(0.0001);
       game.rifle.state = 'ready';
       if (game.rifle.ammo === 0) game.rifle.ammo = game.rifle.magSize;

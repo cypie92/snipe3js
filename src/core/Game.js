@@ -27,6 +27,10 @@ import { createPerch } from '../world/perch/index.js';
 import { Office } from '../hub/Office.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
+const nextFrames = (n = 1) => new Promise((r) => {
+  const f = () => (--n <= 0 ? r() : requestAnimationFrame(f));
+  requestAnimationFrame(f);
+});
 const _v = new THREE.Vector3();
 const _box = new THREE.Box3();
 
@@ -111,6 +115,35 @@ export class Game {
       this.env.sun.shadow.map = null;
     }
     this.resize();
+  }
+
+  /** First-shift coach marks: scope -> zoom/steady -> fix something. Non-blocking. */
+  tickTutorial(dt) {
+    const tu = this.tutorial;
+    tu.t += dt;
+    const steps = [
+      { text: 'Right-click (or Q) to look through your scope', done: () => this.rig.scoped },
+      { text: 'Scroll to zoom · hold <b>Shift</b> to steady your aim', done: () => tu.t > 6 || this.rig.zoomIndex !== tu.zoom0 || this.rig.holding },
+      { text: 'Spot a problem from the clipboard, then <b>left-click</b> to fix it!', done: () => this.jobs.counts().done > 0 || tu.t > 25 },
+    ];
+    if (tu.step >= steps.length) {
+      this.hud.coach(null);
+      this.tutorial = null;
+      this.progress.data.seenTutorial = true;
+      this.progress.save();
+      return;
+    }
+    const s = steps[tu.step];
+    if (tu.shown !== tu.step) {
+      tu.shown = tu.step;
+      tu.t = 0;
+      tu.zoom0 = this.rig.zoomIndex;
+      this.hud.coach(s.text, tu.step + 1, steps.length);
+    }
+    if (tu.t > 0.6 && s.done()) {
+      tu.step++;
+      sound.sfx('ding');
+    }
   }
 
   /** Auto mode only: step quality down if the frame rate stays low during play. */
@@ -403,7 +436,7 @@ export class Game {
     this.perch.root.position.set(perch.position.x, groundY, perch.position.z);
     this.perch.root.rotation.y = perch.yaw ?? 0;
     this.perch.setRaise(1);
-    this.level = { def, ctx, perch, out };
+    this.level = { def, ctx, perch, out, pristine: true };
     this.scoring.spannersTotal = ctx.collectibles.length;
     this.renderer.renderer.compile(this.scene, this.camera);
     return this.level;
@@ -414,12 +447,22 @@ export class Game {
     this.screens.clear();
     this.state = 'loading';
     this.input.active = false;
-    await this.loadLevel(id);
+    // The title/office backdrop already built this level: reuse it instead of a ~5 s rebuild.
+    const reuse = this.level?.def.id === id && this.level.pristine;
+    if (!reuse) {
+      this.screens.loading(getLevel(id));
+      await nextFrames(2); // let the card paint before the heavy synchronous build
+      await this.loadLevel(id);
+    }
+    this.level.pristine = false;
     const def = this.level.def;
+    this.scoring.reset(def.parTime);
+    this.scoring.spannersTotal = this.level.ctx.collectibles.length;
     this.rifle.reset();
     this.shiftDone = false;
     this.hud.showClockOff(false);
     this.hintsLeft = this.maxHints;
+    this.hintFocus = null;
     this.rig.setScoped(false);
     this.rig.scopeT = 0;
     this.rig.fovNow = this.rig.baseFov;
@@ -427,11 +470,41 @@ export class Game {
     this.markReady();
     sound.ambience(def.ambience || 'village');
     sound.music('level');
-    if (!skipIntro) await this.playIntro();
+    if (!skipIntro) {
+      await this.playIntro();
+      await this.briefing();
+    } else {
+      this.hud.setClipMode('compact');
+    }
     this.state = 'play';
     this.hud.show(true);
     this.input.active = true;
+    if (!this.progress.data.seenTutorial && !skipIntro) this.tutorial = { step: 0, t: 0 };
     this.events.emit('levelStart', this.level);
+  }
+
+  /** After the swoop: the clipboard sits centre-stage so the clues get read. Click starts the shift. */
+  briefing() {
+    this.state = 'briefing';
+    this.hud.show(true);
+    this.hud.setBriefing(true);
+    return new Promise((resolve) => {
+      const go = (e) => {
+        if (e.type === 'keydown' && !['Enter', 'NumpadEnter', 'Space'].includes(e.code)) return;
+        if (e.type === 'mousedown' && e.button !== 0) return;
+        this.canvas.removeEventListener('mousedown', go);
+        this.hud.briefBtn.removeEventListener('click', go);
+        removeEventListener('keydown', go);
+        this.hud.setBriefing(false);
+        this.input.requestLock(); // inside the user gesture
+        sound.unlock();
+        sound.sfx('uiClick');
+        resolve();
+      };
+      this.canvas.addEventListener('mousedown', go);
+      this.hud.briefBtn.addEventListener('click', go);
+      addEventListener('keydown', go);
+    });
   }
 
   /** Camera swoops in from the sky to the perch while the title card shows. */
@@ -548,7 +621,7 @@ export class Game {
     this.progress.addCoins(summary.total);
     const { newBest } = this.progress.recordLevel(def.id, {
       grade: summary.grade, time: this.scoring.shiftTime, stars: summary.stars,
-      spanners: this.level.ctx.collectibles.filter((c) => c.userData.collected).map((c) => c.userData.hit?.id || c.name),
+      spanners: this.level.ctx.collectibles.filter((c) => c.userData.collected).map((c) => c.userData.collectedId || c.name),
     });
     sound.music('results');
     const idx = boardLevels().findIndex((l) => l.id === def.id);
@@ -574,25 +647,47 @@ export class Game {
     return _box.getCenter(new THREE.Vector3());
   }
 
+  /** H = a spoken nudge for the next unsolved job (free); H again while it shows = a marker (costs a hint). */
   useHint() {
-    if (this.hintsLeft <= 0) {
-      this.hud.toast('No hints left', 'Upgrade Binocular Tips in the Workshop');
-      return;
-    }
     const open = this.jobs.main.filter((j) => j.state === 'open' && !this.jobs.isLocked(j));
     if (!open.length) return;
-    const job = open.find((j) => !j.hinted) || open[0];
+    const f = this.hintFocus;
+    const recent = f && f.job.state === 'open' && performance.now() - f.at < 10000;
+    if (recent && (f.job.hintTier || 0) === 1) {
+      this.markHint(f.job);
+      return;
+    }
+    const job = open.find((j) => !j.hintTier && j.hint) || open.find((j) => (j.hintTier || 0) < 2) || open[0];
+    if (job.hint && !job.hintTier) {
+      job.hintTier = 1;
+      this.hintFocus = { job, at: performance.now() };
+      this.scoring.hintsUsed++;
+      this.hud.radio(job.title, job.hint);
+      sound.sfx('whistle');
+      return;
+    }
+    this.markHint(job);
+  }
+
+  markHint(job) {
+    if (this.hintsLeft <= 0) {
+      this.hud.toast('No markers left', 'Upgrade Binocular Tips in the Workshop');
+      return;
+    }
+    job.hintTier = 2;
     job.hinted = true;
     this.hintsLeft--;
     this.scoring.hintsUsed++;
+    this.hintFocus = null;
     this.hud.showHint(job, this.jobPosition(job));
-    this.hud.toast('HINT', job.title);
-    sound.sfx('whistle');
+    this.hud.toast('MARKED', job.title);
+    sound.sfx('ding');
   }
 
   collect(obj, spec) {
     if (obj.userData.collected) return;
     obj.userData.collected = true;
+    obj.userData.collectedId = spec.id;
     delete obj.userData.hit;
     this.scoring.spanners++;
     const p = obj.getWorldPosition(new THREE.Vector3());
@@ -652,6 +747,15 @@ export class Game {
     this.hud.update(realDt);
     this.popups.update(realDt);
     this.renderer.setScope(this.rig.scopeT, this.hud.range);
+    if (this.rig.holding && this.state === 'play') {
+      this.beatT = (this.beatT || 0) - realDt;
+      if (this.beatT <= 0) {
+        this.beatT = 0.78;
+        sound.sfx('heartbeat');
+      }
+    } else this.beatT = 0;
+    if (this.tutorial && this.state === 'play' && !this.paused) this.tickTutorial(realDt);
+    this.popups.scope = { on: this.rig.scopeT > 0.5, R: this.hud.R || 0 };
     sound.update();
     this.renderer.renderer.info.reset();
     this.renderer.render(realDt);

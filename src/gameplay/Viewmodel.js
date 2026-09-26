@@ -82,8 +82,8 @@ export class Viewmodel {
       }
     });
 
-    this.gun.scale.setScalar(0.42);
-    this.hip = new THREE.Vector3(0.22, -0.2, -0.56);
+    this.gun.scale.setScalar(0.38);
+    this.hip = new THREE.Vector3(0.23, -0.215, -0.58);
     this.ads = new THREE.Vector3(0.0, -0.085, -0.22);
     this.recoil = 0;
     this.recoilVel = 0;

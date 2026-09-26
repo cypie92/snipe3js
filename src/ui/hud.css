@@ -84,7 +84,7 @@ body { font-family: var(--font-ui); color: var(--ink); user-select: none; -webki
 .jobs li.failed .title { color: var(--tomato); }
 .jobs li.locked { opacity: .45; }
 .jobs li.secret .title { font-style: italic; opacity: .55; }
-.jobs li.flash { animation: flashrow .9s ease-out; }
+.jobs li.justdone { animation: flashrow .9s ease-out; }
 .clipboard .tab-hint { position: absolute; bottom: -26px; left: 14px; font-size: 12px; color: #fff; text-shadow: 0 1px 0 var(--ink); font-weight: 600; }
 
 /* ---------- Ammo ---------- */
@@ -175,3 +175,25 @@ body { font-family: var(--font-ui); color: var(--ink); user-select: none; -webki
 .clockoff .co-btn { font-size: 18px; padding: 6px 18px; pointer-events: auto; }
 .clockoff kbd { font-family: var(--font-ui); background: var(--ink); color: #fff; border-radius: 6px; padding: 0 6px; font-size: 12px; margin-left: 6px; }
 @keyframes clockin { 0% { transform: translateX(-50%) translateY(30px) scale(.94); opacity: 0; } 100% { transform: translateX(-50%) rotate(-1deg); opacity: 1; } }
+
+/* ---------- Briefing (clipboard centre-stage before the shift) ---------- */
+.brief-dim { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(20,22,40,.15), rgba(20,22,40,.55)); }
+.clipboard.briefing { top: 50%; left: 50%; width: min(640px, 92vw); transform: translate(-50%, -50%) rotate(-1.5deg); z-index: 4; }
+.clipboard .brief-go { display: none; margin-top: 10px; text-align: center; }
+.clipboard.briefing .brief-go { display: block; }
+.clipboard.briefing .tab-hint { display: none; }
+.brief-go .btn { pointer-events: auto; font-size: 22px; padding: 8px 28px; }
+.brief-go span { display: block; font-family: var(--font-hand); font-size: 17px; opacity: .7; margin-top: 6px; }
+.clipboard.briefing h3 { font-size: 26px; }
+
+/* ---------- Radio hint nudge ---------- */
+.radio { position: absolute; right: 18px; top: 150px; width: 300px; background: #2f3e6b; color: #fff; border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 5px 0 var(--ink); padding: 8px 14px 10px; transform: rotate(1.5deg); animation: clockin2 .35s cubic-bezier(.2,1.5,.4,1) both; }
+.radio .r-head { font-weight: 700; font-size: 13px; letter-spacing: 1px; color: var(--sun); }
+.radio .r-title { font-weight: 700; font-size: 17px; margin-top: 2px; }
+.radio .r-text { font-family: var(--font-hand); font-size: 20px; line-height: 1.15; margin: 4px 0; }
+.radio .r-foot { font-size: 12px; opacity: .7; }
+@keyframes clockin2 { 0% { transform: translateX(40px) rotate(6deg); opacity: 0; } 100% { transform: rotate(1.5deg); opacity: 1; } }
+
+/* ---------- Tutorial coach mark ---------- */
+.coach { position: absolute; left: 50%; top: 86px; transform: translateX(-50%); background: var(--sun); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); padding: 6px 16px; font-weight: 600; font-size: 18px; white-space: nowrap; display: flex; gap: 10px; align-items: center; animation: toast .5s cubic-bezier(.2,1.6,.4,1) both; }
+.coach .c-step { background: var(--ink); color: var(--sun); border-radius: 10px; padding: 0 8px; font-size: 13px; }
