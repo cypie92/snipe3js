@@ -284,6 +284,10 @@ export function church(opts = {}) {
   const clockState = { time: opts.time ?? 10 * 3600 + 8 * 60, rate: opts.clockRate ?? 1 };
   const bellState = { angle: 0, vel: 0 };
   const vaneBase = vane.rotation.y;
+  let vaneOverride = null;
+  // take control of the weathervane: setVaneOverride((dt, t, vane) => {...}) or vane.userData.manual = true
+  group.userData.setVaneOverride = (fn) => { vaneOverride = typeof fn === 'function' ? fn : null; };
+  vane.userData.baseYaw = vaneBase;
   group.userData.clock = clockState;
   group.userData.bell = bellState;
   group.userData.ringBell = (strength = 1) => {
@@ -295,7 +299,8 @@ export function church(opts = {}) {
     const hrs = clockState.time / 3600;
     minuteHand.rotation.z = -(hrs % 1) * TAU;
     hourHand.rotation.z = -((hrs % 12) / 12) * TAU;
-    vane.rotation.y = vaneBase + Math.sin(t * 0.21) * 0.6 + Math.sin(t * 1.37) * 0.07;
+    if (vaneOverride) vaneOverride(dt, t, vane);
+    else if (!vane.userData.manual) vane.rotation.y = vaneBase + Math.sin(t * 0.21) * 0.6 + Math.sin(t * 1.37) * 0.07;
     const acc = -11 * Math.sin(bellState.angle) - 0.45 * bellState.vel;
     bellState.vel += acc * dt;
     bellState.angle += bellState.vel * dt;

@@ -2,11 +2,11 @@
 //   EdgeEffect      depth-based silhouette darkening for readability (+ NaN guard). DEPTH attribute.
 //   GradeEffect     display-space colour grade (lift/gain/gamma, S-curve contrast, saturation + vibrance,
 //                   calmer greens), tinted vignette / scope lens falloff. Runs after tone mapping.
-//   Each mainImage signature matches its attributes (depth parameter only for DEPTH effects), otherwise
-//   the merged shader fails with "eNMainImage: no matching overloaded function".
 //   ScopeLensEffect radial chromatic aberration toward the scope rim (convolution; zero cost when unscoped).
 //   OverlayPass     draws the first-person viewmodel after AO (no AO halos / self-occlusion blotches) and
 //                   writes its depth into the composer's stable depth so later passes see it.
+// Each mainImage signature must match its effect's attributes (a `depth` parameter only for DEPTH
+// effects), otherwise the merged shader fails with "eNMainImage: no matching overloaded function".
 import * as THREE from 'three';
 import { Effect, EffectAttribute, BlendFunction, Pass } from 'postprocessing';
 
@@ -62,12 +62,17 @@ export class EdgeEffect extends Effect {
   apply(g, enabled = true) {
     const u = this.uniforms;
     const o = u.get('uOutline').value;
-    o.x = enabled ? g.outline : 0; o.z = g.outlineFade[0]; o.w = g.outlineFade[1];
+    this.base = enabled ? g.outline : 0;
+    o.x = this.base * (this.scale ?? 1); o.z = g.outlineFade[0]; o.w = g.outlineFade[1];
     u.get('uOutlineColor').value.set(g.outlineColor);
     u.get('uOutlineThreshold').value = g.outlineThreshold;
   }
 
   set width(px) { this.uniforms.get('uOutline').value.y = px; }
+  set strengthScale(k) {
+    this.scale = k;
+    this.uniforms.get('uOutline').value.x = (this.base ?? 0) * k;
+  }
 }
 
 const gradeFrag = /* glsl */ `
@@ -81,6 +86,8 @@ uniform vec3 uGreen;         // yellow-green taming: saturation scale, hue shift
 uniform vec4 uVignette;      // inner radius, outer radius, strength, scope amount (0..1)
 uniform vec3 uVignetteColor;
 uniform float uScopeRadius;  // scope circle radius in screen-height units
+uniform vec3 uGround;        // graduated "ground" filter: strength, top of the ramp (uv.y), bottom (uv.y < top)
+uniform vec3 uGroundColor;
 
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
   vec3 c = inputColor.rgb;
@@ -103,6 +110,11 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   hsl.y *= mix(1.0, uGreen.x, gw);
   hsl.z *= mix(1.0, uGreen.z, gw);
   c = HSLToRGB(hsl);
+
+  // graduated ground filter (unscoped): the near lawn at the bottom of the frame is gently deepened and
+  // cooled so the eye travels up to the brighter, sunlit village band (toy-photo depth cue)
+  float gnd = (1.0 - smoothstep(uGround.z, uGround.y, uv.y)) * uGround.x * (1.0 - uVignette.w);
+  c = mix(c, c * uGroundColor, gnd);
 
   // tinted vignette; when scoped it becomes a lens falloff toward the scope rim
   vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
@@ -132,6 +144,8 @@ export class GradeEffect extends Effect {
         ['uVignette', new THREE.Uniform(new THREE.Vector4(0.45, 1.05, 0.25, 0))],
         ['uVignetteColor', new THREE.Uniform(new THREE.Color('#3b3560'))],
         ['uScopeRadius', new THREE.Uniform(0.47)],
+        ['uGround', new THREE.Uniform(new THREE.Vector3(0, 0.45, 0.0))],
+        ['uGroundColor', new THREE.Uniform(new THREE.Color('#8f9bd6'))],
       ]),
     });
   }
@@ -149,6 +163,9 @@ export class GradeEffect extends Effect {
     const v = u.get('uVignette').value;
     v.x = g.vignette[0]; v.y = g.vignette[1]; v.z = g.vignette[2];
     u.get('uVignetteColor').value.set(g.vignetteColor);
+    const gr = g.ground || [0, 0.45, 0];
+    u.get('uGround').value.set(gr[0], gr[1], gr[2]);
+    u.get('uGroundColor').value.set(g.groundColor || '#8f9bd6');
   }
 
   set scope(amount) { this.uniforms.get('uVignette').value.w = amount; }
@@ -163,7 +180,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   if (uAmount > 0.0) {
     vec2 d = uv - 0.5;
     float r = length(d * vec2(aspect, 1.0)) / uScopeRadius;
-    vec2 s = d * uAmount * r * r * r;
+    vec2 s = d * uAmount * smoothstep(0.8, 1.02, r); // fringing only at the rim (outer 20% of the lens)
     outputColor.r = texture2D(inputBuffer, uv + s).r;
     outputColor.b = texture2D(inputBuffer, uv - s * 0.8).b;
   }
@@ -198,11 +215,18 @@ export class OverlayPass extends Pass {
     this.cam.matrixWorldAutoUpdate = false;
     this.cam.layers.set(VIEWMODEL_LAYER);
     this.root = null;
+    this.frame = 0;
   }
 
   render(renderer, inputBuffer) {
     if (!this.root || !this.root.visible) return;
     const scene = this.scene;
+    // Keep late-added viewmodel parts on the overlay layer, and every light visible to the overlay camera
+    // (same light set as the main pass = same shader programs, no recompiles). Cheap: runs every 2 s.
+    if (this.frame++ % 120 === 0) {
+      this.root.traverse((o) => o.layers.set(VIEWMODEL_LAYER));
+      scene.traverse((o) => { if (o.isLight) o.layers.enable(VIEWMODEL_LAYER); });
+    }
     const src = this.camera;
     const cam = this.cam;
     cam.projectionMatrix.copy(src.projectionMatrix);

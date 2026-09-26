@@ -519,6 +519,7 @@ export class Kit {
       mesh.name = `${this.name}:${m.name || 'decal'}`;
       mesh.castShadow = false;
       mesh.receiveShadow = true;
+      if (m.userData?.passThrough) passThrough(mesh);
       group.add(mesh);
     }
     for (const a of this.anchors) if (!a.parent) group.add(a);
@@ -556,14 +557,27 @@ export function stats(root) {
   return { draws, tris: Math.round(tris), meshes };
 }
 
-/** Invisible, raycastable enlarged collider for tiny gameplay targets. */
+/**
+ * Invisible, raycastable enlarged collider for tiny gameplay targets. Flagged
+ * userData.collider = true so Shooting treats it as hittable although it is not visible.
+ */
 export function addCollider(obj, radius = 0.5, offset = [0, 0, 0]) {
   const c = new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 6), materials.solid('#ff00ff'));
   c.name = 'collider';
   c.visible = false;
+  c.userData.collider = true;
+  c.castShadow = false;
+  c.receiveShadow = false;
   c.position.set(...offset);
   obj.add(c);
   return c;
+}
+
+/** Mark a mesh as shoot-through: never returned by raycasts and skipped by Shooting (noHit). */
+export function passThrough(mesh) {
+  mesh.userData.noHit = true;
+  mesh.raycast = () => {};
+  return mesh;
 }
 
 // ---------------------------------------------------------------- tiny animation helper

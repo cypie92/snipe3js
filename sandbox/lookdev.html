@@ -26,9 +26,13 @@
 //   preset=morning|noon|golden|indoor   quality=low|medium|high   tone=NEUTRAL|AGX|ACES_FILMIC
 //   cam=perch|scope|close|study|orbit|top|low (study: at + off=<dx,dy,dz>)   yaw=<deg> pitch=<deg> (perch/scope)   zoom=2|4|8 (scope)
 //   at=<x,y,z> (scope/close target, default the fountain)   fov=<deg>
-//   ao=0 bloom=0 outline=0 grade=0 tilt=0|1 dof=0|1 (A/B toggles; also live: __lookdev.set({ ao: false }))
-//   vm=1 (first-person rifle)   fx=1 (particle bursts)   mask=1 (scope mask overlay when cam=scope)
+//   ao=0 bloom=0 outline=0 grade=0 lens=0 dof=0 tilt=1 (A/B toggles; tilt = unscoped miniature DOF)
+//   vm=1 (first-person rifle)   fx=1 (particle bursts)   mask=0 (hide the scope mask when cam=scope)
 //   debug=1 (stats panel)   steps=<n> (frames of fixed 1/60 s before __ready, default 8)
+// Live API (window.__lookdev): set({ cam, yaw, pitch, zoom, at, off, preset, quality, ao, bloom, outline,
+//   grade: { contrast, ao: { radius }, ... }, env: { sunAzim, sunElev, ... } }), fx(), burst(kind, x, y, z,
+//   nx, ny, nz, scale), pause(bool), step(frames), bench(n) (median ms/frame, GPU-synced), stats().
+// Example A/B: /sandbox/lookdev.html?cam=scope&zoom=8&at=-6,1,-12&outline=0
 import * as THREE from 'three';
 import { Renderer } from '../src/core/Renderer.js';
 import { Environment } from '../src/gfx/Environment.js';
@@ -37,7 +41,6 @@ import { applyWind, windUniforms } from '../src/gfx/wind.js';
 import { Particles } from '../src/gfx/Particles.js';
 import { Tracers } from '../src/gfx/Tracer.js';
 import { P } from '../src/gfx/palette.js';
-import { part, merge } from '../src/world/geo.js';
 import { hash3 } from '../src/core/rng.js';
 import * as B from '../src/world/kit/buildings/index.js';
 import * as K from '../src/world/kit/props/index.js';
@@ -49,7 +52,7 @@ const params = new URLSearchParams(location.search);
 const num = (k, d) => (params.has(k) ? Number(params.get(k)) : d);
 const flag = (k, d) => (params.has(k) ? params.get(k) !== '0' : d);
 const vec = (k, d) => (params.has(k) ? new THREE.Vector3(...params.get(k).split(',').map(Number)) : d.clone());
-const W = await import('../src/gfx/water.js').catch(() => null);
+import * as W from '../src/gfx/water.js';
 
 const canvas = document.getElementById('c');
 const renderer = new Renderer({ canvas, quality: params.get('quality') || 'high', tone: params.get('tone') || undefined });
@@ -303,7 +306,7 @@ function applyToggles(o = {}) {
   if ('bloom' in o && r.bloom) r.bloom.blendMode.opacity.value = o.bloom ? 1 : 0;
 }
 const initial = {};
-for (const k of ['ao', 'bloom', 'outline', 'grade', 'tilt', 'dof', 'shadows']) if (params.has(k)) initial[k] = flag(k, true);
+for (const k of ['ao', 'bloom', 'outline', 'grade', 'lens', 'tilt', 'dof']) if (params.has(k)) initial[k] = flag(k, true);
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
@@ -370,6 +373,23 @@ window.__lookdev = {
   step(n = 1) { const r = running; running = true; for (let i = 0; i < n; i++) { t += 1 / 60; for (const u of updaters) u(1 / 60, t); fx.update(1 / 60); tracers.update(1 / 60, camera); env.update(1 / 60, camera); } running = r; },
   fx: fxDemo,
   burst: burstAt,
+  /** Relative GPU cost: render n frames synchronously (gl.finish) and return avg ms per frame. */
+  bench(n = 10) {
+    const gl = renderer.renderer.getContext();
+    const px = new Uint8Array(4);
+    const sync = () => { renderer.renderer.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
+    renderer.render(1 / 60);
+    sync();
+    const times = [];
+    for (let i = 0; i < n; i++) {
+      const t0 = performance.now();
+      renderer.render(1 / 60);
+      sync();
+      times.push(performance.now() - t0);
+    }
+    times.sort((a, b) => a - b);
+    return +times[Math.floor(n / 2)].toFixed(1); // median ms per frame
+  },
   stats() {
     const i = renderer.renderer.info;
     return { calls: i.render.calls, tris: i.render.triangles, programs: i.programs?.length, textures: i.memory.textures, ...(renderer.stats?.() || {}) };

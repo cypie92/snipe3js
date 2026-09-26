@@ -1,59 +1,107 @@
 // Small village architecture: phone box, pillar post box, bus stop, bandstand, wishing well.
 // All face +Z, origin at ground centre.
-import { THREE, materials, Kit, cbox, prism, polySolid, lathe, ngonFrustum, rngOf, shade, wobbleColor, DEG, TAU, addCollider } from './common.js';
+import { THREE, materials, Kit, cbox, prism, polySolid, lathe, ngonFrustum, rngOf, shade, wobbleColor, DEG, TAU, addCollider, Tweens, ease } from './common.js';
 import { box, cyl, ico, torus, cone } from '../../geo.js';
 import { P } from '../../../gfx/palette.js';
-import { GLASS, STREAK } from './facade.js';
 import { labelMaterial, roundelMaterial } from './signs.js';
 import { gableRoof } from './roofs.js';
 
 const RED = '#e8413c';
 
-function glazedPanel(kit, { w, h, color, rows = 4, cols = 3, glass = GLASS }) {
-  kit.add(box(w, h, 0.05), glass, { y: h / 2, z: 0 }, materials.glossy);
-  for (let c = 1; c < cols; c++) kit.add(box(0.05, h, 0.07), color, { x: -w / 2 + (c / cols) * w, y: h / 2, z: 0.01 });
-  for (let r = 1; r < rows; r++) kit.add(box(w, 0.05, 0.07), color, { y: (r / rows) * h, z: 0.01 });
-  kit.add(box(0.05, h * 0.5, 0.02), STREAK, { x: -w * 0.25, y: h * 0.6, z: 0.045, rz: -0.5 }, materials.glossy);
+let paneGlass = null;
+/** See-through (and shoot-through) glazing for kiosks and shelters. */
+export function paneGlassMaterial() {
+  if (!paneGlass) {
+    paneGlass = new THREE.MeshStandardMaterial({ color: '#cdefff', transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, depthWrite: false, envMapIntensity: 1.6, side: THREE.DoubleSide });
+    paneGlass.name = 'paneGlass';
+    paneGlass.userData.passThrough = true;
+  }
+  return paneGlass;
 }
 
-/** Red telephone kiosk (~2.7 m). userData.ring() makes it rattle for a moment. */
+/** Glazed panel at the kit's current frame (pane plane z = 0, bottom at y = 0): glass + glazing bars. */
+function glazedPanel(kit, { w, h, color, rows = 4, cols = 3 }) {
+  kit.raw(new THREE.PlaneGeometry(w, h), paneGlassMaterial(), { y: h / 2 });
+  for (let c = 1; c < cols; c++) kit.add(box(0.05, h, 0.07), color, { x: -w / 2 + (c / cols) * w, y: h / 2, z: 0.01 });
+  for (let r = 1; r < rows; r++) kit.add(box(w, 0.05, 0.07), color, { y: (r / rows) * h, z: 0.01 });
+}
+
+/**
+ * Red telephone kiosk (~2.9 m). The glazing is see-through and shoot-through, so whatever is inside
+ * (a caller, a golden spanner on the shelf) can be spotted and hit. The front door is hinged on the
+ * front-left post: opts.open = opening angle in radians (0 = closed).
+ * parts: door (pivot, rotation.y < 0 opens toward +Z), shelf (Object3D on the shelf top), top, doorstep.
+ * userData: ring(secs) rattles it, openDoor(angle) -> Promise, update(dt, t).
+ */
 export function phoneBox(opts = {}) {
   const color = opts.color ?? RED;
   const kit = new Kit('phoneBox');
-  const W = 1.05, H = 2.3;
+  const W = 1.12, H = 2.36;
+  const pw = W - 0.22, ph = 1.62, py = 0.45;
   const dark = shade(color, -0.12);
-  kit.add(cbox(W + 0.16, 0.18, W + 0.16, 0.05), dark, { y: 0.09 });
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.add(cbox(0.17, H, 0.17, 0.05), color, { x: sx * (W / 2 - 0.05), y: 0.18 + H / 2, z: sz * (W / 2 - 0.05) });
+  kit.add(cbox(W + 0.2, 0.2, W + 0.2, 0.05), dark, { y: 0.1 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.add(cbox(0.17, H, 0.17, 0.05), color, { x: sx * (W / 2 - 0.02), y: 0.2 + H / 2, z: sz * (W / 2 - 0.02) });
+  // back + side walls (glass + bars); the front is the door (a separate part)
+  for (const f of [1, 2, 3]) {
+    kit.at({ ry: (f * Math.PI) / 2 }, () => kit.at({ z: W / 2 - 0.02 }, () => {
+      kit.add(box(pw, 0.26, 0.08), color, { y: 0.33 });
+      kit.add(box(pw, 0.12, 0.08), color, { y: 2.12 });
+      kit.at({ y: py }, () => glazedPanel(kit, { w: pw, h: ph, color, rows: 6, cols: 3 }));
+    }));
+  }
+  // TELEPHONE lightboxes on all four sides + stepped domed roof
   for (let f = 0; f < 4; f++) {
     kit.at({ ry: (f * Math.PI) / 2 }, () => {
-      kit.at({ y: 0.4, z: W / 2 - 0.06 }, () => glazedPanel(kit, { w: W - 0.26, h: 1.6, color, rows: 5, cols: 3 }));
-      kit.add(box(W - 0.2, 0.24, 0.1), color, { y: 0.3, z: W / 2 - 0.06 });
-      kit.add(box(W - 0.2, 0.12, 0.1), color, { y: 2.06, z: W / 2 - 0.06 });
-      // TELEPHONE lightbox
-      kit.add(box(W - 0.2, 0.2, 0.06), '#fff8ee', { y: 2.25, z: W / 2 - 0.02 });
-      kit.raw(new THREE.PlaneGeometry(W - 0.3, 0.16), labelMaterial('TELEPHONE', { bg: '#fff8ee', fg: P.ink, w: 512, h: 80, radius: 0.1 }), { y: 2.25, z: W / 2 + 0.035 });
+      kit.add(box(W - 0.16, 0.22, 0.06), '#fff8ee', { y: 2.33, z: W / 2 + 0.02 });
+      kit.raw(new THREE.PlaneGeometry(W - 0.26, 0.17), labelMaterial('TELEPHONE', { bg: '#fff8ee', fg: P.ink, w: 512, h: 80, radius: 0.1 }), { y: 2.33, z: W / 2 + 0.056 });
     });
   }
-  // stepped domed roof
-  kit.add(cbox(W + 0.12, 0.16, W + 0.12, 0.05), color, { y: 2.46 });
-  kit.add(cbox(W - 0.02, 0.14, W - 0.02, 0.05), color, { y: 2.6 });
-  kit.add(new THREE.SphereGeometry(0.62, 16, 5, 0, TAU, 0, Math.PI / 2), color, { y: 2.64, sy: 0.32, sx: 0.9, sz: 0.9 });
-  kit.add(ico(0.1, 0), P.gold, { y: 2.86 }, materials.glossy);
-  // door handle + phone inside silhouette
-  kit.add(box(0.05, 0.3, 0.05), P.ink, { x: W / 2 - 0.28, y: 1.2, z: W / 2 + 0.02 });
+  kit.add(cbox(W + 0.16, 0.16, W + 0.16, 0.05), color, { y: 2.52 });
+  kit.add(cbox(W + 0.02, 0.14, W + 0.02, 0.05), color, { y: 2.66 });
+  kit.add(new THREE.SphereGeometry(0.64, 16, 5, 0, TAU, 0, Math.PI / 2), color, { y: 2.7, sy: 0.34, sx: 0.9, sz: 0.9 });
+  kit.add(ico(0.1, 0), P.gold, { y: 2.93 }, materials.glossy);
+  // interior: floor, back-wall shelf, black phone, yellow directory
+  kit.add(box(W - 0.22, 0.02, W - 0.22), '#5a4a42', { y: 0.21 });
+  kit.add(box(W - 0.3, 0.05, 0.34), P.woodDark, { y: 1.02, z: -W / 2 + 0.26 });
+  kit.add(cbox(0.3, 0.36, 0.2, 0.04), P.ink, { y: 1.48, z: -W / 2 + 0.14 });
+  kit.add(cbox(0.28, 0.07, 0.08, 0.03), '#3a3e4c', { y: 1.7, z: -W / 2 + 0.26 });
+  kit.add(cyl(0.05, 0.05, 0.02, 10), '#d9dde6', { y: 1.5, z: -W / 2 + 0.25, rx: Math.PI / 2 });
+  kit.add(cbox(0.22, 0.06, 0.28, 0.02), P.sunflower, { x: 0.28, y: 1.08, z: -W / 2 + 0.26 });
   const group = kit.build(new THREE.Group());
   group.name = opts.name ?? 'phoneBox';
-  group.userData.kind = 'phoneBox';
+  // hinged front door: bars + glass + handle
+  const door = new THREE.Group();
+  door.name = 'door';
+  const dk = new Kit('phoneBoxDoor');
+  dk.at({ x: (W - 0.04) / 2 }, () => {
+    dk.add(box(pw, 0.26, 0.08), color, { y: 0.33 });
+    dk.add(box(pw, 0.12, 0.08), color, { y: 2.12 });
+    dk.at({ y: py }, () => glazedPanel(dk, { w: pw, h: ph, color, rows: 6, cols: 3 }));
+    dk.add(box(0.06, 0.34, 0.06), P.ink, { x: pw / 2 - 0.12, y: 1.2, z: 0.05 });
+  });
+  dk.build(door);
+  door.position.set(-W / 2 + 0.02, 0, W / 2 - 0.02);
+  door.rotation.y = -(opts.open ?? 0);
+  group.add(door);
   const top = new THREE.Object3D(); top.name = 'top'; top.position.set(0, 2.9, 0);
-  const door = new THREE.Object3D(); door.name = 'door'; door.position.set(0, 0.2, W / 2 + 0.4);
-  group.add(top, door);
-  group.userData.parts = { top, door };
+  const shelf = new THREE.Object3D(); shelf.name = 'shelf'; shelf.position.set(-0.02, 1.05, -W / 2 + 0.3);
+  const doorstep = new THREE.Object3D(); doorstep.name = 'doorstep'; doorstep.position.set(0, 0.2, W / 2 + 0.4);
+  group.add(top, shelf, doorstep);
+  group.userData.kind = 'phoneBox';
+  group.userData.surface = 'metal';
+  group.userData.parts = { door, shelf, top, doorstep };
+  const tw = new Tweens();
   let ringT = 0;
   group.userData.ring = (secs = 1.6) => { ringT = secs; };
+  group.userData.openDoor = (angle = 1.9) => {
+    const a0 = door.rotation.y;
+    return tw.run('door', 0.6, (e) => { door.rotation.y = a0 + (-angle - a0) * e; }, angle > 0 ? ease.outBack : ease.outCubic);
+  };
   group.userData.update = (dt, t) => {
+    tw.update(Math.min(dt, 0.05));
     ringT = Math.max(0, ringT - dt);
     const a = ringT > 0 ? Math.sin(t * 60) * 0.02 * Math.min(1, ringT) : 0;
-    for (const c of group.children) if (c.isMesh) c.rotation.z = a;
+    for (const c of group.children) if (c.isMesh || c === door) c.rotation.z = a;
   };
   return group;
 }
@@ -93,8 +141,8 @@ export function busStop(opts = {}) {
   // posts
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.add(cbox(0.12, H, 0.12, 0.04), frame, { x: sx * W / 2, y: H / 2, z: sz * Dp / 2 - (sz > 0 ? 0 : 0) });
   // glass back + sides
-  kit.at({ z: -Dp / 2 }, () => glazedPanel(kit, { w: W - 0.12, h: H - 0.35, color: frame, rows: 2, cols: 3, glass: ['#6fb6e0', '#c9ecff'] }));
-  for (const sx of [-1, 1]) kit.at({ x: sx * W / 2, z: -0.1, ry: sx * Math.PI / 2 }, () => glazedPanel(kit, { w: Dp - 0.35, h: H - 0.35, color: frame, rows: 2, cols: 1, glass: ['#6fb6e0', '#c9ecff'] }));
+  kit.at({ z: -Dp / 2 }, () => glazedPanel(kit, { w: W - 0.12, h: H - 0.35, color: frame, rows: 2, cols: 3 }));
+  for (const sx of [-1, 1]) kit.at({ x: sx * W / 2, z: -0.1, ry: sx * Math.PI / 2 }, () => glazedPanel(kit, { w: Dp - 0.35, h: H - 0.35, color: frame, rows: 2, cols: 1 }));
   // curved roof (three tilted slabs)
   for (let i = -1; i <= 1; i++) {
     kit.add(cbox(W + 0.4, 0.12, Dp * 0.45, 0.04), color, { y: H + 0.12 - Math.abs(i) * 0.08, z: i * Dp * 0.36 + 0.1, rx: -i * 0.18 });

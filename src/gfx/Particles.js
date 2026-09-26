@@ -92,7 +92,7 @@ class Pool {
       const k = this.life[i] / this.maxLife[i];
       // pop in with a springy overshoot, hold, shrink out (toy-like, no alpha fades)
       const pin = Math.min(1, k * 9);
-      const env = (pin < 1 ? backOut(pin) : 1) * (k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1);
+      const env = (pin < 1 ? backOut(pin) : 1) * (k > 0.5 ? 1 - (k - 0.5) / 0.5 : 1);
       const s = Math.max(0.0001, this.size[i] * (1 + this.grow[i] * k) * env);
       _v.set(this.pos[i3], this.pos[i3 + 1], this.pos[i3 + 2]);
       if (this.stretch > 0) {
@@ -117,10 +117,12 @@ class Pool {
 
 export class Particles {
   constructor(scene) {
+    // One shader program for all lit particles (same material parameters; roughness/emissive are uniforms).
+    // Shards and chips get faceted looks from their non-indexed geometry (per-face normals), not flatShading.
     // puffs: smooth, soft, slightly self-lit so smoke/dust never goes grey-dark on its shadow side
-    const puff = new THREE.MeshStandardMaterial({ roughness: 0.95, emissive: '#ffffff', emissiveIntensity: 0.12 });
+    const puff = new THREE.MeshStandardMaterial({ roughness: 0.95, emissive: '#ffffff', emissiveIntensity: 0.12, side: THREE.DoubleSide });
     puff.name = 'fx-puff';
-    const lit = new THREE.MeshStandardMaterial({ roughness: 0.7, flatShading: true });
+    const lit = new THREE.MeshStandardMaterial({ roughness: 0.7, emissive: '#ffffff', emissiveIntensity: 0, side: THREE.DoubleSide });
     lit.name = 'fx-lit';
     // HDR white x instance colour: sparks and stars sit above the bloom threshold
     const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 2.6, 2.6), toneMapped: false });
@@ -130,7 +132,7 @@ export class Particles {
     this.pools = {
       blob: new Pool(scene, new THREE.IcosahedronGeometry(1, 2), puff, 900),
       shard: new Pool(scene, new THREE.TetrahedronGeometry(1), lit, 600),
-      chip: new Pool(scene, new THREE.BoxGeometry(1, 0.42, 0.72), lit, 400),
+      chip: new Pool(scene, new THREE.BoxGeometry(1, 0.42, 0.72).toNonIndexed(), lit, 400),
       confetti: new Pool(scene, new THREE.PlaneGeometry(1, 0.62), paper, 700),
       spark: new Pool(scene, new THREE.OctahedronGeometry(1, 0), glow, 500, { stretch: 0.09, shadows: false }),
       star: new Pool(scene, new THREE.OctahedronGeometry(1, 0), glow, 300, { shadows: false }),
@@ -175,10 +177,11 @@ export class Particles {
   burst(name, pos, normal, opts = {}) {
     const n = normal || UP;
     const s = opts.scale ?? 1;
+    const ps = Math.sqrt(s); // puff size grows slower than the burst; big bursts get more puffs instead
     switch (name) {
       case 'dust':
         this.flash(pos, n, s, '#fff8ea');
-        this.emit('blob', pos, 9, { dir: n, speed: 2.0 * s, spread: 1.1, size: 0.2 * s, grow: 2.2, gravity: -0.4, drag: 2.4, life: 0.95, color: ['#efe3c8', '#e2d2ae', '#f7efdc'] });
+        this.emit('blob', pos, Math.round(9 * s), { dir: n, speed: 2.0 * s, spread: 1.1, size: 0.2 * ps, grow: 1.8, gravity: -0.4, drag: 2.4, life: 0.95, color: ['#efe3c8', '#e2d2ae', '#f7efdc'] });
         this.emit('chip', pos, 5, { dir: n, speed: 4.5 * s, size: 0.075 * s, gravity: 12, life: 0.75, color: ['#c9ad7f', '#a88c62'] });
         break;
       case 'grass':
@@ -199,7 +202,7 @@ export class Particles {
       case 'stone':
         this.flash(pos, n, s, '#fffaf0');
         this.emit('chip', pos, 9, { dir: n, speed: 4.8 * s, size: 0.085 * s, gravity: 12, life: 0.85, color: [P.stone, P.stoneDark, '#e7e0d4'] });
-        this.emit('blob', pos, 7, { dir: n, speed: 1.7 * s, spread: 1.1, size: 0.19 * s, grow: 2, gravity: -0.3, drag: 2.4, life: 0.85, color: ['#ece6da', '#f4efe6'] });
+        this.emit('blob', pos, Math.round(7 * s), { dir: n, speed: 1.7 * s, spread: 1.1, size: 0.19 * ps, grow: 1.8, gravity: -0.3, drag: 2.4, life: 0.85, color: ['#ece6da', '#f4efe6'] });
         break;
       case 'glass':
         this.flash(pos, n, s, '#eefaff');
@@ -213,7 +216,7 @@ export class Particles {
         this.rings.spawn(pos, { size: 1.6 * s, life: 1.4 });
         break;
       case 'soft':
-        this.emit('blob', pos, 8, { dir: n, speed: 1.7 * s, spread: 1.0, size: 0.16 * s, grow: 1.5, gravity: 0.5, drag: 2, life: 0.65, color: ['#ffffff', '#f3ecff'] });
+        this.emit('blob', pos, Math.round(8 * s), { dir: n, speed: 1.7 * s, spread: 1.0, size: 0.12 * ps, grow: 1.3, gravity: 0.5, drag: 2, life: 0.6, color: ['#ffffff', '#f3ecff'] });
         break;
       case 'leaves':
         this.emit('shard', pos, 14, { dir: n, speed: 2.6 * s, size: 0.12 * s, gravity: 2.2, drag: 2.2, spin: 10, life: 1.7, color: [P.grass, P.grassDark, P.grassLight, '#b8e07a'] });
@@ -229,7 +232,7 @@ export class Particles {
         this.emit('blob', pos, 6, { dir: UP, speed: 1.5, size: 0.18 * s, grow: 2, gravity: -0.5, drag: 2, life: 0.8, color: ['#fff6cf'] });
         break;
       case 'smoke':
-        this.emit('blob', pos, Math.round(3 * s), { dir: UP, speed: 1.2, spread: 0.25, size: 0.35 * s, grow: 2.5, gravity: -0.6, drag: 1.2, life: 2.5, color: opts.color || ['#f2f0ee', '#e4e2e6'] });
+        this.emit('blob', pos, Math.round(3 * s), { dir: UP, speed: 1.2 * ps, spread: 0.25 + 0.1 * (s - 1), size: 0.35 * ps, grow: 2.2, gravity: -0.6, drag: 1.2, life: 2.5, color: opts.color || ['#f2f0ee', '#e4e2e6'] });
         break;
       case 'muzzle': {
         // ~1 m from the lens: keep it a small quick puff, pushed forward; never inside the scope view

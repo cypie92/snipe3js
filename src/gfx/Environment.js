@@ -9,34 +9,36 @@ import { Rng } from '../core/rng.js';
 import { VIEWMODEL_LAYER } from './post.js';
 
 /**
- * sunAzim: degrees around Y measured from +Z (the perch side) toward +X. -50 = over the player's left
- * shoulder (3/4 key: fronts lit, shadows fall back and to the right where the perch can see them). Colours are sRGB hex. fog = horizon haze colour (sky, fog and cloud
+ * sunAzim: degrees around Y measured from +Z (the perch side) toward +X. -110 = a raking side/back key
+ * from the left, beyond the diorama: long soft shadows run diagonally toward the camera, roofs and side
+ * walls model strongly, and the perch-facing fronts are carried by the cool lilac fill (placed opposite
+ * the sun, i.e. on the perch side) plus sky light. Colours are sRGB hex. fog = horizon haze colour (sky, fog and cloud
  * haze share it so distant hills melt into the horizon).
  */
 export const PRESETS = {
   morning: {
     zenith: '#3b8fe8', horizon: '#a3d0f5', haze: '#dcebf3', below: '#c0d6c8',
-    sun: '#ffeed6', sunIntensity: 3.0, sunElev: 38, sunAzim: -50,
-    hemiSky: '#a9bdf5', hemiGround: '#8a9470', hemiIntensity: 1.0,
-    fill: '#a7a8ff', fillIntensity: 0.5,
+    sun: '#ffeed6', sunIntensity: 3.1, sunElev: 30, sunAzim: -110,
+    hemiSky: '#98acff', hemiGround: '#8a9470', hemiIntensity: 1.05,
+    fill: '#a99fff', fillIntensity: 0.85,
     fogNear: 70, fogFar: 950, env: 0.22,
     cloudLit: '#fffdf8', cloudShade: '#a3afd8', cloudHaze: 0.6,
     grade: {},
   },
   noon: {
     zenith: '#3a8ff0', horizon: '#aed8f8', haze: '#e1f0f8', below: '#c0d6c8',
-    sun: '#fff8ec', sunIntensity: 3.3, sunElev: 55, sunAzim: 30,
-    hemiSky: '#b0c6f8', hemiGround: '#8d9c6c', hemiIntensity: 1.1,
-    fill: '#aab2ff', fillIntensity: 0.45,
+    sun: '#fff8ec', sunIntensity: 3.3, sunElev: 48, sunAzim: 115,
+    hemiSky: '#a6b8ff', hemiGround: '#8d9c6c', hemiIntensity: 1.1,
+    fill: '#aaa3ff', fillIntensity: 0.75,
     fogNear: 90, fogFar: 1050, env: 0.26,
     cloudLit: '#ffffff', cloudShade: '#adb9dc', cloudHaze: 0.55,
     grade: { contrast: 0.16 },
   },
   golden: {
     zenith: '#5d8fe0', horizon: '#f6cfa2', haze: '#ffe1c0', below: '#d8c49a',
-    sun: '#ffbe78', sunIntensity: 3.2, sunElev: 22, sunAzim: 56,
-    hemiSky: '#c6b9f0', hemiGround: '#8a7a5a', hemiIntensity: 0.95,
-    fill: '#9d9cff', fillIntensity: 0.55,
+    sun: '#ffbe78', sunIntensity: 3.3, sunElev: 20, sunAzim: 118,
+    hemiSky: '#c6b9f0', hemiGround: '#8a7a5a', hemiIntensity: 1.0,
+    fill: '#a39cff', fillIntensity: 0.85,
     fogNear: 60, fogFar: 850, env: 0.24,
     cloudLit: '#ffe6cc', cloudShade: '#b097c6', cloudHaze: 0.65,
     grade: { gain: [1.05, 0.99, 0.93], lift: [0.03, 0.012, 0.05], vibrance: 0.18 },
@@ -79,7 +81,7 @@ const skyFrag = /* glsl */ `
     float up = max(h, 0.0);
     vec3 col = mix(horizon, zenith, smoothstep(0.0, 1.0, pow(up, 0.55)));
     col = mix(col, haze, exp(-up * 22.0));                      // pale haze band hugging the horizon
-    col = mix(col, below, smoothstep(0.0, -0.1, h));
+    col = mix(col, below, 1.0 - smoothstep(-0.1, 0.0, h));
     float cs = max(dot(d, sunDir), 0.0);
     // sun disc + tight halo + broad forward-scatter glow (stronger when the sun is low)
     float disc = smoothstep(0.99955, 0.99975, cs);

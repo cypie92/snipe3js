@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 
 const POOL = 8;
-const WIDTH = 0.0034; // ribbon half-width as a fraction of screen height (~3 px at 900p)
+const WIDTH = 0.0044; // ribbon half-width at the head, fraction of screen height (~4 px at 900p)
 
 const vert = /* glsl */ `
   attribute vec2 aRib;          // x: 0 at the muzzle end .. 1 at the head end, y: side (-1..1)
@@ -15,6 +15,8 @@ const vert = /* glsl */ `
   uniform float uAspect;
   varying vec2 vRib;
   varying float vLen;
+  varying float vSx;            // vSx / vSw = screen-linear position along the ribbon (0 muzzle .. 1 head)
+  varying float vSw;
   void main() {
     vec3 B = mix(uFrom, uTo, uHead);
     vec4 ca = projectionMatrix * viewMatrix * vec4(uFrom, 1.0);
@@ -26,9 +28,12 @@ const vert = /* glsl */ `
     dir = l > 1e-5 ? dir / l : vec2(1.0, 0.0);
     vec2 nrm = vec2(-dir.y, dir.x) / vec2(uAspect, 1.0);
     vec4 cp = mix(ca, cb, aRib.x);
-    cp.xy += nrm * aRib.y * uWidth * 2.0 * cp.w;
+    // comet taper: thin at the muzzle, full width at the head (constant on-screen size)
+    cp.xy += nrm * aRib.y * uWidth * 2.0 * mix(0.4, 1.0, aRib.x) * cp.w;
     vRib = aRib;
     vLen = distance(uFrom, B);
+    vSx = aRib.x * cp.w;
+    vSw = cp.w;
     gl_Position = cp;
   }
 `;
@@ -36,20 +41,25 @@ const frag = /* glsl */ `
   uniform vec3 uCore;
   uniform vec3 uTrail;
   uniform vec3 uInk;
-  uniform float uSlug;          // slug length (m)
+  uniform float uSlug;          // min slug length (m)
+  uniform float uSlugScreen;    // slug = last fraction of the on-screen length
   uniform float uTrailAlpha;
   uniform float uCoreOn;
   varying vec2 vRib;
   varying float vLen;
+  varying float vSx;
+  varying float vSw;
   void main() {
     float across = abs(vRib.y);
-    float distToHead = (1.0 - vRib.x) * vLen;
-    float slug = (1.0 - smoothstep(uSlug * 0.2, uSlug, distToHead)) * uCoreOn;
+    float ts = vSx / vSw;
+    float slugS = smoothstep(1.0 - uSlugScreen, 1.0 - uSlugScreen * 0.3, ts);
+    float slugW = 1.0 - smoothstep(uSlug * 0.3, uSlug, (1.0 - vRib.x) * vLen);
+    float slug = max(slugS, slugW) * uCoreOn;
     // HDR gold core (blooms a touch) with a thin ink rim so it reads on bright walls and sky too
-    float aCore = (1.0 - smoothstep(0.34, 0.62, across)) * slug;
-    float aRim = smoothstep(0.5, 0.7, across) * (1.0 - smoothstep(0.86, 1.0, across)) * slug * 0.42;
+    float aCore = (1.0 - smoothstep(0.3, 0.6, across)) * slug;
+    float aRim = smoothstep(0.45, 0.68, across) * (1.0 - smoothstep(0.85, 1.0, across)) * slug * 0.5;
     // vapour: soft, strongest just behind the slug, fading toward the muzzle
-    float aTrail = (1.0 - smoothstep(0.1, 0.8, across)) * uTrailAlpha * mix(0.35, 1.0, vRib.x);
+    float aTrail = (1.0 - smoothstep(0.05, 0.75, across)) * uTrailAlpha * mix(0.3, 1.0, ts);
     float wsum = aCore + aRim + aTrail;
     if (wsum < 0.003) discard;
     vec3 col = (uCore * 3.0 * aCore + uInk * aRim + uTrail * aTrail) / wsum;
@@ -81,7 +91,7 @@ export class Tracers {
         side: THREE.DoubleSide, // winding flips with the screen-space direction of the shot
         uniforms: {
           uFrom: { value: new THREE.Vector3() }, uTo: { value: new THREE.Vector3() }, uHead: { value: 0 },
-          uWidth: { value: WIDTH }, uAspect: { value: 1.6 }, uSlug: { value: 4 }, uTrailAlpha: { value: 0 },
+          uWidth: { value: WIDTH }, uAspect: { value: 1.6 }, uSlug: { value: 4 }, uSlugScreen: { value: 0.3 }, uTrailAlpha: { value: 0 },
           uCoreOn: { value: 1 }, uCore: { value: new THREE.Color('#ffe7a3') }, uTrail: { value: new THREE.Color('#f2f6ff') },
           uInk: { value: new THREE.Color('#2b2b3a') },
         },
@@ -107,10 +117,10 @@ export class Tracers {
     u.uTo.value.copy(to);
     u.uHead.value = 0;
     u.uCoreOn.value = 1;
-    u.uTrailAlpha.value = 0.42;
+    u.uTrailAlpha.value = 0.5;
     u.uWidth.value = WIDTH;
     const dist = from.distanceTo(to);
-    u.uSlug.value = Math.min(22, Math.max(4, dist * 0.26));
+    u.uSlug.value = Math.min(12, Math.max(3, dist * 0.12));
     m.userData.busy = true;
     m.visible = true;
     this.active = this.active.filter((a) => a.mesh !== m);
@@ -129,7 +139,7 @@ export class Tracers {
       if (k >= 1) {
         a.fade += dt;
         u.uCoreOn.value = Math.max(0, 1 - a.fade / 0.06);
-        u.uTrailAlpha.value = 0.42 * Math.max(0, 1 - a.fade / 0.5);
+        u.uTrailAlpha.value = 0.5 * Math.max(0, 1 - a.fade / 0.5);
         u.uWidth.value = WIDTH * (1 + a.fade * 2.2);
         if (a.fade > 0.5) this.release(i);
       }

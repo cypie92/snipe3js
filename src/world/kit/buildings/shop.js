@@ -27,6 +27,7 @@ export function displayGlassMaterial() {
   if (!shopGlass) {
     shopGlass = new THREE.MeshStandardMaterial({ color: '#d8f3ff', transparent: true, opacity: 0.16, roughness: 0.05, metalness: 0, depthWrite: false, envMapIntensity: 2 });
     shopGlass.name = 'displayGlass';
+    shopGlass.userData.passThrough = true; // meshes built with it are see-through AND shoot-through
   }
   return shopGlass;
 }
