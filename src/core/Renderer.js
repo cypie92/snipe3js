@@ -6,10 +6,10 @@
 import * as THREE from 'three';
 import {
   EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect, SMAAPreset, FXAAEffect,
-  ToneMappingEffect, ToneMappingMode, DepthOfFieldEffect,
+  ToneMappingEffect, ToneMappingMode, DepthOfFieldEffect, EffectAttribute,
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
-import { GradeEffect, ScopeLensEffect, OverlayPass, setOverlayLayer, viewState } from '../gfx/post.js';
+import { EdgeEffect, GradeEffect, ScopeLensEffect, OverlayPass, setOverlayLayer, viewState } from '../gfx/post.js';
 
 // Budget notes (1920x1080, DPR 1): high ~ 13 full-screen-equivalent passes (AO half-res), medium ~ 8, low ~ 2.
 export const QUALITY = {
@@ -196,22 +196,35 @@ export class Renderer {
       this.passes.push('overlay(viewmodel)');
     }
 
-    // Grade pass: one merged shader. Convolution effects (lens CA / FXAA) must come first.
+    // Grade pass: one merged shader. pmndrs orders merged effects CONVOLUTION > DEPTH > NONE (stable):
+    //   [scope lens CA | FXAA] -> silhouette darkening -> bloom -> tone map -> display-space grade.
+    // FXAA is promoted to the convolution tier so it always sees raw, consistent input.
     const effects = [];
     this.lens = null;
     this.fxaa = null;
     if (q.lens) effects.push((this.lens = new ScopeLensEffect()));
-    else if (q.aa === 'fxaa') effects.push((this.fxaa = new FXAAEffect()));
+    else if (q.aa === 'fxaa') {
+      this.fxaa = new FXAAEffect();
+      this.fxaa.setAttributes(EffectAttribute.CONVOLUTION);
+      effects.push(this.fxaa);
+    }
+    this.edgeFx = q.outline ? new EdgeEffect() : null;
+    if (this.edgeFx) effects.push(this.edgeFx);
     this.bloom = null;
     if (q.bloom) {
       const b = this.grade.bloom;
       this.bloom = new BloomEffect({
         intensity: b.intensity, luminanceThreshold: b.threshold, luminanceSmoothing: b.smoothing, mipmapBlur: true, radius: b.radius,
       });
+      // NaN guard: one bad pixel must never be smeared into big black blocks by the bloom mip chain.
+      const lum = this.bloom.luminanceMaterial;
+      lum.fragmentShader = lum.fragmentShader.replace('vec4 texel=texture2D(inputBuffer,vUv);',
+        'vec4 texel=texture2D(inputBuffer,vUv);texel.rgb=(any(isnan(texel.rgb))||any(isinf(texel.rgb)))?vec3(0.0):min(texel.rgb,vec3(64.0));');
+      lum.needsUpdate = true;
       effects.push(this.bloom);
     }
     this.tone = new ToneMappingEffect({ mode: this.toneMode });
-    this.gradeFx = new GradeEffect({ outline: !!q.outline });
+    this.gradeFx = new GradeEffect();
     effects.push(this.tone, this.gradeFx);
     const gradePass = new EffectPass(camera, ...effects);
     composer.addPass(gradePass);
@@ -236,9 +249,11 @@ export class Renderer {
     if (this.gradeFx) {
       const neutral = { ...g, lift: [0, 0, 0], gain: [1, 1, 1], gamma: 1, contrast: 0, saturation: 1, vibrance: 0, green: [1, 0, 1] };
       this.gradeFx.apply(t.grade ? g : neutral);
-      if (!t.outline) this.gradeFx.uniforms.get('uOutline').value.x = 0;
-      this.gradeFx.outlineWidth = Math.max(1, this.renderer.getPixelRatio());
       this.gradeFx.scopeRadius = SCOPE_RADIUS * Math.min(1, this.size.x / Math.max(1, this.size.y));
+    }
+    if (this.edgeFx) {
+      this.edgeFx.apply(g, t.outline);
+      this.edgeFx.width = Math.max(1, this.renderer.getPixelRatio());
     }
     if (this.lens) this.lens.scopeRadius = SCOPE_RADIUS * Math.min(1, this.size.x / Math.max(1, this.size.y));
     if (this.bloom) {

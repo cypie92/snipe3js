@@ -61,6 +61,10 @@ export class Hud {
     this.hintMarker = el('div', 'hint-marker hidden');
     this.hintArrow = el('div', 'hint-arrow hidden');
     this.bars = el('div', 'bars', '<div class="slowmo">SLOW-MO</div>');
+    this.clockOffEl = el('div', 'clockoff hidden', `<div class="co-title">Shift done! <span class="co-left"></span></div>
+      <div class="co-sub">Keep hunting for secrets &amp; Golden Spanners, or</div>
+      <button class="btn co-btn">Clock off <kbd>ENTER</kbd></button>`);
+    this.clockOffEl.querySelector('.co-btn').addEventListener('click', () => game.clockOff());
 
     this.touch = el('div', 'touch hidden', `<button class="tb pause">❚❚</button><button class="tb jobs">📋</button>
       <button class="tb hint">?</button><button class="tb reload">R</button><button class="tb zin">+</button>
@@ -80,7 +84,7 @@ export class Hud {
     tap('.pause', () => (game.paused ? game.resume() : game.pause()));
 
     this.root.append(this.scope, this.cross, this.clip, this.top, this.tr, this.ammo, this.help, this.prompt,
-      this.toasts, this.flashEl, this.hintMarker, this.hintArrow, this.touch);
+      this.toasts, this.flashEl, this.hintMarker, this.hintArrow, this.touch, this.clockOffEl);
     root.appendChild(this.bars);
 
     this.lastSec = -1;
@@ -157,6 +161,11 @@ export class Hud {
     this.flashEl.className = 'flash';
     void this.flashEl.offsetWidth;
     this.flashEl.className = `flash ${kind}`;
+  }
+
+  showClockOff(on, left = 0) {
+    this.clockOffEl.classList.toggle('hidden', !on);
+    if (on) this.clockOffEl.querySelector('.co-left').textContent = left ? `${left} secret${left > 1 ? 's' : ''} left` : '';
   }
 
   setCinematic(on) {
@@ -261,7 +270,7 @@ export class Hud {
     }
 
     // Timer / par
-    const t = g.scoring.time;
+    const t = g.scoring.shiftTime;
     const sec = Math.floor(t);
     if (sec !== this.lastSec) {
       this.lastSec = sec;

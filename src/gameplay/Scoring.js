@@ -14,7 +14,13 @@ export class Scoring {
     this.spanners = 0;
     this.spannersTotal = 0;
     this.hintsUsed = 0;
+    this.finishTime = null; // set when the last main job resolves (par is judged here)
     this.log = [];
+  }
+
+  /** Time that counts for par/grades: frozen once the shift's jobs are all resolved. */
+  get shiftTime() {
+    return this.finishTime ?? this.time;
   }
 
   addCoins(n, why) {
@@ -27,8 +33,8 @@ export class Scoring {
     const { total, done, failed } = counts;
     const frac = total ? done / total : 0;
     const all = done === total && failed === 0;
-    if (all && this.time <= this.parTime && this.badHits === 0) return 'S';
-    if (done === total && this.time <= this.parTime * 1.5 && this.badHits <= 1) return 'A';
+    if (all && this.shiftTime <= this.parTime && this.badHits === 0) return 'S';
+    if (done === total && this.shiftTime <= this.parTime * 1.5 && this.badHits <= 1) return 'A';
     if (frac >= 0.75 && this.badHits <= 3) return 'B';
     if (frac >= 0.5) return 'C';
     return 'D';
@@ -41,7 +47,7 @@ export class Scoring {
   /** Final tally rows for the results screen + total coins. */
   summary(counts) {
     const g = this.grade(counts);
-    const timeBonus = this.time <= this.parTime ? Math.round(60 + (this.parTime - this.time) * 0.5) : 0;
+    const timeBonus = this.shiftTime <= this.parTime ? Math.round(60 + (this.parTime - this.shiftTime) * 0.5) : 0;
     const accBonus = Math.round(this.accuracy() * 50);
     const badPenalty = this.badHits * 15;
     const gradeBonus = { S: 150, A: 90, B: 50, C: 20, D: 0 }[g];

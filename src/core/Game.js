@@ -206,6 +206,7 @@ export class Game {
         if (code === 'KeyR' && this.rifle.reload()) sound.sfx('reload');
         if (code === 'Tab' || code === 'KeyJ') this.hud.toggleClipboard();
         if (code === 'KeyH') this.useHint();
+        if ((code === 'Enter' || code === 'NumpadEnter') && this.shiftDone) this.clockOff();
         if (code === 'Space' && !this.paused && !this.bulletCam.active) this.shooting.fire();
         if (code === 'KeyQ' || code === 'KeyE') {
           this.setScope(!this.rig.scoped);
@@ -261,6 +262,7 @@ export class Game {
       this.hud.toast(job.bonus ? 'SECRET JOB!' : 'JOB DONE!', job.title, job.bonus ? 'gold' : 'good');
       this.hud.flash('good');
       this.hud.renderJobs(job.id);
+      if (job.bonus) this.tweens.delay(0.8, () => this.checkHuntDone());
       sound.sfx('jobDone');
       this.tweens.delay(0.35, () => sound.sfx('cash'));
     });
@@ -415,6 +417,8 @@ export class Game {
     await this.loadLevel(id);
     const def = this.level.def;
     this.rifle.reset();
+    this.shiftDone = false;
+    this.hud.showClockOff(false);
     this.hintsLeft = this.maxHints;
     this.rig.setScoped(false);
     this.rig.scopeT = 0;
@@ -490,13 +494,46 @@ export class Game {
     sound.duck(0, 0.1);
   }
 
+  /** All main jobs resolved: stop the par clock. If secrets/spanners remain, let the player
+   *  keep hunting and clock off when they like; otherwise go straight to the report. */
   finishLevel() {
+    if (this.state !== 'play' || this.shiftDone) return;
+    this.shiftDone = true;
+    this.scoring.finishTime = this.scoring.time;
+    this.hud.toast('ALL JOBS DONE!', 'Shift complete', 'big gold');
+    if (this.secretsRemaining() > 0) {
+      this.tweens.delay(2.2, () => this.state === 'play' && this.hud.showClockOff(true, this.secretsRemaining()));
+    } else {
+      this.clockOff(1.4);
+    }
+  }
+
+  secretsRemaining() {
+    const ctx = this.level?.ctx;
+    if (!ctx) return 0;
+    const spanners = ctx.collectibles.filter((c) => !c.userData.collected).length;
+    const secrets = this.jobs.list.filter((j) => j.bonus && j.state === 'open').length;
+    return spanners + secrets;
+  }
+
+  /** End the shift and show the report (after the bullet-cam if one is playing). */
+  clockOff(delay = 0.6) {
     if (this.state !== 'play') return;
     this.state = 'outro';
     this.input.active = false;
-    const wait = () => (this.bulletCam.active ? this.tweens.delay(0.2, wait) : this.tweens.delay(1.4, () => this.showResults()));
-    this.hud.toast('ALL JOBS DONE!', 'Shift complete', 'big gold');
+    this.hud.showClockOff(false);
+    const wait = () => (this.bulletCam.active ? this.tweens.delay(0.2, wait) : this.tweens.delay(delay, () => this.showResults()));
     this.tweens.delay(0.4, wait);
+  }
+
+  /** During the post-shift hunt, finding the last secret clocks off automatically. */
+  checkHuntDone() {
+    if (!this.shiftDone || this.state !== 'play') return;
+    const left = this.secretsRemaining();
+    if (left === 0) {
+      this.hud.toast('EVERYTHING FOUND!', 'Clocking off…', 'gold');
+      this.clockOff(2.0);
+    } else this.hud.showClockOff(true, left);
   }
 
   showResults() {
@@ -510,7 +547,7 @@ export class Game {
     const summary = this.scoring.summary(counts);
     this.progress.addCoins(summary.total);
     const { newBest } = this.progress.recordLevel(def.id, {
-      grade: summary.grade, time: this.scoring.time, stars: summary.stars,
+      grade: summary.grade, time: this.scoring.shiftTime, stars: summary.stars,
       spanners: this.level.ctx.collectibles.filter((c) => c.userData.collected).map((c) => c.userData.hit?.id || c.name),
     });
     sound.music('results');
@@ -518,7 +555,7 @@ export class Game {
     const next = boardLevels()[idx + 1];
     const canNext = next && this.progress.stars >= (next.unlockStars || 0);
     this.screens.results({
-      def, summary, counts, time: this.scoring.time, badHits: this.scoring.badHits,
+      def, summary, counts, time: this.scoring.shiftTime, badHits: this.scoring.badHits,
       accuracy: this.scoring.accuracy(), spanners: this.scoring.spanners, spannersTotal: this.scoring.spannersTotal, newBest,
     }, {
       onOffice: () => this.showOffice(),
@@ -565,6 +602,7 @@ export class Game {
     this.hud.renderSpanners();
     sound.sfx('collect');
     spec.onCollect?.(obj);
+    this.tweens.delay(0.8, () => this.checkHuntDone());
     const s0 = obj.scale.x;
     this.tweens.run(0.6, (k) => {
       obj.scale.setScalar(s0 * (1 + Math.sin(k * Math.PI) * 0.8) * (1 - k * k));

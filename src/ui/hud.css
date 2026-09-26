@@ -101,7 +101,7 @@ body { font-family: var(--font-ui); color: var(--ink); user-select: none; -webki
 /* ---------- Help & prompts ---------- */
 .help { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; text-align: center; white-space: nowrap; font-size: 13px; color: #fff; text-shadow: 0 1.5px 0 var(--ink); font-weight: 600; line-height: 1.7; transition: opacity 1s; }
 .help kbd { font-family: var(--font-ui); background: var(--paper); color: var(--ink); border: 2px solid var(--ink); border-bottom-width: 3.5px; border-radius: 6px; padding: 0 6px; margin-right: 4px; font-size: 12px; font-weight: 700; }
-.prompt { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 22px; border-radius: 30px; font-weight: 600; font-size: 18px; box-shadow: 0 0 0 3px var(--sun); animation: bob 1.6s ease-in-out infinite; }
+.prompt { position: absolute; left: 50%; top: 78%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 22px; border-radius: 30px; font-weight: 600; font-size: 18px; box-shadow: 0 0 0 3px var(--sun); animation: bob 1.6s ease-in-out infinite; }
 
 /* ---------- Toasts ---------- */
 .toasts { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -166,3 +166,12 @@ body { font-family: var(--font-ui); color: var(--ink); user-select: none; -webki
   .corner-tr .chip { font-size: 16px; }
   .ammo { bottom: 210px; right: 110px; }
 }
+
+/* ---------- Post-shift hunt ---------- */
+.clockoff { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%) rotate(-1deg); background: var(--paper); border: 3.5px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); padding: 8px 18px 12px; text-align: center; animation: clockin .35s cubic-bezier(.2,1.5,.4,1) both; }
+.clockoff .co-title { font-weight: 700; font-size: 22px; }
+.clockoff .co-left { font-family: var(--font-hand); font-size: 20px; color: #c0392b; margin-left: 6px; }
+.clockoff .co-sub { font-family: var(--font-hand); font-size: 19px; opacity: .75; margin: 2px 0 8px; }
+.clockoff .co-btn { font-size: 18px; padding: 6px 18px; pointer-events: auto; }
+.clockoff kbd { font-family: var(--font-ui); background: var(--ink); color: #fff; border-radius: 6px; padding: 0 6px; font-size: 12px; margin-left: 6px; }
+@keyframes clockin { 0% { transform: translateX(-50%) translateY(30px) scale(.94); opacity: 0; } 100% { transform: translateX(-50%) rotate(-1deg); opacity: 1; } }
