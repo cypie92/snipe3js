@@ -1,4 +1,4 @@
-// Puddleby Green: 11 contracts, 2 secret jobs and 3 Golden Spanners — each with a tell, a reaction
+// Puddleby Green: 12 contracts (the dunk tank is the first laugh), 2 secret jobs and 3 Golden Spanners — each with a tell, a reaction
 // and the villagers who care about it. Clues describe the resident's problem (not the target);
 // hints are a spoken nudge. Anyone still waiting after ~45 s starts waving for help ("nag"; staggered).
 import * as THREE from 'three';
@@ -47,6 +47,8 @@ export function buildJobs(ctx, S, L, D) {
   // Staggered so a stuck player hears one new voice every 6 s (nearest problems first), not a chorus.
   const NAG_ORDER = ['fountain', 'pigeons', 'icecream', 'sign', 'bunting', 'tap', 'kite', 'postman', 'bell'];
   const nags = new Map();
+  // idle: [sticker, every s] = the owner's calm tell from the start (villagers have no automatic stickers
+  // here, see cast.js), replaced by the '!' escalation and cleared when the job is done.
   const nag = (id, o) => nags.set(id, { t: 0, n: 0, next: 0, started: false, after: 45 + 6 * Math.max(0, NAG_ORDER.indexOf(id)), ...o });
   const quiet = (id) => {
     const g = nags.get(id);
@@ -61,6 +63,11 @@ export function buildJobs(ctx, S, L, D) {
       const st = stateOf(id);
       if (st !== 'open') { if (st) quiet(id); continue; }
       if (g.ready && !g.ready()) continue;
+      if (g.idle && !g.idleOn && g.owner) {
+        g.idleOn = true;
+        const [type, every = 10] = g.idle;
+        ctx.delay(rng.range(0.8, every), () => { if (!g.off && !g.started) g.owner.setTell(type, { every, duration: 1.5 }); });
+      }
       g.t += dt;
       if (g.t < (g.after ?? 45)) continue;
       if (!g.started) {
@@ -237,7 +244,7 @@ export function buildJobs(ctx, S, L, D) {
     },
   });
   nag('fountain', {
-    owner: tapper, r: tapperR, lines: ["Somebody fix the fountain!", 'It just goes plip!'],
+    owner: tapper, r: tapperR, idle: ['?', 9], lines: ["Somebody fix the fountain!", 'It just goes plip!'],
     fn: () => { // the fountain coughs a sad little puff of spray
       const sp = worldPos(fountain.userData.parts.spout);
       ctx.fx.burst('water', sp, UP, { scale: 0.7 });
@@ -315,7 +322,7 @@ export function buildJobs(ctx, S, L, D) {
       ctx.delay(0.6, () => cast.say(vicar, 'You may now kiss the bride!', 2.3));
     },
   });
-  nag('bell', { owner: bride, r: brideR, lines: ['Ding-dong! Anybody?', "It's my WEDDING!"], fn: () => church.userData.ringBell(0.12) });
+  nag('bell', { owner: bride, r: brideR, idle: ['?', 10], lines: ['Ding-dong! Anybody?', "It's my WEDDING!"], fn: () => church.userData.ringBell(0.12) });
   J.wedding = [bride, groom, vicar, ...guests];
 
   // ================================================================ 3. wonky pub sign
@@ -357,7 +364,7 @@ export function buildJobs(ctx, S, L, D) {
       ctx.delay(0.8, () => cast.cheerNear(signPos, 9, { except: [landlord] }));
     },
   });
-  nag('sign', { owner: landlord, r: landlordR, lines: ["Somebody sort that sign out!", "It'll have somebody's eye out!"], fn: () => { signKick = 2.2; creak.set({ swing: 0.6, volume: 1.2 }); ctx.delay(2.4, () => creak.set({ swing: 1.5, volume: 0.75 })); } });
+  nag('sign', { owner: landlord, r: landlordR, idle: ['anger', 10], lines: ["Somebody sort that sign out!", "It'll have somebody's eye out!"], fn: () => { signKick = 2.2; creak.set({ swing: 0.6, volume: 1.2 }); ctx.delay(2.4, () => creak.set({ swing: 1.5, volume: 0.75 })); } });
   J.landlord = landlord;
 
   // ================================================================ 4. bunting for the fête
@@ -419,7 +426,7 @@ export function buildJobs(ctx, S, L, D) {
       ctx.delay(3, () => postie.setAction('wave'));
     },
   });
-  nag('bunting', { owner: postie, r: postieR, lines: ['Can somebody get those flags down?', 'Up there! By my hook!'], fn: () => { bundleKick = 2; } });
+  nag('bunting', { owner: postie, r: postieR, idle: ['?', 10], lines: ['Can somebody get those flags down?', 'Up there! By my hook!'], fn: () => { bundleKick = 2; } });
   J.bunting = lines;
   J.postie = postie;
 
@@ -461,7 +468,7 @@ export function buildJobs(ctx, S, L, D) {
       ctx.delay(3.2, () => mayor.setAction('wave'));
     },
   });
-  nag('ribbon', { owner: mayor, r: mayorR, ready: () => done('bunting'), after: 25, lines: ['Snip snip! Somebody!', 'The ribbon, man, the ribbon!'] });
+  nag('ribbon', { owner: mayor, r: mayorR, ready: () => done('bunting'), after: 25, idle: ['?', 8], lines: ['Snip snip! Somebody!', 'The ribbon, man, the ribbon!'] });
   J.mayor = mayor;
   J.ribbon = ribbon;
 
@@ -520,7 +527,7 @@ export function buildJobs(ctx, S, L, D) {
     },
   });
   nag('pigeons', {
-    owner: crumb, big: false, tell: '?', lines: ['Come on, somebody open it for me...', 'My poor little dears are starving.'],
+    owner: crumb, big: false, idle: ['?', 11], lines: ['Come on, somebody open it for me...', 'My poor little dears are starving.'],
     fn: () => flock.scare(bw(0, -3), 5),
   });
   J.crumb = crumb;
@@ -619,7 +626,7 @@ export function buildJobs(ctx, S, L, D) {
       queue.forEach((q, i) => ctx.delay(1 + i * 0.5, () => q.setAction('shrug')));
     },
   });
-  nag('icecream', { owner: vanMan, r: vanManR, big: 'point', lines: ["Somebody, anybody, make it stop!", "It's coming out of the speaker!"], fn: () => { notes.size = 1.1; ctx.delay(2, () => { notes.size = 0.75; }); } });
+  nag('icecream', { owner: vanMan, r: vanManR, big: 'point', idle: ['anger', 10], lines: ["Somebody, anybody, make it stop!", "It's coming out of the speaker!"], fn: () => { notes.size = 1.1; ctx.delay(2, () => { notes.size = 0.75; }); } });
   J.vanMan = vanMan;
 
   // ================================================================ 8. wake the postman
@@ -732,7 +739,7 @@ export function buildJobs(ctx, S, L, D) {
       });
     },
   });
-  nag('kite', { owner: poppy, r: poppyR, lines: ['Pleeeease get my kite!', "It's up THERE!"], fn: () => { kiteKick = 2.2; ctx.sfx('whoosh', { position: knotPos, pitch: 1.6, volume: 0.5 }); } });
+  nag('kite', { owner: poppy, r: poppyR, idle: ['?', 9], lines: ['Pleeeease get my kite!', "It's up THERE!"], fn: () => { kiteKick = 2.2; ctx.sfx('whoosh', { position: knotPos, pitch: 1.6, volume: 0.5 }); } });
   J.poppy = poppy;
 
   // ================================================================ 10. tourist selfie (needs the fountain running)
@@ -778,7 +785,7 @@ export function buildJobs(ctx, S, L, D) {
     });
     ctx.delay(1.2, () => cast.say(tourists[0], 'Ooh! Photo time!', 2.4));
   });
-  nag('selfie', { owner: tourists[0], r: tourR[0], ready: () => done('fountain'), after: 25, lines: ['Could someone press the button?', "We're not getting any younger!"] });
+  nag('selfie', { owner: tourists[0], r: tourR[0], ready: () => done('fountain'), after: 25, idle: ['?', 8], lines: ['Could someone press the button?', "We're not getting any younger!"] });
   J.tourists = tourists;
 
   // ================================================================ 11. Mr Grubb's leaky tap (water butt = decoy)
@@ -856,7 +863,7 @@ export function buildJobs(ctx, S, L, D) {
       ctx.delay(3.2, () => grubb.setAction('shakeFist'));
     },
   });
-  nag('tap', { owner: grubb, r: grubbR, big: 'angry', tell: '!', lines: ['Is nobody going to turn that off?', 'By the door! THE DOOR!'], fn: () => { ctx.fx.emit('blob', tp.clone().setY(0.9), 10, { dir: v3(0, -1, 0), speed: 1.5, spread: 0.4, size: 0.06, gravity: 9, life: 0.6, color: ['#bfeeff', '#8fdcf7'] }); } });
+  nag('tap', { owner: grubb, r: grubbR, big: 'angry', tell: '!', idle: ['anger', 10], lines: ['Is nobody going to turn that off?', 'By the door! THE DOOR!'], fn: () => { ctx.fx.emit('blob', tp.clone().setY(0.9), 10, { dir: v3(0, -1, 0), speed: 1.5, spread: 0.4, size: 0.06, gravity: 9, life: 0.6, color: ['#bfeeff', '#8fdcf7'] }); } });
   J.grubb = grubb;
 
   // ================================================================ secret: the weathervane

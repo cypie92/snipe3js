@@ -31,10 +31,14 @@ export class Cast {
 
   /** Create + register a villager. opts: Person options (preset allowed). */
   person(opts, x, z, ry = 0, action, actionOptions, { y = 0, name, lines, blob = true, voice } = {}) {
-    const p = new Person({ ...opts, shadow: false });
+    // no automatic tell stickers for anyone here (15 at once drowned the job tells): job owners get
+    // deliberate ones from jobs.js (idle '?' / escalation '!'), reactions use p.tell()
+    const p = new Person({ autoIcons: false, ...opts, ...(voice ? { voice } : {}), shadow: false });
     p.root.position.set(x, y, z);
     p.root.rotation.y = ry;
-    p.root.userData.voice = voice || voiceOf(p.config, opts.preset);
+    // the characters kit picks a voice per person now; ours is only a fallback for older builds
+    if (voice) p.root.userData.voice = voice;
+    else if (!p.root.userData.voice) p.root.userData.voice = voiceOf(p.config, opts.preset);
     if (action) p.setAction(action, actionOptions || {}, 0);
     if (name) p.root.name = name;
     this.ctx.actor(p, { name: name || opts.preset || 'villager' });

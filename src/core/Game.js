@@ -455,6 +455,7 @@ export class Game {
       this.screens.loading(getLevel(id));
       await nextFrames(2); // let the card paint before the heavy synchronous build
       await this.loadLevel(id);
+      this.screens.clear();
     }
     this.level.pristine = false;
     const def = this.level.def;
@@ -523,13 +524,14 @@ export class Game {
     const center = this.level.out.shadowCenter || new THREE.Vector3(0, 0, -5);
     const m = new THREE.Matrix4();
     const dur = 4.2;
+    const shot = { radius: 120, height: 75, arc: 1.6, ...(this.level.out.intro || {}) };
     sound.sfx('whoosh');
     return new Promise((resolve) => {
       this.tweens.run(dur, (k) => {
         const e = THREE.MathUtils.smootherstep(k, 0, 1);
-        const a = (1 - e) * 1.6 + (perch.yaw ?? 0);
-        const r = THREE.MathUtils.lerp(120, end.distanceTo(center), e);
-        const start = new THREE.Vector3(center.x + Math.sin(a) * r, THREE.MathUtils.lerp(75, end.y, e), center.z + Math.cos(a) * r);
+        const a = (1 - e) * shot.arc + (perch.yaw ?? 0);
+        const r = THREE.MathUtils.lerp(shot.radius, end.distanceTo(center), e);
+        const start = new THREE.Vector3(center.x + Math.sin(a) * r, THREE.MathUtils.lerp(shot.height, end.y, e), center.z + Math.cos(a) * r);
         o.position.copy(start).lerp(end, THREE.MathUtils.smoothstep(k, 0.55, 1));
         m.lookAt(o.position, center, UP);
         const q = new THREE.Quaternion().setFromRotationMatrix(m);

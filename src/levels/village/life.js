@@ -6,7 +6,9 @@ import * as K from '../../world/kit/props/index.js';
 import { Person, Walker, Dog, Cat, Gull, Chicken, Duck, Sheep } from '../../world/characters/index.js';
 import { P } from '../../gfx/palette.js';
 import { put, local, yawTo, facePerch, worldPos, circlePath, sunHat, Leash, v3, every, routine } from './util.js';
-import { FOUNTAIN, ROAD_PTS } from './layout.js';
+import { FOUNTAIN, ROAD_PTS, CRICKET } from './layout.js';
+import { cricketSet, scoreboard, cricketBat, deckchair, picnicBlanket } from './custom.js';
+import { materials } from '../../gfx/materials.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -184,7 +186,7 @@ export function buildLife(ctx, S, L, D, J) {
   put(root, wbin, BIN[0], BIN[1], facePerch(BIN[0], BIN[1]) - 0.5);
   ctx.surface(wbin, 'soft');
   ctx.onUpdate(wbin.userData.update);
-  const binMan = new Person({ seed: 2901, top: { type: 'shirt', color: P.cobalt, sleeves: 'long' }, bottom: { type: 'trousers', color: '#8b5e3c' }, shoes: '#c8503a', socks: P.sunflower, hat: null, accessory: null, shadow: false, scale: 0.9 });
+  const binMan = new Person({ seed: 2901, autoIcons: false, top: { type: 'shirt', color: P.cobalt, sleeves: 'long' }, bottom: { type: 'trousers', color: '#8b5e3c' }, shoes: '#c8503a', socks: P.sunflower, hat: null, accessory: null, shadow: false, scale: 0.9 });
   binMan.root.userData.voice = 'man';
   const mouth = wbin.userData.parts.mouth;
   mouth.add(binMan.root);
@@ -241,6 +243,29 @@ export function buildLife(ctx, S, L, D, J) {
       { name: 'gossip', voice: 'old', lines: ['...and then SHE said...', 'Never! Not the vicar!', 'Mark my words, dear.'] });
   });
   every(ctx, () => rng.range(5, 8), () => ctx.sfx('whistle', { position: worldPos(busker.root).setY(1.5), volume: 0.35, pitch: rng.range(1.1, 1.4) }));
+
+  // ------------------------------------------------------------ more square life (kept off the job sight lines)
+  // a sweeper, a photographer snapping the church, a PCSO on her beat, two neighbours nattering,
+  // an ice cream at the memorial, a late busker fan and a granny with her shopping trolley
+  const sweeper = cast.person({ seed: 3261, top: { type: 'hivis', color: '#ffd23c' }, hat: { type: 'cap', color: '#3d4a6b' }, accessory: null }, -21.8, -13.8, 0.9, 'sweep', {}, { name: 'sweeper', lines: ['Confetti everywhere, every year.', 'Mind my pile!'] });
+  const snapper = cast.person({ seed: 3262, accessory: null, hat: { type: 'beret', color: P.tomato } }, -14.5, -19.2, 0, 'photo', {}, { name: 'photographer', lines: ['Say "cheese", church!', 'Hold still, tower.'] });
+  snapper.faceTowards(L.anchors.churchDoor);
+  const pcso = cast.person({ preset: 'police', seed: 3263, hair: { style: 'bun', color: P.hair[2] } }, -21, -21.5, 0, 'walk', {}, { name: 'PCSO', lines: ['Move along, nothing to see.', 'Lovely morning for it.', "'Ello, 'ello."] });
+  new Walker(pcso, [[-21, -21.5], [3.5, -21.8]], { pingPong: true, speed: 0.95, start: 0.4, startFraction: true, pauseAt: [{ index: 0, duration: 3, action: 'idle' }, { index: 1, duration: 3, action: 'checkWatch' }] });
+  const natter = [[-11.8, -11.2, 'speak'], [-10.6, -12.4, 'listen']].map(([x, z, role], i) => {
+    const n = cast.person({ seed: 3264 + i, age: i ? 'elder' : 'adult', accessory: i ? 'shopping' : 'handbag' }, x, z, 0, 'talk', { role }, { name: 'neighbour', lines: ['Did you hear about the vicar?', 'Never!', 'And the price of carrots!'] });
+    return n;
+  });
+  natter[0].faceTowards(natter[1].root.position);
+  natter[1].faceTowards(natter[0].root.position);
+  cast.person({ seed: 3266, accessory: 'icecream', age: 'kid' }, -19.8, -1.4, 0.4, 'eat', { food: 'icecream' }, { name: 'kid', lines: ['Mmm, raspberry ripple.', 'Brain freeze!'] });
+  {
+    const [x, z] = local(bs.x, bs.z, bs.ry, 0.3, 6.1);
+    const f = cast.person({ seed: 3267, age: 'elder', hat: { type: 'boater', color: '#f2d27a' }, accessory: null }, x, z, 0, 'clap', {}, { name: 'listener', lines: ['Play "Greensleeves"!', 'Marvellous.'] });
+    f.faceTowards(new THREE.Vector3(bs.x, 0, bs.z));
+  }
+  const granny = cast.person({ preset: 'oldLady', seed: 3268, accessory: 'shopping' }, 21.5, 0.5, 0, 'walk', {}, { name: 'shopper', lines: ["I'll just pop to the baker's.", 'My hip, my hip...'] });
+  new Walker(granny, [[21.5, 0.5], [25.2, 8.5]], { pingPong: true, speed: 0.5, pauseAt: [{ index: 1, duration: 4, action: 'talk' }] });
 
   // ------------------------------------------------------------ fête: bouncy castle kids, cake lady, strollers
   const cst = D.castle;
@@ -434,6 +459,167 @@ export function buildLife(ctx, S, L, D, J) {
   }
   for (const o of D.parkedCars || []) ctx.prop(o, { surface: 'metal', onHit: () => { o.userData.bump?.(1); ctx.sfx('honk', { position: worldPos(o), pitch: 1.1 }); } });
 
+  // ------------------------------------------------------------ village cricket on the east meadow (over the ring road)
+  // Puddleby v Brambley: the bowler runs in every ~12 s; blocks, fours, the odd SIX into the duck
+  // pond and a HOWZAT! with flying bails. Fills the east flank at the yaw limit with life.
+  const cricket = (() => {
+    const [CX, CZ] = CRICKET;
+    const HALF = 8;
+    const set = cricketSet({ half: HALF });
+    put(root, set, CX, CZ, 0);
+    ctx.surface(set, 'dust');
+    S.batch.add(set, 'dust');
+    const sb = scoreboard();
+    put(root, sb, 60.2, -8.6, facePerch(60.2, -8.6) - 0.35);
+    ctx.surface(sb, 'wood');
+    S.batch.add(sb, 'wood');
+    // the striker's stumps (dynamic: the bails fly on a HOWZAT)
+    const stumpMat = materials.solid('#e8d7b0', { roughness: 0.7 });
+    const stumps = new THREE.Group();
+    stumps.name = 'stumps';
+    for (const x of [-0.12, 0, 0.12]) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.8, 6), stumpMat); m.position.set(x, 0.4, 0); m.castShadow = true; stumps.add(m); }
+    const bails = [-0.06, 0.06].map((x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.03), stumpMat); m.position.set(x, 0.815, 0); stumps.add(m); return m; });
+    put(root, stumps, CX, CZ + HALF, 0);
+    ctx.surface(stumps, 'wood');
+    const toBowler = v3(CX, 0, CZ - HALF), toStriker = v3(CX, 0, CZ + HALF);
+    const whites = (seed, extra = {}) => ({ seed, top: { type: 'shirt', color: '#fbf7f0', sleeves: 'long' }, bottom: { type: 'trousers', color: '#fbf7f0' }, hat: { type: 'cap', color: '#2f7d62', color2: '#fbf7f0' }, accessory: null, ...extra });
+    const lines = ['Owzat!', 'Well bowled!', 'Tea in ten minutes, chaps.', 'Catch it! CATCH IT!', 'Leg before, surely?'];
+    const striker = cast.person(whites(4801, { hat: { type: 'cap', color: '#3d4a6b' } }), CX + 0.35, CZ + HALF - 1.1, 0, 'idle', {}, { name: 'batsman', lines: ['Middle stump, please, umpire.', 'Just a quick single!'] });
+    striker.faceTowards(toBowler);
+    const bat = cricketBat();
+    striker.bones.handR.add(bat);
+    const other = cast.person(whites(4802, { hat: { type: 'cap', color: '#3d4a6b' } }), CX - 1.2, CZ - HALF + 1.0, 0, 'idle', {}, { name: 'batsman', lines: ['Yes! No! Wait! Sorry!'] });
+    other.faceTowards(toStriker);
+    other.bones.handR.add(cricketBat());
+    const keeper = cast.person(whites(4803), CX, CZ + HALF + 2.3, 0, 'idle', {}, { name: 'wicketkeeper', lines });
+    keeper.faceTowards(toBowler);
+    const umpire = cast.person({ seed: 4804, top: { type: 'smock', color: '#fbf7f0', sleeves: 'long' }, bottom: { type: 'trousers', color: '#3d4a6b' }, hat: { type: 'bucket', color: '#fbf7f0' }, accessory: null, age: 'elder' },
+      CX + 0.95, CZ - HALF - 1.3, 0, 'idle', {}, { name: 'umpire', lines: ['Not out.', 'Over!', 'Play!'] });
+    umpire.faceTowards(toStriker);
+    const fielders = [[-1.9, 10.6, 'idle'], [-5.2, 5, 'idle'], [4.4, -1.5, 'idle'], [-4.6, -3.2, 'idle'], [3.2, 14.5, 'idle']].map(([dx, dz, act], i) => {
+      const f = cast.person(whites(4811 + i), CX + dx, CZ + dz, 0, act, {}, { name: 'fielder', lines });
+      f.faceTowards(toStriker);
+      return f;
+    });
+    const fans = [[58.7, 20.4], [59.5, 23.3]].map(([x, z], i) => {
+      const dc = deckchair({ colors: [[P.teal, '#fff8ee'], [P.sunflower, '#fff8ee']][i], seed: 7 + i });
+      const ry = yawTo(v3(x, 0, z), v3(CX, 0, CZ + 3));
+      put(root, dc, x, z, ry);
+      ctx.surface(dc, 'soft');
+      S.batch.add(dc, 'soft');
+      const [px, pz] = local(x, z, ry, 0, 0.22);
+      return cast.person({ seed: 4821 + i, age: i ? 'elder' : 'adult', hat: i ? { type: 'boater', color: '#f2d27a' } : { type: 'sunhat', color: '#fff1d6', band: P.teal }, accessory: null }, px, pz, ry, 'lie', { pose: 'deckchair', height: dc.userData.seat, awake: true },
+        { name: 'spectator', lines: ['Good shot, sir!', 'Jolly good.', 'Is it tea yet?'] });
+    });
+    // the bowler: mark -> run in -> bowl -> walk back
+    const mark = v3(CX - 0.4, 0, CZ - HALF - 7), crease = v3(CX - 0.25, 0, CZ - HALF - 0.3);
+    const bowler = cast.person(whites(4805), mark.x, mark.z, 0, 'idle', {}, { name: 'bowler', lines: ['Here comes the googly!', 'Owzat!'] });
+    bowler.faceTowards(toStriker);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), materials.solid('#c8102e', { roughness: 0.4 }));
+    ball.scale.setScalar(1.4);
+    ball.visible = false;
+    ball.castShadow = false;
+    ball.raycast = () => {};
+    root.add(ball);
+    const pond = D.pond;
+    const arc = (from, to, h, secs, onDone) => ctx.tweens.run(secs, (k) => {
+      ball.position.lerpVectors(from, to, k);
+      ball.position.y += Math.sin(Math.PI * k) * h;
+    }, { onComplete: onDone });
+    const hide = (s) => ctx.delay(s, () => { ball.visible = false; });
+    const clap = (who) => who.forEach((p, i) => ctx.delay(0.2 * i, () => p.perform('clap', 2)));
+    const outcome = () => {
+      const r = rng.random();
+      const hitAt = ball.position.clone();
+      if (r < 0.4) { // a dead bat
+        striker.perform('wave', 0.5);
+        ctx.sfx('hitWood', { position: hitAt, volume: 0.5, pitch: 1.3 });
+        arc(hitAt, hitAt.clone().add(v3(rng.range(-0.8, 0.8), -hitAt.y + 0.1, -1.6)), 0.2, 0.5, () => hide(0.8));
+      } else if (r < 0.68) { // FOUR along the ground
+        striker.perform('wave', 0.6);
+        ctx.sfx('hitWood', { position: hitAt, volume: 0.8 });
+        const side = rng.chance(0.5) ? -1 : 1;
+        const to = v3(CX + side * rng.range(6.5, 8), 0.12, CZ + rng.range(-8, 12));
+        arc(hitAt, to, 0.3, 1.5, () => {
+          hide(1.2);
+          ctx.popText(to.clone().setY(2.2), 'FOUR!', { cls: 'pop-info', duration: 1.4 });
+          clap([...fans, other]);
+          fielders.find((f) => f.root.position.distanceTo(to) < 9)?.perform('shrug', 1.6);
+        });
+      } else if (r < 0.88) { // SIX... into the duck pond
+        striker.perform('wave', 0.8);
+        ctx.sfx('hitWood', { position: hitAt, volume: 1, pitch: 0.85 });
+        ctx.popText(hitAt.clone().setY(3), 'SIX!', { cls: 'pop-big', duration: 1.6 });
+        const to = v3(pond.x + rng.range(-1.5, 1.5), 0.15, pond.z + rng.range(-1.5, 1.5));
+        fielders.forEach((f, i) => ctx.delay(0.3 + i * 0.1, () => f.perform('lookUp', 2.4)));
+        arc(hitAt, to, 16, 2.6, () => {
+          ball.visible = false;
+          ctx.fx.burst('water', to, UP, { scale: 1.1 });
+          ctx.sfx('splash', { position: to, pitch: 1.3 });
+          ctx.delay(0.3, () => ctx.sfx('quack', { position: to, pitch: 1.2 }));
+          clap(fans);
+        });
+      } else { // bowled him! bails fly
+        ctx.sfx('hitWood', { position: hitAt, volume: 0.7, pitch: 1.5 });
+        bails.forEach((b, i) => {
+          const x0 = b.position.x, v = (i ? 1 : -1) * rng.range(0.4, 0.9);
+          ctx.tweens.run(0.8, (k) => { b.position.set(x0 + v * k, 0.815 + Math.sin(Math.PI * k) * 0.9 - k * 0.8, -k * 0.6); b.rotation.z = k * 9; });
+        });
+        hide(0.3);
+        ctx.delay(0.3, () => { ctx.popText(worldPos(stumps).setY(2.4), 'HOWZAT!', { cls: 'pop-big', duration: 1.5 }); bowler.perform('alarm', 1.6); keeper.perform('cheer', 1.6); ctx.sfx('gasp', { position: worldPos(stumps), volume: 0.6 }); });
+        ctx.delay(1.2, () => { umpire.perform('point', 2.4); umpire.pointAt(worldPos(umpire.root).add(v3(0, 9, 1))); cast.say(umpire, 'OUT!', 1.8); });
+        ctx.delay(1.6, () => striker.perform('shrug', 2.2));
+        ctx.delay(4.5, () => { umpire.pointAt(null); bails.forEach((b, i) => { b.position.set(i ? 0.06 : -0.06, 0.815, 0); b.rotation.set(0, 0, 0); }); });
+      }
+    };
+    const deliver = () => {
+      const from = worldPos(bowler.bones.handR);
+      const to = worldPos(striker.root).add(v3(-0.25, 0.55, -0.55));
+      const pitchAt = from.clone().lerp(to, 0.74).setY(0.05);
+      ball.visible = true;
+      ball.position.copy(from);
+      ctx.tweens.run(0.52, (k) => {
+        if (k < 0.74) ball.position.lerpVectors(from, pitchAt, k / 0.74);
+        else ball.position.lerpVectors(pitchAt, to, (k - 0.74) / 0.26);
+      }, { onComplete: outcome });
+    };
+    let phase = 'wait', pt = rng.range(2, 5);
+    ctx.onUpdate((dt) => {
+      pt -= dt;
+      if (phase === 'wait' && pt <= 0) { phase = 'run'; pt = 2.2; bowler.speed = mark.distanceTo(crease) / 2.2; bowler.setAction('run'); }
+      else if (phase === 'run') {
+        bowler.root.position.lerpVectors(mark, crease, 1 - Math.max(0, pt) / 2.2);
+        if (pt <= 0) { phase = 'bowl'; pt = 0.3; bowler.speed = 0; bowler.setAction('idle', {}, 0.1); bowler.perform('wave', 0.9); }
+      } else if (phase === 'bowl' && pt <= 0) { deliver(); phase = 'follow'; pt = 1.8; }
+      else if (phase === 'follow' && pt <= 0) { phase = 'back'; pt = 5.2; bowler.faceTowards(mark); bowler.speed = mark.distanceTo(crease) / 5.2; bowler.setAction('walk'); }
+      else if (phase === 'back') {
+        bowler.root.position.lerpVectors(crease, mark, 1 - Math.max(0, pt) / 5.2);
+        if (pt <= 0) { phase = 'wait'; pt = rng.range(2.5, 5.5); bowler.speed = 0; bowler.setAction('idle'); bowler.faceTowards(toStriker); }
+      }
+    });
+    return { striker, bowler, keeper, umpire, fielders, fans, other };
+  })();
+
+  // ------------------------------------------------------------ a family picnic on the east lawn by the pond
+  {
+    const PX = 44.2, PZ = 37.2;
+    const bl = picnicBlanket({ w: 2.2, d: 1.7, color: P.cobalt });
+    put(root, bl, PX, PZ, 0.5);
+    ctx.surface(bl, 'soft');
+    S.batch.add(bl, 'soft');
+    const dx = PX + 1.6, dz = PZ - 0.9;
+    const dry = yawTo(v3(dx, 0, dz), v3(PX, 0, PZ + 1));
+    const dc = deckchair({ colors: [P.tomato, '#fff8ee'], seed: 11 });
+    put(root, dc, dx, dz, dry);
+    ctx.surface(dc, 'soft');
+    S.batch.add(dc, 'soft');
+    const [mx, mz] = local(dx, dz, dry, 0, 0.22);
+    cast.person({ seed: 3271, accessory: 'book', hat: { type: 'sunhat', color: '#fff1d6', band: P.bubblegum } }, mx, mz, dry, 'lie', { pose: 'deckchair', height: dc.userData.seat, awake: true }, { name: 'picnicker', lines: ['Pass the scotch eggs.', 'Was that a cricket ball?!'] });
+    cast.person({ seed: 3272, accessory: null, top: { type: 'hawaiian', color: P.teal, color2: P.sunflower, sleeves: 'short' } }, PX - 0.2, PZ + 0.1, 0.5, 'lie', { pose: 'back', hatOverFace: true }, { name: 'picnicker', lines: ['Zzz... five more minutes...'] });
+    const kid = cast.person({ age: 'kid', seed: 3273, accessory: null }, PX, PZ, 0, 'run', {}, { name: 'kid', lines: ['Wheee!', 'Dad! Dad! Watch this!'] });
+    new Walker(kid, circlePath(PX - 0.4, PZ + 0.4, 3.3, 14), { loop: true, speed: 1.7, action: 'run', variety: 0 });
+  }
+
   // ------------------------------------------------------------ chimney smoke (a few, lazily)
   const chimneys = [
     ...L.anchors.terraceChimneys.filter((_, i) => i % 2 === 0),
@@ -442,7 +628,7 @@ export function buildLife(ctx, S, L, D, J) {
   ];
   for (const c of chimneys) ctx.smoke(c.clone().add(v3(0, 0.25, 0)), { rate: rng.range(0.7, 1.1) });
 
-  return { shoppers, jogger, owner, bigDog, painter, binMan, hatLady, cakeLady, busker, fans, stroller, bus, car, bike };
+  return { shoppers, jogger, owner, bigDog, painter, binMan, hatLady, cakeLady, busker, fans, stroller, bus, car, bike, cricket };
 }
 
 export { Drive, UP };

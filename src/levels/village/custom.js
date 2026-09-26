@@ -1174,3 +1174,57 @@ export function hotAirBalloon({ seed = 2, colors = [P.tomato, P.sunflower, P.tea
 }
 
 export { blob };
+
+/**
+ * Village cricket square (centre at the origin, pitch along Z, the bowler's end at -Z): the mown
+ * strip with its creases, the bowler's-end stumps and a white sight screen behind them. The
+ * striker's stumps (+Z end) are left to the caller so their bails can fly.
+ */
+export function cricketSet({ half = 8, screen = 9 } = {}) {
+  const kit = new Kit('cricketSet');
+  kit.add(box(3.0, 0.04, half * 2 + 1.6), '#d9d49a', { y: 0.02 });
+  for (const s of [-1, 1]) {
+    kit.add(box(2.64, 0.012, 0.08), CREAM, { y: 0.046, z: s * half });
+    kit.add(box(2.64, 0.012, 0.08), CREAM, { y: 0.046, z: s * (half - 1.22) });
+    for (const x of [-1.32, 1.32]) kit.add(box(0.08, 0.012, 1.3), CREAM, { x, y: 0.046, z: s * (half - 0.6) });
+  }
+  // bowler's-end stumps + bails
+  for (const x of [-0.12, 0, 0.12]) kit.add(cyl(0.035, 0.035, 0.8, 6), '#e8d7b0', { x, y: 0.4, z: -half });
+  for (const x of [-0.06, 0.06]) kit.add(box(0.12, 0.03, 0.03), '#e8d7b0', { x, y: 0.815, z: -half });
+  // sight screen behind the bowler's arm
+  const z = -half - screen;
+  kit.add(box(4.4, 2.8, 0.14), '#fbf7f0', { y: 2.0, z });
+  kit.add(box(4.6, 0.12, 0.2), '#d9cfb8', { y: 3.44, z });
+  for (const x of [-1.9, 1.9]) {
+    kit.add(box(0.16, 1.2, 0.16), '#d9cfb8', { x, y: 0.6, z });
+    kit.add(box(0.12, 0.12, 1.6), '#d9cfb8', { x, y: 0.1, z: z - 0.5 });
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = 'cricketSet';
+  g.userData.surface = 'dust';
+  return g;
+}
+
+/** The cricket club's little scoreboard hut (front +Z): "142 for 7". */
+export function scoreboard({ runs = '142 - 7', teams = 'PUDDLEBY v BRAMBLEY' } = {}) {
+  const kit = new Kit('scoreboard');
+  kit.add(cbox(2.6, 2.1, 1.6, 0.06), [shade(CREAM, -0.06), CREAM], { y: 1.05 });
+  kit.add(prism([[-1.45, 0], [1.45, 0], [0, 0.7]], 1.9), '#3f8a4e', { y: 2.1 });
+  kit.add(box(2.3, 1.1, 0.06), P.woodDark, { y: 1.5, z: 0.81 });
+  kit.raw(new THREE.PlaneGeometry(2.16, 0.98), boardMaterial(runs, { bg: '#2b2b3a', fg: CREAM, border: '#2b2b3a', sub: teams, w: 512, h: 232, font: 0.7 }), { y: 1.5, z: 0.845 });
+  kit.add(box(0.8, 1.2, 0.05), P.woodDark, { x: -0.5, y: 0.6, z: 0.81 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'scoreboard';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** A cricket bat (blade down -Y from the grip at the origin). */
+export function cricketBat() {
+  const kit = new Kit('bat');
+  kit.add(cyl(0.022, 0.022, 0.3, 6), '#2b2b3a', { y: -0.15 });
+  kit.add(cbox(0.11, 0.56, 0.045, 0.015), [shade('#f0d9a8', -0.06), '#f0d9a8'], { y: -0.58 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'bat';
+  return g;
+}

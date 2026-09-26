@@ -1,7 +1,7 @@
 // Puddleby Green — location 1 (village square). Spec: docs/levels/puddleby-green.md
 //   layout.js   terrain, roads, the 55 x 40 m square, buildings, trees, backdrop
 //   dressing.js market rows, street furniture, the fête green under the van, allotments, flanks
-//   jobs.js     11 contracts + 2 secret jobs + 3 Golden Spanners (tells, reactions, nags, decoys)
+//   jobs.js     12 contracts (incl. the first-laugh dunk tank) + 2 secret jobs + 3 Golden Spanners (tells, reactions, nags, decoys)
 //   life.js     ambient villagers, animals, vehicles, chimney smoke
 //   custom.js   bespoke set pieces (kiosk, marquee, bouncy castle, allotment beds...)
 import * as THREE from 'three';

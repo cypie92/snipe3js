@@ -11,7 +11,9 @@ import { bev, lathe, puck, ball, rod, arc, latheBands, paintFaces } from '../kit
 import { liveryAtlas } from './livery.js';
 
 export const NEST = {
-  eye: 1.62, // eye height above the floor (railing top = eye - 0.95)
+  // eye height above the floor. Raised so the railing (top at 0.67) only enters the view when the
+  // player deliberately looks down (~52 deg), instead of filling the bottom of the default view.
+  eye: 2.2,
   railR: 1.1, railTop: 0.67, floorR: 1.17, rimR: 1.2, coneH: 0.42,
   hatch: { x: 0.28, z0: -0.98, z1: -0.62 },
 };

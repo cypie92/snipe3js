@@ -18,6 +18,8 @@ export const FOUNTAIN = [0, -5];
 export const GREEN = [[-27, 19], [27, 19], [29, 38], [-29, 38]]; // the fête green under the van
 export const ALLOT = [[-45, 23], [-26, 23], [-26, 41], [-45, 41]];
 export const VAN = [0, 44];
+// village cricket on the east meadow over the ring road (an oval outfield, the pitch runs N-S)
+export const CRICKET = [64.5, 11];
 // the road: a U round the village, passing behind the van
 export const ROAD_PTS = [[-40, -78], [-50, -50], [-54, -15], [-54, 20], [-50, 42], [-34, 53], [0, 56], [34, 53], [50, 42], [54, 20], [54, -15], [50, -50], [40, -78]];
 // west row fronts face ROT_W (east, turned a touch toward the perch); east row mirrors it
@@ -389,12 +391,31 @@ export function buildLayout(ctx, S) {
     return Math.abs(lx) < f.w / 2 + pad && Math.abs(lz) < f.d / 2 + pad;
   });
   const onRoad = (x, z, pad = 5.5) => { for (let i = 0; i < ROAD_PTS.length - 1; i++) if (segDist(x, z, ...ROAD_PTS[i], ...ROAD_PTS[i + 1]) < pad) return true; return false; };
+  // ---- patchwork fields over the ring road (what the flanks show at the yaw limits): 18 x 22.5 m
+  // plots on the coarse ground ring, hedged along their borders; the east meadow is a mown cricket
+  // field and the sheep paddock stays pasture
+  const inLoop = (x, z) => inPoly(x, z, ROAD_PTS);
+  const inCricket = (x, z, pad = 0) => ((x - CRICKET[0]) / (7.5 + pad)) ** 2 + ((z - CRICKET[1]) / (19 + pad)) ** 2 < 1;
+  const inPaddock = (x, z) => x > -71 && x < -57.5 && z > 3 && z < 31;
+  const rim = (x, z) => Math.hypot(x - WORLD_C[0], z - WORLD_C[1]);
+  const FX0 = -99, FZ0 = -103.5, FW = 18, FD = 22.5;
+  const isField = (x, z, pad = 0) => !inLoop(x, z) && !onRoad(x, z, 6.2 + pad) && rim(x, z) < 86 - pad && !inCricket(x, z, 2 + pad) && !inPaddock(x, z) && !inFoot(x, z, 2 + pad);
+  // [colour, furrow colour (stripes), weight]: pasture, wheat, rapeseed, ploughed, hay, clover
+  const CROPS = [['#86c95a', null, 2.6], ['#e2c060', '#d0aa4a', 1.6], ['#f0d83c', null, 1.1], ['#a8794b', '#8d623b', 1.4], ['#c6dc84', '#b1c86e', 1.7], ['#6fb84a', null, 1.4]];
+  const cropW = CROPS.reduce((a, k) => a + k[2], 0);
+  const cropAt = (ix, iz) => { let h = hash3(ix * 1.3, 9.1, iz * 0.7) * cropW; for (const k of CROPS) if ((h -= k[2]) <= 0) return k; return CROPS[0]; };
+  const fieldColor = (x, z, c) => {
+    const ix = Math.floor((x - FX0) / FW), iz = Math.floor((z - FZ0) / FD);
+    const [a, b] = cropAt(ix, iz);
+    c.set(b && Math.floor((x - FX0) / 4.5) % 2 ? b : a).offsetHSL(0, 0, (hash3(ix, 2.3, iz) - 0.5) * 0.05);
+  };
   const treePts = [];
   const clear = (x, z) => {
     if (inPoly(x, z, SQUARE) || inPoly(x, z, ALLOT) || inPoly(x, z, GREEN)) return false;
     if (Math.hypot(x - WORLD_C[0], z - WORLD_C[1]) > 84) return false;
     if (onRoad(x, z) || inFoot(x, z, 3)) return false;
     if (Math.hypot(x - OAK[0], z - OAK[1]) < 9 || Math.hypot(x - CH[0], z - CH[1]) < 13) return false;
+    if (inCricket(x, z, 3)) return false;
     if (z > 30 && Math.abs(x) < 40) return false; // keep the green and the lay-by open
     return true;
   };
@@ -421,7 +442,7 @@ export function buildLayout(ctx, S) {
     { x: 45, z: -4.5, type: 'round' }, { x: 44.5, z: -30, type: 'tall' }, { x: 47, z: 8.5, type: 'blossom' }, { x: 19.5, z: -45.5, type: 'blossom' },
     { x: 58.5, z: 14, type: 'fruit' }, { x: 47, z: 32.5, type: 'round' },
   ];
-  for (const a of accents) if (!inFoot(a.x, a.z, 1)) treePts.push(a);
+  for (const a of accents) if (!inFoot(a.x, a.z, 1) && !inCricket(a.x, a.z, 2)) treePts.push(a);
   const nearT = treePts.filter((p) => Math.hypot(p.x - PERCH.x, p.z - PERCH.z) < 70);
   const farT = treePts.filter((p) => Math.hypot(p.x - PERCH.x, p.z - PERCH.z) >= 70);
   for (const [pts, cast, seed] of [[nearT, true, 21], [farT, false, 22]]) {
@@ -448,6 +469,8 @@ export function buildLayout(ctx, S) {
     if (inPoly(x, z, GREEN)) c.lerp(Math.floor((x + 300) / 3) % 2 ? light : dark, 0.32);
     else if (Math.hypot(x - WORLD_C[0], z - WORLD_C[1]) < 60 && !inPoly(x, z, ALLOT)) c.lerp(Math.floor((z + 300) / 3) % 2 ? light : dark, 0.16);
     if (inPoly(x, z, ALLOT)) c.lerp(soil, 0.4);
+    if (isField(x, z)) fieldColor(x, z, c);
+    else if (inCricket(x, z)) c.copy(base).lerp(Math.floor((z - FZ0) / 4.5) % 2 ? light : dark, 0.4);
     // darker, lusher grass under trees and hugging walls
     let shadeK = 0;
     for (const t of treePts) { const d = Math.hypot(x - t.x, z - t.z); if (d < 5.5) shadeK = Math.max(shadeK, (1 - d / 5.5) * 0.5); }
@@ -463,6 +486,64 @@ export function buildLayout(ctx, S) {
     return c;
   };
   root.add(groundMesh(ctx, colorAt));
+  // hedges along the plot borders (a few gaps for gates); only where both sides are fields
+  const hedgeOk = (x, z) => !inLoop(x, z) && !onRoad(x, z, 7) && rim(x, z) < 83 && !inCricket(x, z, 4) && !inPaddock(x, z) && !inFoot(x, z, 3);
+  let hedgeSegs = 0;
+  const hedgeGroup = new THREE.Group();
+  hedgeGroup.name = 'fieldHedges';
+  const tryHedge = (x0, z0, x1, z1, k) => {
+    const n = 3;
+    for (let i = 0; i <= n; i++) if (!hedgeOk(x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n)) return;
+    if (hash3(x0 * 0.3, z0 * 0.7, k) < 0.16) return; // a gap / gate
+    hedgeGroup.add(B.hedgeRow([[x0, z0], [x1, z1]], { seed: 500 + hedgeSegs, height: 1.25, width: 1.1, flowers: 0.35 }));
+    hedgeSegs++;
+  };
+  for (let x = FX0; x <= 99; x += FW) for (let z = FZ0; z < 94; z += FD) tryHedge(x, z, x, z + FD, 1.7);
+  for (let z = FZ0; z <= 94; z += FD) for (let x = FX0; x < 99; x += FW) tryHedge(x, z, x + FW, z, 2.9);
+  root.add(hedgeGroup);
+  ctx.surface(hedgeGroup, 'leaves');
+  batch.add(hedgeGroup, 'leaves');
+  // ...and carry the patchwork out over the hills' plain inner band (the backdrop kit fades its own
+  // fields to lawn there), so the flanks read as farmland all the way to the horizon: recolour this
+  // level's backdrop terrain triangles and continue the hedges up the slopes at terrain height
+  {
+    const terrain = bd.getObjectByName('backdropTerrain');
+    const heightAt = bd.userData.heightAt;
+    const [ox, oz] = WORLD_C;
+    if (terrain?.geometry?.attributes?.color) {
+      const pos = terrain.geometry.attributes.position, col = terrain.geometry.attributes.color;
+      const c = new THREE.Color(), f = new THREE.Color();
+      for (let i = 0; i + 2 < pos.count; i += 3) {
+        const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3 + ox;
+        const cy = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
+        const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3 + oz;
+        const r = rim(cx, cz);
+        if (r > 124 || cy < 0.4 || (!isField(cx, cz) && r < 86)) continue;
+        const w = 0.85 * Math.min(1, Math.max(0, (124 - r) / 22));
+        fieldColor(cx, cz, f);
+        c.setRGB(col.getX(i), col.getY(i), col.getZ(i)).lerp(f, w);
+        for (let k = 0; k < 3; k++) col.setXYZ(i + k, c.r, c.g, c.b);
+      }
+      col.needsUpdate = true;
+    }
+    if (heightAt) {
+      const hillOk = (x, z) => { const r = rim(x, z); return r > 78 && r < 104 && !inLoop(x, z) && !onRoad(x, z, 7) && heightAt(x - ox, z - oz) > 0.5; };
+      const hill = (x0, z0, x1, z1, k) => {
+        const n = 3;
+        for (let i = 0; i <= n; i++) if (!hillOk(x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n)) return;
+        if (hash3(x0 * 0.3, z0 * 0.7, k) < 0.16) return;
+        for (let i = 0; i < n; i++) { // short pieces, each sat on the slope
+          const ax = x0 + (x1 - x0) * i / n, az = z0 + (z1 - z0) * i / n, bx = x0 + (x1 - x0) * (i + 1) / n, bz = z0 + (z1 - z0) * (i + 1) / n;
+          const y = Math.min(heightAt(ax - ox, az - oz), heightAt(bx - ox, bz - oz), heightAt((ax + bx) / 2 - ox, (az + bz) / 2 - oz)) - 0.12;
+          hedgeGroup.add(B.hedgeRow([[ax, y, az], [bx, y, bz]], { seed: 900 + hedgeSegs * 3 + i, height: 1.5, width: 1.2, flowers: 0.2 }));
+        }
+        hedgeSegs++;
+      };
+      for (let x = FX0 - 2 * FW; x <= 140; x += FW) for (let z = FZ0 - FD; z < 120; z += FD) hill(x, z, x, z + FD, 3.7);
+      for (let z = FZ0 - FD; z <= 120; z += FD) for (let x = FX0 - 2 * FW; x < 140; x += FW) hill(x, z, x + FW, z, 4.1);
+    }
+  }
+  L.fieldHedges = hedgeSegs;
 
   // puddles (after last night's rain) on the cobbles, the lay-by and the green's worn track
   const puddleMat = new THREE.MeshStandardMaterial({ color: '#8fb1d6', roughness: 0.04, metalness: 0.35, envMapIntensity: 1.6 });

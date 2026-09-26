@@ -72,7 +72,14 @@ export function installDebug(game) {
     completeAll() {
       for (const j of game.jobs.main) if (j.state === 'open') game.jobs.complete(j);
     },
-    freeze(on = true) { game.frozen = on; },
+    freeze(on = true) {
+      game.frozen = on;
+      // deterministic framing for captures: no breathing sway / recoil while frozen
+      if (on) {
+        game.rig.swayMul = 0;
+        game.rig.recoil = game.rig.recoilVel = game.rig.recoilYaw = 0;
+      } else game.applyUpgrades();
+    },
     /** Advance the simulation `seconds` without rendering (fixed 1/30 steps). */
     step(seconds = 1) {
       const dt = 1 / 30;
