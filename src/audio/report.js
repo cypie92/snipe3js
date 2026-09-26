@@ -1,5 +1,6 @@
 // Batch measurements over every sound/track/bed (runs in the browser; see tools/audio-check.mjs).
-import { renderSfx, renderMusic, renderAmbience, renderLive } from './offline.js';
+import { renderSfx, renderMusic, renderAmbience, renderLive, renderEngine, testListener } from './offline.js';
+import { LOOP_NAMES } from './loops.js';
 import { analyze, sliceRms, centroid } from './analyze.js';
 import { SFX, SFX_NAMES } from './sfx/index.js';
 import { SONGS, MIX } from './music/index.js';
@@ -134,5 +135,124 @@ export async function liveReport({ seconds = 20 } = {}) {
     const a = analyze(r.buf);
     out.push({ label, realtimeFactor: r.realtimeFactor, cpuPct: Math.round(1000 / r.realtimeFactor) / 10, maxNodes: r.maxNodes, maxVoices: r.maxVoices, peakDb: a.peakDb, lufsI: a.lufsI });
   }
+  // busiest village moment through the real engine: chatter + all tell loops + shooting
+  const at = [];
+  for (let t = 0.5; t < seconds; t += 0.8) at.push([t, (e) => e.sfx('babble', { position: [Math.sin(t * 7) * 40, 1.6, -20 - (t * 13) % 60], syllables: 4 + Math.round(t * 3) % 8, mood: ['happy', 'surprised', 'question'][Math.round(t * 5) % 3] })]);
+  for (let t = 1; t < seconds; t += 2.5) at.push([t, (e) => { e.sfx('shot'); e.sfx('bolt', { delay: 0.3 }); e.sfx('hitWood', { position: [5, 2, -60], delay: 0.2 }); }]);
+  const r = await renderEngine({ seconds, listener: testListener(), at, script: (e) => {
+    e.music('level', { fade: 0.05 }); e.ambience('village', { fade: 0.05 });
+    e.loop('drip', { position: [-20, 1, -45] }); e.loop('snore', { position: [15, 1, -30] });
+    e.loop('signCreak', { position: [30, 4, -55] }); e.loop('iceCream', { position: [-35, 2, -70] });
+  } });
+  const a = analyze(r.buf);
+  const rt = Math.round((seconds * 1000 / r.ms) * 10) / 10;
+  out.push({ label: 'village: level music + bed + chatter + 4 loops + shooting (engine)', realtimeFactor: rt, cpuPct: Math.round(1000 / rt) / 10, maxNodes: '', maxVoices: '', peakDb: a.peakDb, lufsI: a.lufsI });
   return out;
+}
+
+// babble matrix: every voice x mood (loudness should match across voices; durations follow syllables)
+export async function babbleReport({ syllables = 6, seeds = [1, 2, 3] } = {}) {
+  const { VOICE_NAMES, MOOD_NAMES } = await import('./sfx/voices.js');
+  const rows = [];
+  for (const voice of VOICE_NAMES) {
+    for (const mood of MOOD_NAMES) {
+      const runs = [];
+      let cent = 0;
+      for (const seed of seeds) {
+        const { buf, declared } = await renderSfx('babble', { seed, chain: 'raw', opts: { voice, mood, syllables, seed: `${voice}${seed}` } });
+        runs.push(analyze(buf, { declared }));
+        if (seed === seeds[0]) cent = centroid(buf);
+      }
+      rows.push({ voice, mood, dur: r1(avg(runs.map((x) => x.declared)) * 100) / 100, lufs100: r1(avg(runs.map((x) => x.lufs100))),
+        peakDb: Math.max(...runs.map((x) => x.peakDb)), centroid: cent });
+    }
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------- round 2: voices, loops, breath
+
+const rmsDb = (buf, a, b) => {
+  const sr = buf.sampleRate, i0 = Math.round(a * sr), i1 = Math.min(buf.length, Math.round(b * sr));
+  let q = 0, n = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = i0; i < i1; i++) { q += d[i] * d[i]; n++; } }
+  return r1(10 * Math.log10(q / Math.max(1, n) + 1e-12));
+};
+// onsets: frames (10 ms) whose RMS jumps > 9 dB over the previous 30 ms
+const onsets = (buf, from = 0, to = buf.duration) => {
+  const sr = buf.sampleRate, fr = Math.round(0.01 * sr), d = buf.getChannelData(0), out = [];
+  const lv = [];
+  for (let s = Math.round(from * sr); s + fr < Math.min(d.length, to * sr); s += fr) {
+    let q = 0; for (let i = s; i < s + fr; i++) q += d[i] * d[i];
+    lv.push(10 * Math.log10(q / fr + 1e-12));
+  }
+  for (let i = 3; i < lv.length; i++) {
+    const prev = Math.max(lv[i - 1], lv[i - 2], lv[i - 3]);
+    if (lv[i] > -60 && lv[i] - prev > 9 && (!out.length || from + i * 0.01 - out[out.length - 1] > 0.12)) out.push(r1((from + i * 0.01) * 100) / 100);
+  }
+  return out;
+};
+
+// 1 vs 3 vs 5 villagers talking at once, spread around the square (engine stagger + crowd trim)
+export async function crowdReport() {
+  const spots = [[-12, 1.6, -30], [18, 1.6, -42], [-30, 1.6, -60], [8, 1.6, -22], [32, 1.6, -75]];
+  const moods = ['surprised', 'happy', 'question', 'surprised', 'happy'];
+  const rows = [];
+  for (const n of [1, 3, 5]) {
+    const { buf, eng } = await renderEngine({ seconds: 4, listener: testListener(), at: [[0.5, (e) => {
+      for (let i = 0; i < n; i++) e.sfx('babble', { position: spots[i], syllables: 8, mood: moods[i] });
+    }]] });
+    const a = analyze(buf);
+    rows.push({ talkers: n, peakDb: a.peakDb, lufsM: a.lufsM, lufs100: a.lufs100, starts: onsets(buf, 0.4, 1.2).slice(0, 6).join(' '), voicesCapped: eng.stats().voices });
+  }
+  // a busy bad-hit moment: shot, bonk + "oi", three bubbles
+  const { buf } = await renderEngine({ seconds: 4, listener: testListener(), at: [[0.3, (e) => {
+    e.sfx('shot'); e.sfx('badHit', { position: [4, 1.6, -40], delay: 0.2 }); e.sfx('oi', { position: [4, 1.6, -40], delay: 0.2 });
+    for (let i = 0; i < 3; i++) e.sfx('babble', { position: spots[i], syllables: 6, mood: 'surprised', delay: 0.5 });
+  }]] });
+  const b = analyze(buf);
+  rows.push({ talkers: 'shot+badHit+oi+3', peakDb: b.peakDb, lufsM: b.lufsM, lufs100: b.lufs100, starts: '', voicesCapped: '' });
+  return rows;
+}
+
+// each loop for 8 s, stopped at 6 s: level, trigger timing, and silence after the stop fade
+export async function loopReport() {
+  const rows = [];
+  for (const name of LOOP_NAMES) {
+    let h;
+    const { buf } = await renderEngine({ seconds: 8, listener: testListener(), at: [
+      [0.2, (e) => { h = e.loop(name, { position: [6, 1.2, -18] }); }], [6.2, () => h.stop(0.3)]] });
+    const a = analyze(buf);
+    const on = onsets(buf, 0.2, 6.2);
+    const gaps = on.slice(1).map((t, i) => t - on[i]);
+    rows.push({ loop: name, peakDb: a.peakDb, lufsI: a.lufsI, lufsM: a.lufsM, triggers: on.length,
+      meanGap: gaps.length ? r1(avg(gaps) * 100) / 100 : 0, afterStopDb: rmsDb(buf, 6.8, 8.05) });
+  }
+  return rows;
+}
+
+// the lead's hold-breath wiring: sfx('heartbeat') every 0.78 s -> even spacing, steady level, clean tails
+export async function heartbeatCallsReport() {
+  const at = [];
+  for (let k = 0; k < 10; k++) at.push([0.3 + k * 0.78, (e) => e.sfx('heartbeat')]);
+  const { buf } = await renderEngine({ seconds: 9, at });
+  const on = onsets(buf, 0.2, 8.5);
+  const lubs = on.filter((t, i) => i === 0 || t - on[i - 1] > 0.4);
+  const gaps = lubs.slice(1).map((t, i) => r1((t - lubs[i]) * 100) / 100);
+  const beatDb = lubs.map((t) => rmsDb(buf, t, t + 0.12));
+  const a = analyze(buf);
+  return { beats: lubs.length, gaps: gaps.join(' '), beatLevelSpreadDb: r1(Math.max(...beatDb) - Math.min(...beatDb)), peakDb: a.peakDb, lufsI: a.lufsI, nonFinite: a.nonFinite };
+}
+
+// holdBreath(true) at 3 s, (false) at 6 s over level music + village: how much the bed/music dips
+export async function holdBreathReport() {
+  const { buf } = await renderEngine({ seconds: 9, script: (e) => { e.music('menu', { fade: 0.05 }); e.ambience('village', { fade: 0.05 }); },
+    at: [[3, (e) => e.holdBreath(true)], [6, (e) => e.holdBreath(false)]] });
+  const hf = (a, b) => { // energy above ~2 kHz via first difference (a cheap high-pass)
+    const sr = buf.sampleRate, d = buf.getChannelData(0); let q = 0, n = 0;
+    for (let i = Math.round(a * sr) + 1; i < Math.round(b * sr); i++) { const x = d[i] - d[i - 1]; q += x * x; n++; }
+    return r1(10 * Math.log10(q / n + 1e-12));
+  };
+  return { before: rmsDb(buf, 1.5, 3), holding: rmsDb(buf, 3.6, 6), after: rmsDb(buf, 7.2, 8.8),
+    hfBefore: hf(1.5, 3), hfHolding: hf(3.6, 6), hfAfter: hf(7.2, 8.8), heartbeats: onsets(buf, 3, 6.2).length };
 }

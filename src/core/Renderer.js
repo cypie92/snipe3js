@@ -48,6 +48,9 @@ export const GRADE_DEFAULTS = {
   outlineThreshold: 0.022,
   outlineFade: [150, 330],
   bloom: { intensity: 0.55, threshold: 1.05, smoothing: 0.35, radius: 0.72 },
+  // unscoped "miniature" DOF (toggles.tilt): blur ramps in metres (near: sharp beyond [1], far: blurred
+  // beyond [1]); the whole 25-150 m playfield stays sharp
+  tilt: { near: [5, 14], far: [230, 560], bokeh: 1.3 },
   ao: { radius: 3.2, falloff: 1.0, intensity: 3.6, color: '#2a2552' },
 };
 
@@ -68,6 +71,22 @@ export class Renderer {
     r.shadowMap.type = THREE.PCFShadowMap;
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.toneMapping = THREE.NoToneMapping; // done in post
+    // Scene materials always render into the composer's linear HalfFloat buffer, never to the screen.
+    // WebGLRenderer.compile() builds programs for the *current* target, and with the screen bound it
+    // compiles sRGB-output variants that are never used (doubling the program count while the real
+    // variants still compile on the first frame). Precompile against the composer buffer instead.
+    for (const fn of ['compile', 'compileAsync']) {
+      const orig = r[fn].bind(r);
+      r[fn] = (...args) => {
+        const prev = r.getRenderTarget();
+        if (prev === null && this.composer) r.setRenderTarget(this.composer.inputBuffer);
+        try {
+          return orig(...args);
+        } finally {
+          r.setRenderTarget(prev);
+        }
+      };
+    }
     this.renderer = r;
     this.scope = 0;
     this.focusDistance = 60;
@@ -354,9 +373,10 @@ export class Renderer {
         // Narrower field of view = shallower depth of field (like a real long lens).
         this.dof.bokehScale = THREE.MathUtils.smoothstep(a, 0.02, 1) * THREE.MathUtils.clamp(1.0 + zoom * 0.1, 1.2, 1.8);
       } else if (mini) {
-        coc.uniforms.uNear.value.set(5, 14);
-        coc.uniforms.uFar.value.set(230, 560);
-        this.dof.bokehScale = 1.3;
+        const tl = this.grade.tilt;
+        coc.uniforms.uNear.value.set(tl.near[0], tl.near[1]);
+        coc.uniforms.uFar.value.set(tl.far[0], tl.far[1]);
+        this.dof.bokehScale = tl.bokeh;
       }
     }
     if (this.lens) this.lens.amount = this.toggles.lens ? 0.005 * THREE.MathUtils.smoothstep(a, 0.3, 1) : 0;

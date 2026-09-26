@@ -17,7 +17,7 @@ function makeCtx(seconds, sr) {
  * chain: 'raw'    -> recipe (with its trim) straight to the output
  *        'master' -> voice strip + reverb send + full master bus (what the player hears)
  */
-export async function renderSfx(name, { seed = 1, sr = 48000, seconds = 8, chain = 'master', pitch = 1, volume = 1 } = {}) {
+export async function renderSfx(name, { seed = 1, sr = 48000, seconds = 8, chain = 'master', pitch = 1, volume = 1, opts = {} } = {}) {
   const def = SFX[name];
   if (!def) throw new Error(`unknown sfx ${name}`);
   const ctx = makeCtx(seconds, sr);
@@ -33,9 +33,9 @@ export async function renderSfx(name, { seed = 1, sr = 48000, seconds = 8, chain
     dest = strip.input;
   }
   const v = new Voice(ctx, dest, T0, { pitch, rand: mulberry32(seed) });
-  def.fn(v, {});
+  def.fn(v, opts);
   const buf = await ctx.startRendering();
-  return { buf, declared: v.finish };
+  return { buf, declared: v.finish - T0 };
 }
 
 export async function renderMusic(name, { seconds = 20, sr = 48000, chain = 'master', seed = 7, fromBar = 0, only = null } = {}) {
@@ -118,3 +118,33 @@ export async function renderLive({ sfx = [], music = 'menu', ambience = 'village
   const ms = performance.now() - t0;
   return { buf, ms, realtimeFactor: Math.round((seconds * 1000 / ms) * 10) / 10, maxNodes, maxVoices };
 }
+
+/**
+ * Render through a real AudioEngine bound to an OfflineAudioContext. `script(eng)` runs at t = 0;
+ * `at` = [[seconds, fn(eng)], ...] runs timed actions; update()/_tick() are pumped every 50 ms
+ * like the game loop. Exercises the production code path (voice caps, stagger, loops, focus...).
+ */
+export async function renderEngine({ seconds = 10, sr = 48000, script, at = [], listener = null, seed = 1 } = {}) {
+  const { AudioEngine } = await import('./Audio.js');
+  const ctx = makeCtx(seconds, sr);
+  const eng = new AudioEngine({ context: ctx });
+  eng.rand = mulberry32(seed);
+  if (listener) eng.setListener(listener);
+  const actions = [...at].sort((a, b) => a[0] - b[0]);
+  script?.(eng);
+  const step = 0.05;
+  for (let t = step; t < seconds; t += step) {
+    ctx.suspend(t).then(() => {
+      while (actions.length && actions[0][0] <= ctx.currentTime + 1e-6) actions.shift()[1](eng);
+      eng.update();
+      eng._tick();
+      ctx.resume();
+    });
+  }
+  const t0 = performance.now();
+  const buf = await ctx.startRendering();
+  return { buf, ms: performance.now() - t0, eng };
+}
+
+/** Fake three.js camera at the origin looking down -Z (for positional tests). */
+export const testListener = (fov = 50) => ({ fov, zoom: 1, matrixWorld: { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1.6, 0, 1] } });

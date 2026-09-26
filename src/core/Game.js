@@ -366,6 +366,7 @@ export class Game {
       radioOn: this.progress.data.settings.music > 0, onAction: (a) => this.onOfficeAction(a),
     });
     this.office.refresh({ levels: this.officeLevels(), progress: this.progress });
+    sound.stopLoops(0.4);
     this.office.enter();
     this.office.setInteractive(true);
     this.rig.override = this.office.view;
@@ -397,6 +398,7 @@ export class Game {
   }
 
   disposeLevel() {
+    sound.stopLoops(0.2);
     if (!this.level) return;
     this.scene.remove(this.level.ctx.root);
     this.level.ctx.root.traverse((o) => {
@@ -747,13 +749,12 @@ export class Game {
     this.hud.update(realDt);
     this.popups.update(realDt);
     this.renderer.setScope(this.rig.scopeT, this.hud.range);
-    if (this.rig.holding && this.state === 'play') {
-      this.beatT = (this.beatT || 0) - realDt;
-      if (this.beatT <= 0) {
-        this.beatT = 0.78;
-        sound.sfx('heartbeat');
-      }
-    } else this.beatT = 0;
+    // hold-breath: muffled mix + heartbeat loop (the audio engine owns both)
+    const holding = this.rig.holding && this.state === 'play';
+    if (holding !== this.wasHolding) {
+      this.wasHolding = holding;
+      sound.holdBreath(holding);
+    }
     if (this.tutorial && this.state === 'play' && !this.paused) this.tickTutorial(realDt);
     this.popups.scope = { on: this.rig.scopeT > 0.5, R: this.hud.R || 0 };
     sound.update();

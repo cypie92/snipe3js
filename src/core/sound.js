@@ -34,4 +34,7 @@ export const sound = {
   update: call('update'),
   suspend: call('suspend'),
   resume: call('resume'),
+  loop: call('loop'),
+  stopLoops: call('stopLoops'),
+  holdBreath: call('holdBreath'),
 };

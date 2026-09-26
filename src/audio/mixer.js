@@ -1,6 +1,6 @@
 // Mix graph (works on realtime and offline contexts):
 //   voice strips ─> sfx bus ──────────────────────┐
-//   music ─> music bus ─> duck ───────────────────┤
+//   music ─> music bus ─> duck ─> focus LPF ─> dip ┤
 //   ambience ─> amb bus ─> focus LPF ─> duck ─────┼─> master ─> DC block ─> comp/limiter ─> soft clip ─> out
 //   strips/music sends ─> reverb (convolver) ─────┘
 // One look-ahead compressor/limiter (Chrome adds 6 ms pre-delay per compressor, so we use one)
@@ -50,6 +50,12 @@ export class Strip {
       p.setValueAtTime(v, t);
     }
   }
+  // smooth re-positioning for long-lived strips (loops following a source / turning camera)
+  glide(t, { pan = 0, lowpass = 20000, send = 0.1, dist = 1 }, tau = 0.06) {
+    for (const [p, v] of [[this.dry.gain, dist], [this.panner.pan, pan], [this.lp.frequency, Math.min(lowpass, this.ctx.sampleRate * 0.45)], [this.send.gain, send]]) {
+      p.setTargetAtTime(v, t, tau);
+    }
+  }
   dispose() {
     for (const n of [this.input, this.lp, this.dry, this.panner, this.send]) n.disconnect();
   }
@@ -83,10 +89,16 @@ export function createMixer(ctx, { destination = ctx.destination } = {}) {
   m.reverbIn.connect(m.reverb).connect(m.reverbOut).connect(m.master);
 
   m.sfx.connect(m.master);
-  m.music.connect(m.musicDuck).connect(m.master);
+  // hold-breath "tunnel": music gets a low-pass and a dip (see AudioEngine.holdBreath)
+  m.musicFocus = ctx.createBiquadFilter();
+  m.musicFocus.type = 'lowpass';
+  m.musicFocus.frequency.value = 20000;
+  m.musicFocus.Q.value = 0.5;
+  m.musicDip = ctx.createGain();
+  m.music.connect(m.musicDuck).connect(m.musicFocus).connect(m.musicDip).connect(m.master);
   m.musicSend = ctx.createGain();
   m.musicSend.gain.value = 0.12;
-  m.musicDuck.connect(m.musicSend).connect(m.reverbIn);
+  m.musicDip.connect(m.musicSend).connect(m.reverbIn);
   m.amb.connect(m.ambFocus).connect(m.ambDuck).connect(m.master);
 
   m.limiter = compressor(ctx, { threshold: -3.5, ratio: 8, attack: 0.002, release: 0.15 });

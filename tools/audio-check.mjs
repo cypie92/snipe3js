@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Audio verification: renders every SFX / music track / ambience bed offline in headless Chromium
 // (same WebAudio graph as the game) and prints measurement tables with pass/fail flags.
-// Usage: node tools/audio-check.mjs [--sfx] [--music] [--amb] [--stress] [--cpu] [--api] [--noaudio]
+// Usage: node tools/audio-check.mjs [--sfx] [--voices] [--loops] [--music] [--amb] [--stress] [--cpu] [--api] [--noaudio]
 //        [--names shot,bell] [--seeds 1,2,3] [--chain master|raw] [--spectrum] [--json out.json]
 // No flags = everything.
 import { startServer, launchBrowser, newPage } from './browser.mjs';
@@ -10,7 +10,7 @@ import fs from 'node:fs';
 const args = process.argv.slice(2);
 const has = (f) => args.includes(`--${f}`);
 const opt = (f, d) => { const i = args.indexOf(`--${f}`); return i >= 0 ? args[i + 1] : d; };
-const all = !['sfx', 'music', 'amb', 'stress', 'api', 'noaudio', 'cpu'].some(has);
+const all = !['sfx', 'music', 'amb', 'stress', 'api', 'noaudio', 'cpu', 'voices', 'loops'].some(has);
 const seeds = opt('seeds', '1,2,3').split(',').map(Number);
 const names = opt('names', null)?.split(',');
 const chain = opt('chain', 'master');
@@ -115,6 +115,41 @@ try {
     table(rows, [['label', 'scene'], ['realtimeFactor', 'x realtime'], ['cpuPct', '% of 1 core'], ['maxNodes', 'max nodes'],
       ['maxVoices', 'max voices'], ['peakDb', 'peak dBFS'], ['lufsI', 'LUFS-I']]);
     out.cpu = rows;
+  }
+
+  if (all || has('voices')) {
+    const m = await lab('babbleReport', { syllables: 6 });
+    const byVoice = {};
+    for (const r of m) (byVoice[r.voice] ||= []).push(r);
+    console.log('\n## Babble matrix (6 syllables, 3 seeds each; LUFS-100ms / dur s / centroid Hz, dry)\n');
+    const moods = [...new Set(m.map((r) => r.mood))];
+    const rows = Object.entries(byVoice).map(([voice, rs]) => Object.fromEntries([['voice', voice],
+      ...moods.map((md) => { const r = rs.find((x) => x.mood === md); return [md, `${r.lufs100} / ${r.dur} / ${r.centroid}`]; })]));
+    table(rows, [['voice', 'voice'], ...moods.map((md) => [md, md])]);
+    const l = m.map((r) => r.lufs100);
+    console.log(`  spread across all voices x moods: ${Math.round((Math.max(...l) - Math.min(...l)) * 10) / 10} LU; max peak ${Math.max(...m.map((r) => r.peakDb))} dBFS`);
+    const c = await lab('crowdReport');
+    console.log('\n## Talkers at once (real engine: stagger, 4-voice cap, crowd trim; positions 23-81 m)\n');
+    table(c, [['talkers', 'talkers'], ['peakDb', 'peak dBFS'], ['lufsM', 'LUFS-M'], ['lufs100', 'LUFS-100ms'], ['starts', 'onsets s']]);
+    if (c.some((r) => r.peakDb > -1)) failures++;
+    out.voices = { matrix: m, crowd: c };
+  }
+
+  if (all || has('loops')) {
+    const rows = await lab('loopReport');
+    for (const r of rows) {
+      r.flags = [r.peakDb > -1 && 'PEAK', r.afterStopDb > -60 && 'NOSTOP'].filter(Boolean).join(' ') || 'ok';
+      if (r.flags !== 'ok') failures++;
+    }
+    console.log('\n## Loops (8 s at 19 m, stopped at 6.2 s)\n');
+    table(rows, [['loop', 'loop'], ['peakDb', 'peak dBFS'], ['lufsI', 'LUFS-I'], ['lufsM', 'LUFS-M max'], ['triggers', 'onsets'],
+      ['meanGap', 'mean gap s'], ['afterStopDb', 'after stop dB'], ['flags', 'flags']]);
+    const hb = await lab('heartbeatCallsReport');
+    console.log(`  sfx('heartbeat') every 0.78 s x10: ${hb.beats} beats, gaps ${hb.gaps}, level spread ${hb.beatLevelSpreadDb} dB, peak ${hb.peakDb} dBFS`);
+    const br = await lab('holdBreathReport');
+    console.log(`  holdBreath over menu + village: RMS ${br.before} -> ${br.holding} -> ${br.after} dB; high band ${br.hfBefore} -> ${br.hfHolding} -> ${br.hfAfter} dB`);
+    if (hb.nonFinite || hb.beats < 9) failures++;
+    out.loops = { rows, heartbeatCalls: hb, holdBreath: br };
   }
 
   if (all || has('api')) {

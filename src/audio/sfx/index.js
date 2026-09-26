@@ -2,10 +2,14 @@
 //   cat   sandbox grouping          gain  loudness trim (calibrated with tools/audio-check.mjs)
 //   send  reverb send               poly  max overlapping instances of this name
 //   vary  default pitch variance    duck  [amount, seconds] music duck when played
+//   guard same-name retrigger window in s (0 = off)   stagger  offset simultaneous calls
+//   crowd each extra overlapping instance plays progressively quieter
 import rifle from './rifle.js';
 import impacts from './impacts.js';
 import feedback from './feedback.js';
 import vocal from './vocal.js';
+import voices from './babble.js';
+import tells from './tells.js';
 
 const R = (fn, cat, o = {}) => ({ fn, cat, gain: 1, send: 0.08, poly: 4, vary: 0.04, ...o });
 
@@ -54,7 +58,12 @@ export const SFX = {
   // voices & animals
   crowdCheer: R(vocal.crowdCheer, 'voice', { gain: 2.29, send: 0.14, poly: 2, vary: 0.03 }),
   gasp: R(vocal.gasp, 'voice', { gain: 2.75, vary: 0.06 }),
-  hey: R(vocal.hey, 'voice', { gain: 1.04, vary: 0.08 }),
+  hey: R(voices.hey, 'voice', { gain: 0.79, vary: 0.03, guard: 0 }),
+  babble: R(voices.babble, 'voice', { gain: 2.16, send: 0.05, poly: 4, vary: 0.02, guard: 0, stagger: true, crowd: true }),
+  oi: R(voices.oi, 'voice', { gain: 0.93, vary: 0.03, poly: 3, guard: 0 }),
+  yay: R(voices.yay, 'voice', { vary: 0.03, poly: 4, guard: 0, stagger: true, crowd: true }),
+  boo: R(voices.boo, 'voice', { gain: 0.56, vary: 0.03, poly: 4, guard: 0, stagger: true, crowd: true }),
+  aww: R(voices.aww, 'voice', { gain: 0.76, vary: 0.03, poly: 4, guard: 0, stagger: true, crowd: true }),
   pigeonFlap: R(vocal.pigeonFlap, 'animal', { gain: 8.23, vary: 0.08 }),
   coo: R(vocal.coo, 'animal', { gain: 0.44, vary: 0.06 }),
   quack: R(vocal.quack, 'animal', { gain: 2.19, vary: 0.06 }),
@@ -65,6 +74,12 @@ export const SFX = {
   cluck: R(vocal.cluck, 'animal', { gain: 1.55, vary: 0.06 }),
   gull: R(vocal.gull, 'animal', { gain: 1.24, vary: 0.06 }),
   chirp: R(vocal.chirp, 'animal', { gain: 0.72, vary: 0.08 }),
+  // tells (one-shots; audio.loop() repeats them with natural timing)
+  drip: R(tells.drip, 'tell', { gain: 1.2, send: 0.12, poly: 6, vary: 0.06 }),
+  snore: R(tells.snore, 'tell', { gain: 0.68, send: 0.05, poly: 2, vary: 0.03 }),
+  signCreak: R(tells.signCreak, 'tell', { gain: 1.14, send: 0.1, poly: 3, vary: 0.04 }),
+  iceCream: R(tells.iceCream, 'tell', { gain: 0.67, send: 0.12, poly: 2, vary: 0 }),
+  alarm: R(tells.alarm, 'tell', { gain: 3.51, send: 0.1, poly: 2, vary: 0.02 }),
 };
 
 // Loudness targets: max 100 ms K-weighted loudness (LUFS) through the master bus at volume 1.
@@ -74,10 +89,10 @@ const TARGETS = {
   hitWood: -15, hitMetal: -13.5, hitStone: -15, hitSoft: -14.5, hitGlass: -13.5, hitWater: -15, hitGround: -14.5, pop: -15, bell: -12,
   clang: -12, spring: -14, splash: -13, whoosh: -16, firework: -10, honk: -13, creak: -16, ding: -14,
   jobDone: -12, cash: -13, badHit: -12, fail: -13, collect: -12, uiHover: -28, uiClick: -22, stamp: -12, tick: -25, fanfare: -11,
-  whistle: -14, crowdCheer: -13, gasp: -16, hey: -14, pigeonFlap: -17, coo: -17, quack: -15, woof: -14, meow: -15, moo: -15,
-  baa: -15, cluck: -15, gull: -15, chirp: -17,
+  whistle: -14, crowdCheer: -13, gasp: -16, hey: -14, babble: -17, oi: -13, yay: -14, boo: -15, aww: -15, pigeonFlap: -17, coo: -17, quack: -15, woof: -14, meow: -15, moo: -15,
+  baa: -15, cluck: -15, gull: -15, chirp: -17, drip: -19, snore: -19, signCreak: -18, iceCream: -15, alarm: -13,
 };
 for (const [k, t] of Object.entries(TARGETS)) SFX[k].target = t;
 
 export const SFX_NAMES = Object.keys(SFX);
-export const SFX_CATEGORIES = ['rifle', 'impact', 'feedback', 'ui', 'voice', 'animal'];
+export const SFX_CATEGORIES = ['rifle', 'impact', 'feedback', 'ui', 'voice', 'animal', 'tell'];

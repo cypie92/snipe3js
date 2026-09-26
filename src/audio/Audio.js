@@ -9,6 +9,9 @@
 //   audio.setListener(camera);  audio.update();        // update() once per frame (optional)
 //   audio.setVolumes({ master: 1, sfx: 1, music: 0.6, ambience: 0.8 });
 //   audio.duck(0.5, 0.4);                              // dip music by 50% for 0.4 s
+//   audio.sfx('babble', { position, syllables: 6, voice: 'woman', mood: 'happy' });  // villager gibberish
+//   const drip = audio.loop('drip', { position: tap });  drip.stop();              // positional loops
+//   audio.holdBreath(true);  audio.holdBreath(false);  // heartbeat loop + music/ambience low-pass
 //
 // Every public method is safe to call at any time: when WebAudio is missing, blocked or not yet
 // unlocked, calls are silently ignored (music/ambience requests are remembered until unlock).
@@ -17,25 +20,64 @@ import { Voice } from './Voice.js';
 import { SFX, SFX_NAMES, SFX_CATEGORIES } from './sfx/index.js';
 import { AmbiencePlayer, AMBIENCES } from './ambience/index.js';
 import { SongPlayer, SONGS } from './music/index.js';
+import { LoopPlayer, LOOPS, LOOP_NAMES } from './loops.js';
+import { SPATIAL, spatialize, camFocus } from './spatial.js';
+import { VOICE_NAMES, MOOD_NAMES } from './sfx/voices.js';
 import { clamp } from './dsp.js';
 
-export { SFX_NAMES, SFX_CATEGORIES, AMBIENCES, SONGS };
+export { SFX_NAMES, SFX_CATEGORIES, AMBIENCES, SONGS, LOOPS, LOOP_NAMES, VOICE_NAMES, MOOD_NAMES };
 export const SONG_NAMES = Object.keys(SONGS);
 export const AMBIENCE_NAMES = Object.keys(AMBIENCES);
 
 const LOOKAHEAD = 0.35; // seconds of music/ambience scheduled ahead (1.5 s when the tab is hidden)
 const TICK_MS = 50;
 
-class AudioEngine {
-  constructor() {
+/** Handle returned by audio.loop(): safe to keep and call even if audio never starts. */
+class LoopHandle {
+  constructor(engine, name, opts) {
+    this.engine = engine;
+    this.name = name;
+    this.opts = { ...opts };
+    this.position = opts.position ?? null;
+    this.player = null;
+    this.stopped = false;
+  }
+  get playing() { return !this.stopped; }
+  stop(fade = 0.3) {
+    if (this.stopped) return;
+    this.stopped = true;
+    if (!this.player) { this.engine._dropLoop(this); return; } // never started: just forget it
+    try { this.player.stop(this.engine.ctx.currentTime, fade); } catch { /* ignore */ }
+  }
+  setPosition(p) { this.position = p ?? null; }
+  setVolume(v) {
+    if (!Number.isFinite(v)) return;
+    this.opts.volume = v;
+    try { this.player?.setVolume(v, this.engine.ctx.currentTime); } catch { /* ignore */ }
+  }
+  /** Change loop parameters on the fly, e.g. { bpm: 95 } for the heartbeat, { rate: 1.5 } for drips. */
+  set(o = {}) {
+    Object.assign(this.opts, o);
+    if (this.player) Object.assign(this.player.state, o);
+    if ('volume' in o) this.setVolume(o.volume);
+    if ('position' in o) this.setPosition(o.position);
+  }
+}
+
+export class AudioEngine {
+  constructor({ context = null } = {}) {
     this.ctx = null;
     this.mix = null;
     this.volumes = { master: 1, sfx: 1, music: 1, ambience: 1 };
-    this.spatial = { refDistance: 25, rolloff: 0.35, minGain: 0.18, panWidth: 0.8 };
+    this.spatial = { ...SPATIAL };
     this.maxVoices = 32;
     this.listener = null;
-    this._maxFov = 0;
-    this._focus = 1;
+    this._cam = { maxFov: 0 };
+    this._scopeK = 0;
+    this._breath = false;
+    this._loops = [];
+    this._beatLoop = null;
+    this._placedAt = 0;
     this._strips = [];
     this._active = [];
     this._dying = [];
@@ -48,11 +90,19 @@ class AudioEngine {
     this._failed = false;
     this._warned = new Set();
     this._timer = null;
-    if (typeof window !== 'undefined' && typeof document !== 'undefined') this._installAutoUnlock();
+    this.rand = Math.random; // per-play variation (tests swap in a seeded generator)
+    this.offline = false;
+    if (context) {
+      // bound to a given (e.g. Offline) context: used by the verification tools
+      this.ctx = context;
+      this.mix = createMixer(context);
+      this.offline = true;
+      this._applyVolumes(true);
+    } else if (typeof window !== 'undefined' && typeof document !== 'undefined') this._installAutoUnlock();
   }
 
   /** True once the AudioContext exists and is running. */
-  get ready() { return !!this.ctx && this.ctx.state === 'running'; }
+  get ready() { return !!this.ctx && (this.offline || this.ctx.state === 'running'); }
   get time() { return this.ctx ? this.ctx.currentTime : 0; }
 
   // ------------------------------------------------------------------ lifecycle
@@ -61,7 +111,7 @@ class AudioEngine {
     try {
       if (!this.ctx) {
         const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
-        if (!AC) { this._failed = true; return false; }
+        if (!AC) { this._failed = true; this._loops.length = 0; return false; }
         this.ctx = new AC({ latencyHint: 'interactive' });
         this.mix = createMixer(this.ctx);
         this._applyVolumes(true);
@@ -79,6 +129,7 @@ class AudioEngine {
       this._failed = true;
       this.ctx = null;
       this.mix = null;
+      this._loops.length = 0;
       return false;
     }
   }
@@ -111,18 +162,22 @@ class AudioEngine {
       if (!def) { this._warn(`unknown sfx "${name}"`); return null; }
       const now = this.ctx.currentTime;
       const last = this._last.get(name);
-      if (last !== undefined && now - last < 0.012 && !opts.delay) return null; // same-frame spam
+      const guard = def.guard ?? 0.012;
+      if (guard && last !== undefined && now - last < guard && !opts.delay) return null; // same-frame spam
       this._last.set(name, now);
       const same = this._active.filter((a) => a.name === name);
+      // voices: simultaneous lines start a beat apart, and each extra talker sits a little lower
+      const burst = def.stagger ? same.filter((a) => a.t0 > now - 0.02).length : 0;
+      const crowd = def.crowd ? 1 / (1 + 0.5 * Math.min(same.length, def.poly - 1)) : 1;
       if (same.length >= def.poly) this._steal(same[0]);
       if (this._active.length >= this.maxVoices) this._steal(this._active[0]);
       const num = (x, d) => (Number.isFinite(x) ? x : d);
       const variance = clamp(num(opts.variance, def.vary), 0, 0.5);
-      const rnd = Math.random;
+      const rnd = this.rand;
       const pitch = clamp(num(opts.pitch, 1), 0.05, 8) * (1 + (rnd() * 2 - 1) * variance);
-      const vol = clamp(num(opts.volume, 1), 0, 4) * def.gain * (1 + (rnd() * 2 - 1) * Math.min(0.25, variance * 1.5));
+      const vol = clamp(num(opts.volume, 1), 0, 4) * def.gain * crowd * (1 + (rnd() * 2 - 1) * Math.min(0.25, variance * 1.5));
       const sp = this._spatial(opts.position);
-      const t0 = now + 0.01 + clamp(num(opts.delay, 0), 0, 30);
+      const t0 = now + 0.01 + clamp(num(opts.delay, 0), 0, 30) + burst * (0.05 + 0.09 * rnd());
       const strip = this._getStrip(now);
       strip.setup(now, { gain: vol, pan: sp.pan, lowpass: sp.lowpass, dist: sp.gain, send: def.send * (opts.reverb ?? 1) * (0.7 + 0.6 * (1 - sp.gain)) });
       const voice = new Voice(this.ctx, strip.input, t0, { pitch, rand: rnd });
@@ -175,65 +230,98 @@ class AudioEngine {
 
   // ------------------------------------------------------------------ positional
   /** Camera used for positional SFX (pan + distance attenuation + air absorption). */
-  setListener(camera) { this.listener = camera || null; this._maxFov = camera?.fov || 0; }
+  setListener(camera) { this.listener = camera || null; this._cam = { maxFov: camera?.fov || 0 }; }
 
-  _camFocus(cam) {
-    let focus = cam.zoom || 1;
-    if (cam.fov) {
-      this._maxFov = Math.max(this._maxFov, cam.fov);
-      focus *= Math.tan((this._maxFov * Math.PI) / 360) / Math.tan((cam.fov * Math.PI) / 360);
-    }
-    return Math.max(1, focus);
-  }
+  _spatial(pos) { return spatialize(pos, this.listener, this._cam, this.spatial); }
 
-  _spatial(pos) {
-    const res = { gain: 1, pan: 0, lowpass: 20000 };
-    const cam = this.listener;
-    const e = cam?.matrixWorld?.elements;
-    if (!pos || !e) return res;
-    let x, y, z;
-    if (Array.isArray(pos)) [x, y, z] = pos;
-    else if (pos.isObject3D) {
-      pos.updateWorldMatrix?.(true, false);
-      const m = pos.matrixWorld.elements;
-      x = m[12]; y = m[13]; z = m[14];
-    } else ({ x, y, z } = pos);
-    if (![x, y, z].every(Number.isFinite)) return res;
-    const dx = x - e[12], dy = y - e[13], dz = z - e[14];
-    const dist = Math.hypot(dx, dy, dz) || 1e-4;
-    const right = (dx * e[0] + dy * e[1] + dz * e[2]) / ((Math.hypot(e[0], e[1], e[2]) || 1) * dist);
-    const front = -(dx * e[8] + dy * e[9] + dz * e[10]) / ((Math.hypot(e[8], e[9], e[10]) || 1) * dist);
-    // scoped in: things you look at feel closer (focus), but never louder than point-blank
-    const d = dist / Math.sqrt(this._camFocus(cam));
-    const { refDistance: ref, rolloff, minGain, panWidth } = this.spatial;
-    res.gain = Math.max(minGain, 1 / (1 + (rolloff * Math.max(0, d - ref)) / ref));
-    res.pan = clamp(right, -1, 1) * panWidth;
-    res.lowpass = 20000 / (1 + d / 55);
-    if (front < 0) {
-      res.lowpass *= 0.6 + 0.4 * (1 + front);
-      res.gain *= 0.85 + 0.15 * (1 + front);
-    }
-    return res;
-  }
-
-  /** Optional per-frame call: pumps schedulers and applies the scope "focus" to ambience. */
+  /** Per-frame call (recommended): pumps schedulers, re-pans loops, applies the scope "focus". */
   update() {
     if (!this.ready) return;
     this._tick();
+    const now = this.ctx.currentTime;
+    if (now - this._placedAt > 0.04) {
+      this._placedAt = now;
+      for (const h of this._loops) if (h.player && !h.stopped && h.position) h.player.place(this._spatial(h.position), now);
+    }
     const cam = this.listener;
     if (!cam || !cam.fov) return;
-    const focus = this._camFocus(cam);
-    if (Math.abs(focus - this._focus) / this._focus < 0.04) return;
-    this._focus = focus;
-    const k = clamp(Math.log2(focus) / 3, 0, 1); // 1x..8x -> 0..1
+    const k = clamp(Math.log2(camFocus(cam, this._cam)) / 3, 0, 1); // 1x..8x -> 0..1
+    if (Math.abs(k - this._scopeK) < 0.02) return;
+    this._scopeK = k;
+    this._applyFocus();
+  }
+
+  // scope zoom + hold-breath both "tunnel" the background: ambience (and music when holding breath)
+  _applyFocus() {
+    if (!this.mix) return;
     const t = this.ctx.currentTime;
-    this.mix.ambFocus.frequency.setTargetAtTime(20000 * Math.pow(0.3, k), t, 0.08);
-    this.mix.ambDuck.gain.setTargetAtTime(1 - 0.3 * k, t, 0.08);
+    const k = this._scopeK;
+    const b = this._breath;
+    this.mix.ambFocus.frequency.setTargetAtTime(Math.min(20000 * Math.pow(0.3, k), b ? 1400 : 20000), t, 0.1);
+    this.mix.ambDuck.gain.setTargetAtTime((1 - 0.3 * k) * (b ? 0.55 : 1), t, 0.1);
+    this.mix.musicFocus.frequency.setTargetAtTime(b ? 1100 : 20000, t, 0.12);
+    this.mix.musicDip.gain.setTargetAtTime(b ? 0.6 : 1, t, 0.12);
+  }
+
+  // ------------------------------------------------------------------ loops
+  /**
+   * Start a positional loop: 'heartbeat' | 'drip' | 'snore' | 'signCreak' | 'iceCream'.
+   * opts: position, volume, pitch, fadeIn, plus per-loop options (heartbeat: bpm; drip: rate;
+   * snore: voice; signCreak: swing seconds; iceCream: tune, beats, step, root, gap).
+   * Returns a handle { playing, stop(fade), setPosition(p), setVolume(v), set(opts) } (null for an
+   * unknown name). Loops asked for before unlock start when audio does.
+   */
+  loop(name, opts) {
+    try {
+      if (!LOOPS[name]) { this._warn(`unknown loop "${name}"`); return null; }
+      const h = new LoopHandle(this, name, opts || {});
+      if (!this._failed) this._loops.push(h);
+      if (this.ready) this._startLoop(h);
+      return h;
+    } catch (e) {
+      this._warn(`loop ${name}`, e);
+      return null;
+    }
+  }
+
+  _dropLoop(h) {
+    const i = this._loops.indexOf(h);
+    if (i >= 0) this._loops.splice(i, 1);
+    if (this._beatLoop === h) this._beatLoop = null;
+  }
+
+  _startLoop(h) {
+    const now = this.ctx.currentTime;
+    h.player = new LoopPlayer(this.ctx, this.mix, h.name, { t0: now + 0.02, opts: h.opts, rand: this.rand, sp: this._spatial(h.position) });
+    h.player.scheduleUntil(now + LOOKAHEAD);
+  }
+
+  /** Stop every loop (e.g. when leaving a level). */
+  stopLoops(fade = 0.3) {
+    for (const h of this._loops) h.stop(fade);
+    this._beatLoop = null;
+  }
+
+  /**
+   * Hold-breath "tunnel": low-passes and dips music + ambience (SFX stay crisp) and, unless
+   * { heartbeat: false }, runs the heartbeat loop. Call holdBreath(false) to release.
+   */
+  holdBreath(on, { heartbeat = true, bpm } = {}) {
+    try {
+      this._breath = !!on;
+      if (on && heartbeat && !this._beatLoop) this._beatLoop = this.loop('heartbeat', { bpm, fadeIn: 0.2 });
+      if (on && this._beatLoop && bpm) this._beatLoop.set({ bpm });
+      if (!on && this._beatLoop) { this._beatLoop.stop(0.35); this._beatLoop = null; }
+      if (this.ready) this._applyFocus();
+    } catch (e) { this._warn('holdBreath', e); }
   }
 
   // ------------------------------------------------------------------ beds & music
-  /** Crossfade to an ambience bed ('village'|'harbour'|'farm'|'park'|'office') or null. */
-  ambience(name, { fade = 2.5 } = {}) {
+  /**
+   * Crossfade to an ambience bed ('village'|'harbour'|'farm'|'park'|'office') or null.
+   * exclude: event ids to leave out, e.g. ['dog'] when the level has its own visible dogs.
+   */
+  ambience(name, { fade = 2.5, exclude } = {}) {
     name = name || null;
     this._want.ambience = name;
     if (!this.ctx || this._amb.name === name) return;
@@ -241,7 +329,7 @@ class AudioEngine {
       if (name && !AMBIENCES[name]) { this._warn(`unknown ambience "${name}"`); return; }
       const now = this.ctx.currentTime;
       if (this._amb.player) { this._amb.player.stop(now, fade); this._fading.push(this._amb.player); }
-      const player = name ? new AmbiencePlayer(this.ctx, this.mix.amb, name, { t0: now + 0.02, fadeIn: fade }) : null;
+      const player = name ? new AmbiencePlayer(this.ctx, this.mix.amb, name, { t0: now + 0.02, fadeIn: fade, exclude }) : null;
       this._amb = { name, player };
       player?.scheduleUntil(now + LOOKAHEAD);
     } catch (e) { this._warn('ambience', e); }
@@ -316,6 +404,15 @@ class AudioEngine {
         if (p.finished(now)) { p.dispose(); this._fading.splice(i, 1); }
         else p.scheduleUntil(now + ahead);
       }
+      for (let i = this._loops.length - 1; i >= 0; i--) {
+        const h = this._loops[i];
+        if (!h.player) {
+          if (h.stopped) { this._loops.splice(i, 1); continue; }
+          this._startLoop(h);
+        }
+        if (h.stopped && h.player.finished(now)) { h.player.dispose(); this._loops.splice(i, 1); continue; }
+        h.player.scheduleUntil(now + ahead);
+      }
       for (let i = this._active.length - 1; i >= 0; i--) {
         if (this._active[i].end < now) this._release(this._active.splice(i, 1)[0]);
       }
@@ -330,7 +427,8 @@ class AudioEngine {
     return {
       state: this.ctx?.state || 'none', voices: this._active.length, dying: this._dying.length,
       strips: this._strips.length, ambience: this._amb.name, music: this._music.name,
-      fading: this._fading.length, beds: this._amb.player?.stats?.(), song: this.musicInfo(),
+      fading: this._fading.length, loops: this._loops.map((h) => h.name + (h.stopped ? '(stopping)' : '')),
+      breath: this._breath, beds: this._amb.player?.stats?.(), song: this.musicInfo(),
     };
   }
 

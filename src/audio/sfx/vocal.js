@@ -65,14 +65,6 @@ export function formantVoice(v, o) {
 }
 
 export default {
-  // "hey!" — aspirated h, e -> i diphthong, pitch hop up then down
-  hey(v) {
-    const f = v.rr(170, 280);
-    formantVoice(v, { dur: 0.34, a: 0.03, r: 0.09, peak: 0.55, breath: 0.35, body: 0.4,
-      f0: [[0, f], [0.07, f * 1.28], [0.34, f * 0.86]],
-      vowels: [[0, 'h'], [0.05, 'e'], [0.17, 'e'], [0.32, 'i']], vib: { rate: 6, depth: 0.012 } });
-  },
-
   // sharp breathy intake "hh-ah!" from a couple of startled folk
   gasp(v) {
     for (let i = 0; i < 3; i++) {

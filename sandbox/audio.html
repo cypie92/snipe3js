@@ -29,6 +29,7 @@
   button.active { background: var(--lime); }
   .cat-rifle button { background: #ffe1dc; } .cat-impact button { background: #fff0c2; } .cat-feedback button { background: #d8f6f2; }
   .cat-ui button { background: #e3ebff; } .cat-voice button { background: #ffe0ef; } .cat-animal button { background: #ecf8d8; }
+  .cat-tell button { background: #efe6ff; }
   .stop { background: #eee !important; }
   #meter { width: 100%; height: 46px; display: block; border: 3px solid var(--ink); border-radius: 10px; background: #1f2230; }
   .mono { font: 12px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
@@ -59,6 +60,18 @@
     </section>
     <section class="panel"><h2>Music</h2><div class="btns" id="music"></div><div id="now"></div></section>
     <section class="panel"><h2>Ambience</h2><div class="btns" id="amb"></div></section>
+    <section class="panel"><h2>Villager voices <small>sfx('babble', …)</small></h2>
+      <div class="row"><span>voice</span><select id="bVoice"></select><span></span></div>
+      <div class="row"><span>mood</span><select id="bMood"></select><span></span></div>
+      <div id="bSyl"></div>
+      <div class="btns" style="margin-top:8px"><button id="say">Say</button><button id="crowd">Crowd ×5</button></div>
+      <div class="btns" style="margin-top:8px" id="reacts"></div>
+    </section>
+    <section class="panel"><h2>Tells &amp; loops <small>audio.loop(…)</small></h2>
+      <div class="btns" id="loops"></div>
+      <div class="btns" style="margin-top:8px"><button id="breath">Hold breath</button><button id="stopLoops" class="stop">stop all loops</button></div>
+      <div class="mono" style="margin-top:6px">loops follow the positional azimuth/distance sliders</div>
+    </section>
     <section class="panel"><h2>Engine <small>audio.stats()</small></h2><div class="mono" id="stats"></div></section>
   </div>
   <div>
@@ -75,7 +88,7 @@ import '@fontsource/fredoka/400.css';
 import '@fontsource/fredoka/600.css';
 import '@fontsource/fredoka/700.css';
 import '@fontsource/patrick-hand/400.css';
-import { audio, SFX_NAMES, SFX_CATEGORIES, SONG_NAMES, AMBIENCE_NAMES } from '../src/audio/Audio.js';
+import { audio, SFX_NAMES, SFX_CATEGORIES, SONG_NAMES, AMBIENCE_NAMES, LOOP_NAMES, VOICE_NAMES, MOOD_NAMES } from '../src/audio/Audio.js';
 import { SFX } from '../src/audio/sfx/index.js';
 import * as report from '../src/audio/report.js';
 import { renderSfx } from '../src/audio/offline.js';
@@ -118,7 +131,7 @@ $('positional').addEventListener('change', showSpatial);
 showSpatial();
 
 // ---------------------------------------------------------------- SFX buttons
-const TITLES = { rifle: 'Rifle & scope', impact: 'Impacts & props', feedback: 'Feedback', ui: 'UI', voice: 'Voices', animal: 'Animals' };
+const TITLES = { rifle: 'Rifle & scope', impact: 'Impacts & props', feedback: 'Feedback', ui: 'UI', voice: 'Voices', animal: 'Animals', tell: 'Tells (one-shots)' };
 for (const cat of SFX_CATEGORIES) {
   const sec = el('section', { className: `panel cat-${cat}` }, $('sfx'));
   el('h2', { innerHTML: `${TITLES[cat]} <small>${SFX_NAMES.filter((n) => SFX[n].cat === cat).length}</small>` }, sec);
@@ -145,6 +158,47 @@ function group(parent, names, fn) {
 group($('music'), SONG_NAMES, (n) => audio.music(n));
 group($('amb'), AMBIENCE_NAMES, (n) => audio.ambience(n));
 $('duck').addEventListener('click', () => { audio.unlock(); audio.duck(0.7, 1.0); });
+
+// ---------------------------------------------------------------- villager voices
+for (const n of ['auto (by position)', ...VOICE_NAMES]) el('option', { value: n.startsWith('auto') ? '' : n, textContent: n }, $('bVoice'));
+for (const n of MOOD_NAMES) el('option', { value: n, textContent: n }, $('bMood'));
+let syl = 6;
+slider($('bSyl'), 'syllables', 1, 14, 1, 6, (v) => (syl = v));
+const talkPos = () => ($('positional').checked ? position() : undefined);
+$('say').addEventListener('click', () => {
+  audio.unlock();
+  audio.sfx('babble', { syllables: syl, voice: $('bVoice').value || undefined, mood: $('bMood').value, position: talkPos(), seed: $('bVoice').value ? undefined : Math.random() });
+});
+$('crowd').addEventListener('click', () => {
+  audio.unlock();
+  const moods = ['surprised', 'happy', 'question', 'surprised', 'happy'];
+  for (let i = 0; i < 5; i++) audio.sfx('babble', { syllables: 4 + Math.floor(Math.random() * 7), mood: moods[i], position: [Math.random() * 80 - 40, 1.6, -15 - Math.random() * 70] });
+});
+for (const n of ['oi', 'hey', 'yay', 'boo', 'aww', 'gasp']) {
+  const b = el('button', { textContent: n }, $('reacts'));
+  b.addEventListener('click', () => { audio.unlock(); audio.sfx(n, { voice: $('bVoice').value || undefined, position: talkPos() }); });
+}
+
+// ---------------------------------------------------------------- loops
+const running = {};
+for (const n of LOOP_NAMES) {
+  const b = el('button', { textContent: n }, $('loops'));
+  b.addEventListener('click', () => {
+    audio.unlock();
+    if (running[n]) { running[n].stop(); running[n] = null; b.classList.remove('active'); return; }
+    running[n] = audio.loop(n, { position: $('positional').checked ? position() : undefined });
+    b.classList.add('active');
+  });
+}
+setInterval(() => { for (const n of LOOP_NAMES) if (running[n] && $('positional').checked) running[n].setPosition(position()); }, 100);
+let holding = false;
+$('breath').addEventListener('click', () => { audio.unlock(); holding = !holding; audio.holdBreath(holding); $('breath').classList.toggle('active', holding); });
+$('stopLoops').addEventListener('click', () => {
+  audio.stopLoops();
+  for (const n of LOOP_NAMES) running[n] = null;
+  document.querySelectorAll('#loops button').forEach((b) => b.classList.remove('active'));
+  if (holding) $('breath').click();
+});
 $('stress').addEventListener('click', () => {
   audio.unlock();
   for (let i = 0; i < 40; i++) setTimeout(() => audio.sfx(SFX_NAMES[Math.floor(Math.random() * SFX_NAMES.length)], { position: [Math.random() * 200 - 100, 2, -Math.random() * 150] }), i * 25);
@@ -247,13 +301,20 @@ window.__audioLab = {
     tryit('duck', () => audio.duck(0.5, 0.3));
     tryit('update', () => audio.update());
     tryit('restart', () => audio.music('level', { restart: true }));
+    tryit('babble', () => { for (const m of [undefined, ...MOOD_NAMES]) audio.sfx('babble', { position: position(), syllables: 5, mood: m }); });
+    tryit('babble-voices', () => { for (const vc of [undefined, 'nope', ...VOICE_NAMES]) audio.sfx('babble', { voice: vc, syllables: 99 }); });
+    const loops = [];
+    tryit('loops', () => { for (const n of LOOP_NAMES) loops.push(audio.loop(n, { position: position() })); });
+    tryit('loop-unknown', () => audio.loop('nope'));
+    tryit('loop-set', () => { loops[0]?.set({ bpm: 95 }); loops[1]?.setVolume(0.5); loops[1]?.setPosition(null); });
+    tryit('holdBreath', () => { audio.holdBreath(true); audio.holdBreath(true); });
     tryit('suspend/resume', () => { audio.suspend(); audio.resume(); });
     await sleep(2500);
     const during = audio.stats();
-    tryit('stop', () => { audio.music(null); audio.ambience(null); });
+    tryit('stop', () => { audio.music(null); audio.ambience(null); audio.holdBreath(false); loops.forEach((h) => h?.stop()); audio.stopLoops(); });
     await sleep(expectAudio ? 9000 : 100);
     const after = audio.stats();
-    const ok = errs.length === 0 && (!expectAudio || (mid.state === 'running' && played >= SFX_NAMES.length - 2 && after.voices === 0 && after.fading === 0));
+    const ok = errs.length === 0 && (!expectAudio || (mid.state === 'running' && played >= SFX_NAMES.length - 2 && after.voices === 0 && after.fading === 0 && after.loops.length === 0));
     return { ok, errs, played, mid, during, after };
   },
 };

@@ -34,7 +34,7 @@ export const AMBIENCES = {
       { id: 'woodpigeon', every: [22, 45], fn: (b, t) => far(b, t, EV.woodpigeon, 0.057, 2500) },
       { id: 'babble', every: [0.7, 2.0], fn: (b, t) => far(b, t, (v) => EV.babble(v), 0.045, 1500) },
       { id: 'laugh', every: [18, 40], fn: (b, t) => far(b, t, EV.laugh, 0.21, 1800) },
-      { id: 'dog', every: [30, 70], fn: (b, t) => far(b, t, rep(vocal.woof, b.r() < 0.5 ? 1 : 2, 0.35), 0.1, 2200) },
+      // (no dog: the level's visible dogs bark positionally)
       { id: 'bell', every: [55, 110], first: 12, fn: (b, t) => far(b, t, impacts.bell, 0.18, 2400, { pitch: 0.85 }) },
       { id: 'pigeons', every: [25, 55], fn: (b, t) => far(b, t, vocal.pigeonFlap, 0.8, 3500) },
       { id: 'bike', every: [40, 90], fn: (b, t) => far(b, t, rep(impacts.ding, 2, 0.14), 0.08, 5000, { pitch: 1.3 }) },

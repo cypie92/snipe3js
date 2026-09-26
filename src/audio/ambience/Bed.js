@@ -5,8 +5,9 @@ import { noiseBuffer } from '../dsp.js';
 import { Voice } from '../Voice.js';
 
 export class Bed {
-  constructor(ctx, dest, def, { t0 = ctx.currentTime, fadeIn = 2.5, rand = Math.random, only } = {}) {
+  constructor(ctx, dest, def, { t0 = ctx.currentTime, fadeIn = 2.5, rand = Math.random, only, exclude } = {}) {
     this.ctx = ctx;
+    if (exclude?.length) def = { ...def, events: def.events.filter((e) => !exclude.includes(e.id)) };
     // debug: only = 'layers' (continuous beds only) or an event id (that event only, no layers)
     if (only) def = { ...def, layers: only === 'layers' ? def.layers : () => {}, events: def.events.filter((e) => e.id === only) };
     this.def = def;
