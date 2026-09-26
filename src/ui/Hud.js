@@ -33,7 +33,7 @@ export class Hud {
 
     this.clip = el('div', 'clipboard', `<div class="board"><div class="clip"></div><div class="paper">
       <h3 class="loc">Today's Jobs</h3><div class="sub">Odd jobs &amp; long shots</div><ul class="jobs"></ul></div></div>
-      <div class="tab-hint">TAB · show/hide</div>`);
+      <div class="tab-hint">TAB · clues / hide</div>`);
     this.jobsEl = this.clip.querySelector('.jobs');
 
     this.top = el('div', 'topbar', `<div class="chip timer"><small>TIME</small><span class="t">00:00</span></div>
@@ -107,7 +107,8 @@ export class Hud {
     this.renderRounds();
     this.helpTimer = 0;
     this.help.style.opacity = '1';
-    this.clip.classList.remove('closed');
+    this.setClipMode('expanded');
+    this.clipAuto = 9; // seconds until the clipboard tucks itself into compact mode
     this.clearHint();
   }
 
@@ -164,11 +165,23 @@ export class Hud {
   }
 
   setClipboard(open) {
-    this.clip.classList.toggle('closed', !open);
+    this.setClipMode(open ? 'compact' : 'closed');
+  }
+
+  /** compact = titles only, expanded = titles + clues (2 columns when long), closed = tucked away. */
+  setClipMode(mode) {
+    this.clipMode = mode;
+    const c = this.clip.classList;
+    c.toggle('compact', mode === 'compact');
+    c.toggle('expanded', mode === 'expanded');
+    c.toggle('closed', mode === 'closed');
+    c.toggle('wide', mode === 'expanded' && this.game.jobs.list.length > 7);
   }
 
   toggleClipboard() {
-    this.clip.classList.toggle('closed');
+    this.clipAuto = 0;
+    const next = { compact: 'expanded', expanded: 'closed', closed: 'compact' }[this.clipMode] || 'compact';
+    this.setClipMode(next);
   }
 
   showHint(job, worldPos) {
@@ -274,6 +287,12 @@ export class Hud {
     if (touch) {
       this.help.style.display = 'none';
       this.touch.classList.toggle('scoped', g.rig.scoped);
+    }
+
+    // Clipboard starts expanded so the clues get read, then tucks into compact mode.
+    if (this.clipAuto > 0 && g.state === 'play') {
+      this.clipAuto -= dt;
+      if (this.clipAuto <= 0 && this.clipMode === 'expanded') this.setClipMode('compact');
     }
 
     // Help fades

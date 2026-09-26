@@ -34,7 +34,12 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
       limit at ~22:00 UTC and resumed at 23:45 UTC.
 - [ ] Iteration 1 review — first harsh review once Puddleby Green is playable.
 
-## ⏸ PAUSED (2026-09-26 ~00:00 UTC, at the user's request)
+## ▶ RESUMED 2026-09-26 05:15 UTC (was paused ~00:00–05:10 UTC at the user's request)
+Resumed first: level designer, tech artist, hub/perch. Harbour-kit trio resumes after the first review.
+Lead since resume: Jack's van perch integrated into Game (mast rises during the intro); clipboard
+now has expanded (2-column clues) → compact (titles) → closed modes, auto-compacts after 9 s.
+
+### State at the pause (kept for reference)
 Everything is committed. The game builds and runs with no console errors.
 State of each unfinished stream, and how to resume:
 - **Puddleby Green** (`src/levels/village/`): wired up and playable: 12 jobs, about 465 draw calls,

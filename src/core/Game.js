@@ -23,6 +23,7 @@ import { Hud } from '../ui/Hud.js';
 import { Screens } from '../ui/Screens.js';
 import { Popups } from '../ui/Popups.js';
 import { LEVELS, getLevel, boardLevels } from '../levels/index.js';
+import { createPerch } from '../world/perch/index.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -54,6 +55,9 @@ export class Game {
     this.shooting = new Shooting(this);
     this.viewmodel = new Viewmodel(this.camera);
     this.bulletCam = new BulletCam(this);
+    // Jack's van + crow's nest: parked at each level's perch (never hittable).
+    this.perch = createPerch({ seed: 1 });
+    this.scene.add(this.perch.root);
 
     this.hud = new Hud(this, ui);
     this.popups = new Popups(ui, this.camera);
@@ -354,6 +358,10 @@ export class Game {
     this.env.setShadowFocus(out.shadowCenter || new THREE.Vector3(0, 0, -5), out.shadowRadius || 95);
     const perch = out.perch || { position: new THREE.Vector3(0, 12, 70), yaw: 0, pitch: -0.12 };
     this.rig.setPerch(perch);
+    const groundY = perch.groundY ?? perch.position.y - this.perch.eyeHeight;
+    this.perch.root.position.set(perch.position.x, groundY, perch.position.z);
+    this.perch.root.rotation.y = perch.yaw ?? 0;
+    this.perch.setRaise(1);
     this.level = { def, ctx, perch, out };
     this.scoring.spannersTotal = ctx.collectibles.length;
     this.renderer.renderer.compile(this.scene, this.camera);
@@ -408,6 +416,8 @@ export class Game {
         const q = new THREE.Quaternion().setFromRotationMatrix(m);
         o.quaternion.copy(q).slerp(endQ, THREE.MathUtils.smoothstep(k, 0.6, 1));
         o.fov = THREE.MathUtils.lerp(50, this.rig.baseFov, e);
+        // the crow's nest telescopes up while the camera swoops in (done before we arrive)
+        this.perch.setRaise(THREE.MathUtils.smoothstep(k, 0.15, 0.7));
       }, {
         onComplete: () => {
           this.rig.override = null;
@@ -552,6 +562,7 @@ export class Game {
     }
     this.bulletCam.update(this.frozen ? 0 : realDt);
     windUniforms.uTime.value = this.time;
+    this.perch.update(dt, this.time);
     this.fx.update(dt);
     this.tracers.update(dt, this.camera);
     this.env.update(dt, this.camera);
