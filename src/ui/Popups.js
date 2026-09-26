@@ -26,7 +26,7 @@ export class Popups {
 
   /** Speech bubble that follows an object. */
   bubble(obj, text, { duration = 2.6, cls = '', voice, mood } = {}) {
-    // one bubble per speaker; never more than 5 on screen
+    // one bubble per speaker; never more than 3 on screen
     for (let i = this.items.length - 1; i >= 0; i--) {
       if (this.items[i].obj === obj) {
         this.items[i].el.remove();
@@ -34,7 +34,7 @@ export class Popups {
       }
     }
     const bubbles = this.items.filter((it) => it.bubble);
-    if (bubbles.length >= 5) {
+    if (bubbles.length >= 3) {
       bubbles[0].el.remove();
       this.items.splice(this.items.indexOf(bubbles[0]), 1);
     }
@@ -50,6 +50,7 @@ export class Popups {
 
   update(dt) {
     const w = innerWidth, h = innerHeight;
+    const placed = [];
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
       it.t += dt;
@@ -71,8 +72,25 @@ export class Popups {
       }
       it.el.style.display = visible ? '' : 'none';
       if (!visible) continue;
-      it.el.style.transform = `translate(${(_v.x * 0.5 + 0.5) * w}px, ${(-_v.y * 0.5 + 0.5) * h}px)`;
-      if (it.bubble) it.el.style.opacity = String(Math.min(1, (it.duration - it.t) * 3, it.t * 6));
+      let x = (_v.x * 0.5 + 0.5) * w;
+      let y = (-_v.y * 0.5 + 0.5) * h;
+      if (it.bubble) {
+        // measure once, then keep the bubble on screen and out of other bubbles' way
+        if (!it.size) it.size = { w: it.el.offsetWidth || 160, h: it.el.offsetHeight || 34 };
+        const bw = it.size.w, bh = it.size.h;
+        x = Math.min(Math.max(x, 30), w - bw + 10);
+        y = Math.min(Math.max(y, bh + 60), h - 40);
+        for (let pass = 0; pass < 3; pass++) {
+          for (const r of placed) {
+            const overlapX = x - 20 < r.x - 20 + r.w && x - 20 + bw > r.x - 20;
+            const overlapY = y - bh < r.y && y > r.y - r.h;
+            if (overlapX && overlapY) y = r.y - r.h - 6;
+          }
+        }
+        placed.push({ x, y, w: bw, h: bh });
+        it.el.style.opacity = String(Math.min(1, (it.duration - it.t) * 3, it.t * 6));
+      }
+      it.el.style.transform = `translate(${x}px, ${y}px)`;
     }
   }
 

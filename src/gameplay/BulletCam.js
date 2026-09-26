@@ -40,6 +40,8 @@ export class BulletCam {
     g.rig.scopeT = 0;
     g.rig.fovNow = g.rig.baseFov;
     this.shake = 0;
+    this.prevTilt = g.renderer.toggles?.tilt;
+    g.renderer.setToggles?.({ tilt: false });
     g.rig.override = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), fov: 40 };
     g.hud.setCinematic(true);
     g.paused = false;
@@ -96,6 +98,7 @@ export class BulletCam {
   }
 
   stop() {
+    if (this.active && this.prevTilt !== undefined) this.game.renderer.setToggles?.({ tilt: this.prevTilt });
     this.active = null;
     this.bullet.visible = false;
     this.game.rig.override = null;

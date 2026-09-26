@@ -16,7 +16,7 @@ const level = opt('level', 'village');
 const out = opt('out', `review/shots/${level}`);
 const [W, H] = opt('size', '1600x900').split('x').map(Number);
 const quality = opt('quality', 'high');
-const only = opt('only', 'title,office,intro,overview,jobs,feedback,badhit,results').split(',');
+const only = opt('only', 'title,office,officeintro,intro,overview,jobs,feedback,badhit,results').split(',');
 fs.mkdirSync(out, { recursive: true });
 
 const { server, url } = await startServer();
@@ -51,6 +51,19 @@ try {
     const { page } = await open('screen=office&dev=1');
     await page.waitForTimeout(800);
     await shot(page, '01-office');
+    await page.close();
+  }
+  if (only.includes('officeintro')) {
+    // The real player path: office -> shoot the flyer -> intro swoop -> briefing.
+    const { page } = await open('screen=office');
+    await page.evaluate((lvl) => window.__game.game.office.debugShoot(`flyer:${lvl}`), level);
+    await page.evaluate(() => { const g = window.__game.game; for (let i = 0; i < 80 && g.state === 'office'; i++) g.office.update(0.05, g.time + i * 0.05); });
+    await page.waitForFunction("window.__game.state === 'intro'", null, { timeout: 180000 }).catch(() => {});
+    for (const [name, secs] of [['02a-officeintro-early', 0.9], ['02b-officeintro-late', 2.2]]) {
+      await page.evaluate((s) => { const g = window.__game.game; g.tweens.update(s); }, secs);
+      await frames(page, 2);
+      await shot(page, name);
+    }
     await page.close();
   }
   if (only.includes('intro')) {

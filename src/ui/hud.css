@@ -195,5 +195,6 @@ body { font-family: var(--font-ui); color: var(--ink); user-select: none; -webki
 @keyframes clockin2 { 0% { transform: translateX(40px) rotate(6deg); opacity: 0; } 100% { transform: rotate(1.5deg); opacity: 1; } }
 
 /* ---------- Tutorial coach mark ---------- */
-.coach { position: absolute; left: 50%; top: 86px; transform: translateX(-50%); background: var(--sun); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); padding: 6px 16px; font-weight: 600; font-size: 18px; white-space: nowrap; display: flex; gap: 10px; align-items: center; animation: toast .5s cubic-bezier(.2,1.6,.4,1) both; }
+.coach { position: absolute; left: 50%; top: 86px; transform: translateX(-50%); background: var(--sun); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); padding: 6px 16px; font-weight: 600; font-size: 18px; white-space: nowrap; display: flex; gap: 10px; align-items: center; animation: coachin .45s cubic-bezier(.2,1.6,.4,1) both; }
+@keyframes coachin { 0% { transform: translateX(-50%) scale(.6); opacity: 0; } 100% { transform: translateX(-50%) scale(1); opacity: 1; } }
 .coach .c-step { background: var(--ink); color: var(--sun); border-radius: 10px; padding: 0 8px; font-size: 13px; }

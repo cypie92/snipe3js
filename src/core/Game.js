@@ -293,6 +293,8 @@ export class Game {
       this.fx.burst('confetti', p, UP, { scale: 0.6 });
       this.fx.burst('stars', p, UP, { scale: 0.8 });
       this.hud.toast(job.bonus ? 'SECRET JOB!' : 'JOB DONE!', job.title, job.bonus ? 'gold' : 'good');
+      this.hitStop(0.085);
+      this.rig.shake(0.25);
       this.hud.flash('good');
       this.hud.renderJobs(job.id);
       if (job.bonus) this.tweens.delay(0.8, () => this.checkHuntDone());
@@ -571,6 +573,10 @@ export class Game {
     sound.duck(0, 0.1);
   }
 
+  hitStop(seconds) {
+    this.hitStopT = Math.max(this.hitStopT || 0, seconds);
+  }
+
   /** All main jobs resolved: stop the par clock. If secrets/spanners remain, let the player
    *  keep hunting and clock off when they like; otherwise go straight to the report. */
   finishLevel() {
@@ -578,6 +584,10 @@ export class Game {
     this.shiftDone = true;
     this.scoring.finishTime = this.scoring.time;
     this.hud.toast('ALL JOBS DONE!', 'Shift complete', 'big gold');
+    this.tweens.delay(0.5, () => {
+      sound.sfx('crowdCheer');
+      sound.sfx('jobDone', { pitch: 1.25 });
+    });
     if (this.secretsRemaining() > 0) {
       this.tweens.delay(2.2, () => this.state === 'play' && this.hud.showClockOff(true, this.secretsRemaining()));
     } else {
@@ -718,6 +728,10 @@ export class Game {
     this.adaptQuality(realDt);
 
     let dt = this.paused || this.frozen ? 0 : realDt * this.timeScale;
+    if (this.hitStopT > 0) {
+      this.hitStopT -= realDt;
+      dt *= 0.04; // a beat of near-freeze sells the impact
+    }
     if (this.bulletCam.active) dt *= 0.12;
 
     const { dx, dy } = this.input.consume();
@@ -728,7 +742,8 @@ export class Game {
     }
     if (this.state === 'office' && this.office) {
       this.office.update(realDt, this.time);
-      this.rig.override = this.office.view;
+      // a dart may have just started a level inside update(): only keep the office camera if we're still here
+      if (this.state === 'office') this.rig.override = this.office.view;
     } else if (this.state === 'title' || this.state === 'results') this.orbitCamera(realDt);
     else if (this.rig.override && this.state !== 'intro' && !this.bulletCam.active) this.rig.override = null;
 
