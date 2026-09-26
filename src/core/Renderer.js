@@ -1,7 +1,7 @@
 // WebGL renderer + post-processing stack (pmndrs postprocessing + N8AO).
-// Pass order (high): Render -> N8AO (half res) -> [DOF, only while scoped] -> Overlay (first-person rifle,
-//   drawn after AO) -> Grade pass [scope lens CA | FXAA, silhouette darkening, bloom, tone map, grade +
-//   vignette] -> SMAA (last).
+// Pass order (high): Render -> N8AO (half res) -> DOF (half res: scoped = focus on the reticle target,
+//   unscoped = subtle "miniature" backdrop blur) -> Overlay (first-person rifle, drawn after AO) ->
+//   Grade pass [scope lens CA | FXAA, silhouette darkening, bloom, tone map, grade + vignette] -> SMAA.
 // The LAST pass must always stay enabled (pmndrs only routes the last pass to the screen); optional passes
 // (DOF, overlay) sit in the middle. Quality presets only change which passes exist and their resolution.
 // Runtime switches (setScope, setToggles, setGrade) only touch uniforms/enabled flags: no shader recompiles.
@@ -13,7 +13,9 @@ import {
 import { N8AOPostPass } from 'n8ao';
 import { EdgeEffect, GradeEffect, ScopeLensEffect, OverlayPass, VIEWMODEL_LAYER, viewState } from '../gfx/post.js';
 
-// Budget notes (1920x1080, DPR 1): high ~ 13 full-screen-equivalent passes (AO half-res), medium ~ 8, low ~ 2.
+// Budget notes (1080p, DPR 1): high = main + 4096 shadow + N8AO(half) + DOF(half) + bloom mips + grade + SMAA
+// (~10 full-screen equivalents); medium = main + 2048 shadow + N8AO Low(half) + bloom + grade (~5);
+// low = main + 2048 shadow + one grade pass with FXAA (~2). Pixel ratio caps: 1.5 / 1.25 / 1.
 export const QUALITY = {
   low: {
     pixelRatio: 1, ao: false, bloom: false, aa: 'fxaa', dof: false, outline: false, lens: false,
@@ -25,7 +27,7 @@ export const QUALITY = {
   },
   high: {
     pixelRatio: 1.5, ao: true, aoHalfRes: true, aoQuality: 'Medium', bloom: true, aa: 'smaa', dof: true,
-    outline: true, lens: true, overlay: true, shadowMapSize: 4096, shadowRadius: 3,
+    tilt: true, outline: true, lens: true, overlay: true, shadowMapSize: 4096, shadowRadius: 3,
   },
 };
 
@@ -50,7 +52,7 @@ export const GRADE_DEFAULTS = {
   bloom: { intensity: 0.55, threshold: 1.05, smoothing: 0.35, radius: 0.72 },
   // unscoped "miniature" DOF (toggles.tilt): blur ramps in metres (near: sharp beyond [1], far: blurred
   // beyond [1]); the whole 25-150 m playfield stays sharp
-  tilt: { near: [5, 14], far: [230, 560], bokeh: 1.3 },
+  tilt: { near: [4, 14], far: [160, 420], bokeh: 1.6 },
   ao: { radius: 3.2, falloff: 1.0, intensity: 3.6, color: '#2a2552' },
 };
 
@@ -94,7 +96,7 @@ export class Renderer {
     this.size = new THREE.Vector2(1, 1);
     this.grade = clone(GRADE_DEFAULTS);
     this.gradeSource = null;
-    this.toggles = { ao: true, bloom: true, outline: true, grade: true, dof: true, lens: true, tilt: false };
+    this.toggles = { ao: true, bloom: true, outline: true, grade: true, dof: true, lens: true, tilt: !!this.q.tilt };
     this.viewmodel = null;
     this.vmSearch = 0;
   }
@@ -104,6 +106,7 @@ export class Renderer {
     if (!QUALITY[name]) return;
     this.quality = name;
     this.q = QUALITY[name];
+    this.toggles.tilt = !!this.q.tilt;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.q.pixelRatio));
     this.applyShadowQuality();
     this.build();
@@ -212,7 +215,7 @@ export class Renderer {
       this.dofPass = new EffectPass(camera, this.dof);
       this.dofPass.enabled = false;
       composer.addPass(this.dofPass);
-      this.passes.push('dof(scoped,half)');
+      this.passes.push(q.tilt ? 'dof(half: scoped + miniature)' : 'dof(half: scoped)');
     }
 
     this.overlayPass = null;
