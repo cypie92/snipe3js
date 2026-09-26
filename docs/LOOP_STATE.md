@@ -32,7 +32,14 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
       hub & perch designer (3D office + Jack's van), harbour kit (buildings/props/characters)
       for Barnacle Bay (docs/levels/barnacle-bay.md). All six were interrupted by an API session
       limit at ~22:00 UTC and resumed at 23:45 UTC.
-- [ ] Iteration 1 review — first harsh review once Puddleby Green is playable.
+- [x] Puddleby Green finished by the level designer (12 jobs incl. 2 secrets, 3 spanners, 45 villagers,
+      27 animals, vehicles; ~520 draw calls / 1.1M tris; all jobs verified by real shots).
+- [x] 3D office hub integrated (shoot flyers/workbench/cabinet); Jack's van perch per level.
+- [x] Lead: post-shift secret hunt ("Shift done! N secrets left" → clock off), par judged at shift end.
+- [ ] Iteration 1 review running (review/REVIEW-1.md); tech artist still polishing grade/sky/water.
+- Kit bugs to fix (found by the level designer, worked around in the level): buildings addCollider()
+  doesn't flag colliders; church update overwrites weathervane rotation; bunting coil scale reset each
+  frame; phone box glass opaque; birdseed spill point at bag origin.
 
 ## ▶ RESUMED 2026-09-26 05:15 UTC (was paused ~00:00–05:10 UTC at the user's request)
 Resumed first: level designer, tech artist, hub/perch. Harbour-kit trio resumes after the first review.
