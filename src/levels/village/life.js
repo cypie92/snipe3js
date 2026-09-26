@@ -1,9 +1,9 @@
-// Puddleby Green: ambient life — market traders and shoppers, kids, the jogger, a dog
-// walking its owner, the painter, a man stuck in a bin, a runaway hat, fête-goers, pub regulars,
-// animals, the bus / car / cyclist loops and chimney smoke.
+// Puddleby Green: ambient life — market traders and their queues, kids round the fountain, the
+// jogger, a dog walking its owner, the painter, a man stuck in a bin, a runaway hat, a one-man
+// band, fête-goers, pub regulars, animals, the bus / car / cyclist on the ring road and chimney smoke.
 import * as THREE from 'three';
 import * as K from '../../world/kit/props/index.js';
-import { Person, Walker, Dog, Cat, Gull, Chicken } from '../../world/characters/index.js';
+import { Person, Walker, Dog, Cat, Gull, Chicken, Duck, Sheep } from '../../world/characters/index.js';
 import { P } from '../../gfx/palette.js';
 import { put, local, yawTo, facePerch, worldPos, circlePath, sunHat, Leash, v3, every } from './util.js';
 import { FOUNTAIN, ROAD_PTS } from './layout.js';
@@ -95,45 +95,55 @@ export function buildLife(ctx, S, L, D, J) {
   const cast = S.cast;
   const rng = ctx.rng;
   const FC = new THREE.Vector3(FOUNTAIN[0], 0, FOUNTAIN[1]);
+  const jobDone = (id) => ctx.jobs.get(id)?.state === 'done';
 
-  // ------------------------------------------------------------ market traders + shoppers
+  // ------------------------------------------------------------ market traders + their queues
   const traderLooks = [
     { apronStripe: P.tomato, hat: { type: 'flatcap', color: '#6b5a4a' }, facial: 'moustache' },
     { apronStripe: '#4fa83c', hat: { type: 'beanie', color: '#4fa83c', color2: '#c8ee9a' }, facial: 'beard' },
     { apronStripe: P.bubblegum, hat: { type: 'sunhat', color: '#fff1d6', band: P.bubblegum }, facial: null, hair: { style: 'bun', color: P.hair[3] } },
     { apronStripe: P.teal, hat: { type: 'chef', color: '#fbf7f0' }, facial: 'handlebar' },
+    { apronStripe: P.sunflower, hat: { type: 'bucket', color: '#f2d27a' }, facial: null, hair: { style: 'ponytail', color: P.hair[1] } },
+    { apronStripe: P.tangerine, hat: { type: 'flatcap', color: '#7d8595' }, facial: 'stubble' },
   ];
-  const jobDone = (id) => ctx.jobs.get(id)?.state === 'done';
-  const traderLines = [() => (jobDone('melons') ? ['My poor melons!', 'Half price! Slightly bruised!'] : ['Melons! Lovely melons!', 'Five apples a pound!']), ['Get your carrots here!', 'Fresh as a daisy, these leeks.'], ['Posies for the fête!', 'Roses are red...'], ['Cakes! Scones! Jam!', 'Mind the icing, dear.']];
-  J.traders = D.stalls.map((st, i) => {
+  const traderLines = [
+    () => (jobDone('melons') ? ['My poor melons!', 'Half price! Slightly bruised!'] : ['Melons! Lovely melons!', 'Five apples a pound!']),
+    ['Get your carrots here!', 'Fresh as a daisy, these leeks.'], ['Posies for the fête!', 'Roses are red...'], ['Cakes! Scones! Jam!', 'Mind the icing, dear.'],
+    ['Sweet peas! Lovely sweet peas!', 'Two bunches for a pound.'], ['Fresh bread! Buns! Tarts!', 'Iced buns, still warm!'],
+  ];
+  const tradeStalls = [D.stalls[0], D.stalls[1], D.stalls[2], D.stalls[3], D.stalls[5], D.stalls[6]];
+  J.traders = tradeStalls.map((st, i) => {
     const [x, z] = local(st.x, st.z, st.ry, 0.15, -1.05);
     const lk = traderLooks[i];
-    const t = cast.person({ preset: 'trader', seed: 2101 + i, hat: lk.hat, facial: lk.facial, ...(lk.hair ? { hair: lk.hair } : {}), top: { type: 'apron', color: '#fbf7f0', color2: '#fbf7f0', apronStripe: lk.apronStripe, sleeves: 'short' } },
-      x, z, st.ry, 'talk', { role: 'speak', period: 5 + i }, { name: 'trader', lines: traderLines[i] });
-    return t;
+    return cast.person({ preset: 'trader', seed: 2101 + i, hat: lk.hat, facial: lk.facial, ...(lk.hair ? { hair: lk.hair } : {}), top: { type: 'apron', color: '#fbf7f0', color2: '#fbf7f0', apronStripe: lk.apronStripe, sleeves: 'short' } },
+      x, z, st.ry, i === 0 ? 'hawk' : 'talk', { role: 'speak', period: 5 + i }, { name: 'trader', lines: traderLines[i] });
   });
-  // shoppers in front of the stalls
-  const shopSpots = [[-17.8, 4.4, 'talk', 0.2], [-10.1, 5.7, 'idle', -0.2], [10.8, 5.6, 'point', 0.1]];
-  const shoppers = shopSpots.map(([x, z, act, dy], i) => {
-    const s = cast.person({ seed: 2201 + i, accessory: i === 1 ? 'shopping' : i === 3 ? 'bag' : null }, x, z, Math.PI + dy, act, act === 'point' ? { at: new THREE.Vector3(10.4, 1.2, 2.6) } : { role: 'listen' }, { name: 'shopper', lines: ['Ooh, what lovely rhubarb.', 'How much for the lot?', 'I only came for eggs.'] });
+  // shoppers queueing in front of the stalls
+  const shopSpots = [[0, 0.3, 1.9, 'talk'], [1, -0.2, 2.0, 'idle'], [2, 0.4, 1.9, 'point'], [3, -0.3, 2.1, 'talk'], [5, 0.1, 1.9, 'idle']];
+  const shoppers = shopSpots.map(([si, lx, lz, act], i) => {
+    const st = tradeStalls[si];
+    const [x, z] = local(st.x, st.z, st.ry, lx, lz);
+    const goods = new THREE.Vector3(st.x, 1.1, st.z);
+    const s = cast.person({ seed: 2201 + i, accessory: i === 1 ? 'shopping' : i === 3 ? 'bag' : null }, x, z, st.ry + Math.PI, act, act === 'point' ? { at: goods } : { role: 'listen' }, { name: 'shopper', lines: ['Ooh, what lovely rhubarb.', 'How much for the lot?', 'I only came for eggs.', 'Is the fête open yet?'] });
+    s.faceTowards(goods);
     return s;
   });
 
   // ------------------------------------------------------------ kids running round the fountain
-  const loop = circlePath(FOUNTAIN[0], FOUNTAIN[1], 6.35, 18);
+  const loop = circlePath(FC.x, FC.z, 6.35, 18);
   J.fountainKids = [0, 1].map((i) => {
-    const k = cast.person({ age: 'kid', seed: 2301 + i, accessory: null }, 0, 0, 0, 'run', {}, { name: 'kid', lines: ['Tag! You\'re it!', 'Can\'t catch me!'] });
+    const k = cast.person({ age: 'kid', seed: 2301 + i, accessory: null }, 0, 0, 0, 'run', {}, { name: 'kid', lines: ["Tag! You're it!", "Can't catch me!"] });
     new Walker(k, loop, { loop: true, speed: 2.35 + i * 0.1, action: 'run', start: i * 0.5, startFraction: true, reverse: false });
     return k;
   });
 
-  // ------------------------------------------------------------ the jogger: laps of the square
-  const jogLoop = [[-26.5, -40.2], [27.5, -40.2], [33.2, -14], [34.2, 11.8], [-3, 12.8], [-45.6, 11.8], [-41.5, -5], [-31.5, -31.5]];
+  // ------------------------------------------------------------ the jogger: laps just inside the square
+  const jogLoop = [[-22, -22.5], [22, -22.5], [24.5, -17], [26.5, -6], [27, 13.2], [-27, 13.2], [-26.5, -6], [-24.5, -17]];
   const jogger = cast.person({ preset: 'jogger', seed: 2501 }, 0, 0, 0, 'run', {}, { name: 'jogger', lines: ['Lap nine!', 'Huff... huff...'] });
   new Walker(jogger, jogLoop, { loop: true, speed: 3.1, action: 'run', start: 0.15, startFraction: true });
 
-  // ------------------------------------------------------------ a dog walking its owner (south pavement)
-  const dogPath = [[-50, 43.0], [-20, 43.2], [10, 43.2], [44, 42.9], [48.5, 47], [44, 51.3], [10, 51.4], [-20, 51.4], [-50, 51.5], [-54.5, 47.3]];
+  // ------------------------------------------------------------ a dog walking its owner (round the green)
+  const dogPath = [[-27.8, 21], [-27.6, 38.2], [-10, 38.6], [-6.2, 35.4], [6.2, 35.4], [10, 38.6], [28, 38.2], [28.8, 30], [24, 25.4], [9.5, 20.6], [-9.5, 20.6], [-24, 21.4]];
   const bigDog = new Dog({ seed: 7, scale: 1.45, variant: { coat: '#e3b56b', light: '#fbefd9', patch: '#c8894a', ear: '#c8894a' } });
   cast.animal(bigDog, 0, 0, 0, { name: 'dog' });
   new Walker(bigDog, dogPath, { loop: true, speed: 2.3, action: 'run', start: 0.35, startFraction: true, variety: 0 });
@@ -153,9 +163,10 @@ export function buildLife(ctx, S, L, D, J) {
     _b.addScaledVector(new THREE.Vector3(Math.sin(bigDog.root.rotation.y), 0, Math.cos(bigDog.root.rotation.y)), 0.1);
     leash.set(_a, _b);
   });
+  every(ctx, () => rng.range(9, 15), () => ctx.sfx('woof', { position: worldPos(bigDog.root).setY(0.8) }));
 
   // ------------------------------------------------------------ the painter at his easel (painting the church)
-  const PNT = [-19.8, -30.6];
+  const PNT = [-19.8, -20.2];
   const churchDoor = L.anchors.churchDoor;
   const easelYaw = yawTo(new THREE.Vector3(PNT[0], 0, PNT[1]), churchDoor);
   const easel = K.easel({ seed: 3, painting: 'landscape' });
@@ -166,26 +177,14 @@ export function buildLife(ctx, S, L, D, J) {
   const painter = cast.person({ preset: 'painter', seed: 2701 }, PNT[0], PNT[1], easelYaw, 'paint', {}, { name: 'painter', lines: ['Hold still, church!', 'A little more ochre...', 'I call it "Tuesday".'] });
   painter.lookAt(churchDoor.clone().setY(8));
 
-  // ------------------------------------------------------------ the policeman on the south path
-  const bobby = cast.person({ preset: 'police', seed: 2801 }, 2.6, 39.4, Math.PI - 0.3, 'idle', {}, { name: 'policeman', lines: ['Evening all. Er, morning all.', 'Move along, nothing to see.', 'Mind the fête traffic.'] });
-  const bobbyR = { t: 3, i: 0 };
-  ctx.onUpdate((dt) => {
-    if (bobby.busy) return;
-    bobbyR.t -= dt;
-    if (bobbyR.t > 0) return;
-    const steps = [['idle', 4], ['point', 2, { at: new THREE.Vector3(-20, 1, 47) }], ['wave', 2], ['idle', 3], ['whistle', 2.2]];
-    const [a, d, o] = steps[bobbyR.i++ % steps.length];
-    bobby.setAction(a, o || {});
-    bobbyR.t = d;
-  });
-
   // ------------------------------------------------------------ a man stuck head-first in a wheelie bin
-  const BIN = [26.8, -8.4];
+  const BIN = [23.2, -3.4];
   const wbin = K.wheelieBin({ seed: 4, color: '#3f9a4e', lidColor: P.sunflower, open: true });
   put(root, wbin, BIN[0], BIN[1], facePerch(BIN[0], BIN[1]) - 0.5);
   ctx.surface(wbin, 'soft');
   ctx.onUpdate(wbin.userData.update);
   const binMan = new Person({ seed: 2901, top: { type: 'shirt', color: P.cobalt, sleeves: 'long' }, bottom: { type: 'trousers', color: '#8b5e3c' }, shoes: '#c8503a', socks: P.sunflower, hat: null, accessory: null, shadow: false, scale: 0.9 });
+  binMan.root.userData.voice = 'man';
   const mouth = wbin.userData.parts.mouth;
   mouth.add(binMan.root);
   binMan.root.rotation.set(Math.PI, 0.3, 0);
@@ -193,51 +192,61 @@ export function buildLife(ctx, S, L, D, J) {
   binMan.setAction('walk', {}, 0);
   binMan.speed = 0.9;
   ctx.actor(binMan, { name: 'man in bin' });
-  cast.talkers.push({ p: binMan, lines: ['Help! I dropped my keys!', 'It\'s quite cosy in here actually.', 'Is it Tuesday?'], i: 0 });
+  cast.talkers.push({ p: binMan, lines: ['Help! I dropped my keys!', "It's quite cosy in here actually.", 'Is it Tuesday?'], i: 0 });
   ctx.onUpdate((dt, t) => { wbin.rotation.z = Math.sin(t * 9) * 0.035 + Math.sin(t * 3.1) * 0.02; });
 
-  // ------------------------------------------------------------ a lady chasing her runaway hat
-  const hatLoop = [[-27.5, -23.5], [-22, -31.5], [-11.5, -31], [-7.5, -26.5], [-12.5, -21.5], [-22.5, -18.2]];
+  // ------------------------------------------------------------ a lady chasing her runaway hat (NE of the square)
+  const hatLoop = [[3, -21.5], [15.5, -22], [23.5, -19.5], [23.8, -11.5], [16, -10.8], [3.6, -12.5]];
   const hatLady = cast.person({ seed: 3001, hair: { style: 'bob', color: P.hair[6] }, top: { type: 'dress', color: P.teal, sleeves: 'short' }, hat: null, accessory: 'handbag', age: 'adult' }, 0, 0, 0, 'chase', {}, { name: 'hat lady', lines: ['Come back, my hat!', 'It was a present!', 'Stop that hat!'] });
   const hatWalker = new Walker(hatLady, hatLoop, { loop: true, speed: 2.25, action: 'chase', variety: 0 });
   const hat = sunHat('#ffb8c2', P.violet);
   root.add(hat);
-  ctx.prop(hat, { surface: 'soft', onHit: () => { hatHop = 0.6; } });
   let hatHop = 0;
+  ctx.prop(hat, { surface: 'soft', onHit: () => { hatHop = 0.6; } });
   ctx.onUpdate((dt, t) => {
     hatHop = Math.max(0, hatHop - dt);
     const s = hatWalker.s + 2.3;
     hatWalker.sample(s, _a);
     hatWalker.sample(s + 0.5, _b);
-    hat.position.set(_a.x, 0.34 + Math.abs(Math.sin(t * 5.5)) * 0.28 + hatHop * 1.4, _a.z);
+    hat.position.set(_a.x, 0.44 + Math.abs(Math.sin(t * 5.5)) * 0.28 + hatHop * 1.4, _a.z);
     hat.rotation.set(Math.PI / 2 - 0.25, Math.atan2(_b.x - _a.x, _b.z - _a.z) + Math.PI / 2, t * 7);
   });
 
-  // ------------------------------------------------------------ fête: bouncy castle kids, shy thrower, cake lady
+  // ------------------------------------------------------------ a one-man band by the fountain
+  const busker = cast.person({ seed: 3201, hat: { type: 'tophat', color: P.tomato }, top: { type: 'stripes', color: P.tomato, color2: '#fff8ee', sleeves: 'long' }, bottom: { type: 'trousers', color: '#3d4a6b' }, accessory: null, facial: 'moustache' },
+    -7.4, -11.4, 0, 'jig', {}, { name: 'busker', lines: ['A one, a two...', 'Requests? Anyone?', 'Tuppence for a tune!'] });
+  busker.faceTowards(new THREE.Vector3(0, 0, 44));
+  every(ctx, () => rng.range(5, 8), () => ctx.sfx('whistle', { position: worldPos(busker.root).setY(1.5), volume: 0.35, pitch: rng.range(1.1, 1.4) }));
+
+  // ------------------------------------------------------------ fête: bouncy castle kids, cake lady, strollers
   const cst = D.castle;
   J.castleKids = [[-0.9, 0.2], [0.8, -0.3]].map(([lx, lz], i) => {
     const [x, z] = local(cst.x, cst.z, cst.ry, lx, lz);
-    const k = cast.person({ age: 'kid', seed: 3101 + i * 7, accessory: null }, x, z, cst.ry + (i ? 0.6 : -0.4), i ? 'dance' : 'cheer', {}, { y: cst.deck, name: 'kid', lines: ['Boing! Boing!', 'Higher! Higher!'] });
+    const k = cast.person({ age: 'kid', seed: 3101 + i * 7, accessory: i ? 'balloon' : null }, x, z, cst.ry + (i ? 0.6 : -0.4), i ? 'dance' : 'cheer', {}, { y: cst.deck, name: 'kid', lines: ['Boing! Boing!', 'Higher! Higher!'] });
     const ph = i * 1.3;
     ctx.onUpdate((dt, t) => { if (!k.busy) k.root.position.y = cst.deck + Math.abs(Math.sin(t * 4.6 + ph)) * 0.62; });
     return k;
   });
   const cakeLady = cast.person({ seed: 3301, top: { type: 'apron', color: P.bubblegum, color2: '#fff8ee', sleeves: 'short' }, hair: { style: 'bun', color: P.hair[2] }, accessory: null }, 0, 0, 0, 'walk', {}, { name: 'cake lady', lines: ['Victoria sponge coming through!', 'Has anyone seen the judge?'] });
-  new Walker(cakeLady, [[34.5, 36.6], [40.8, 38.7], [45.2, 33.6], [45.2, 31.2]], { pingPong: true, speed: 0.9, pauseAt: [{ index: 0, duration: 3, action: 'talk' }, { index: 3, duration: 3, action: 'point', actionOptions: { at: new THREE.Vector3(45.8, 1, 29.6) } }] });
+  const mq = D.marquee;
+  new Walker(cakeLady, [[mq.x - 3.6, mq.z - 1.2], [mq.x - 5.4, mq.z - 4.2], [30.6, 24.2], [mq.x - 5.8, mq.z - 1.4]], { pingPong: true, speed: 0.9, pauseAt: [{ index: 0, duration: 3, action: 'talk' }, { index: 2, duration: 3, action: 'point', actionOptions: { at: new THREE.Vector3(27.4, 2.5, 28.2) } }] });
+  const strollPath = [[-19.6, 24.6], [-10, 23.2], [0, 23.4], [10.4, 23], [19.4, 24.8]];
+  const stroller = cast.person({ seed: 3401, accessory: 'icecream', hat: { type: 'sunhat', color: '#fff1d6', band: P.teal } }, 0, 0, 0, 'walk', {}, { name: 'fête-goer', lines: ['Lovely day for a fête.', 'Have you tried the tombola?'] });
+  new Walker(stroller, strollPath, { pingPong: true, speed: 1.0, start: 0.3, startFraction: true, pauseAt: [{ index: 2, duration: 3, action: 'eat' }] });
 
   // ------------------------------------------------------------ pub regulars at the picnic tables
   const tables = L.anchors.pubTables;
   const PR = L.pubAt.ry;
   const sits = [[0, -0.45, 1], [0, 0.5, -1], [1, 0.1, 1]];
-  sits.forEach(([ti, lx, side], i) => {
+  sits.forEach(([ti, lx, sd], i) => {
     const tb = tables[ti];
-    const [x, z] = local(tb.x, tb.z, PR, lx, side * 0.72);
-    cast.person({ seed: 3501 + i, age: i === 1 ? 'elder' : 'adult', accessory: null, hat: i === 0 ? { type: 'flatcap', color: '#6b7a5a' } : undefined }, x, z, PR + (side > 0 ? Math.PI : 0), 'sit', { height: 0.49 }, { name: 'regular', lines: () => (jobDone('sign') ? ['Cheers!', 'The sign! It\'s straight! I need a sit down.', 'Another round?'] : ['Cheers!', 'Another round?', 'That sign\'s been wonky since 1974.']) });
+    const [x, z] = local(tb.x, tb.z, PR, lx, sd * 0.72);
+    cast.person({ seed: 3501 + i, age: i === 1 ? 'elder' : 'adult', accessory: null, hat: i === 0 ? { type: 'flatcap', color: '#6b7a5a' } : undefined }, x, z, PR + (sd > 0 ? Math.PI : 0), 'sit', { height: 0.49 }, { name: 'regular', lines: () => (jobDone('sign') ? ['Cheers!', "The sign! It's straight! I need a sit down.", 'Another round?'] : ['Cheers!', 'Another round?', "That sign's been wonky since 1974."]) });
   });
 
-  // ------------------------------------------------------------ bus-stop waiter + café customer
+  // ------------------------------------------------------------ bus-stop waiter
   const bb = D.busBench;
-  cast.person({ seed: 3601, age: 'elder', accessory: 'newspaper', hat: { type: 'flatcap', color: '#7d8595' } }, bb.x - 0.5, bb.z + 0.28, 0, 'sit', { height: 0.52 }, { name: 'bus waiter', lines: ['The 42 is late again.', 'Twenty minutes, it said.'] });
+  cast.person({ seed: 3601, age: 'elder', accessory: 'newspaper', hat: { type: 'flatcap', color: '#7d8595' } }, bb.x, bb.z, D.busStopRy, 'sit', { height: 0.52 }, { name: 'bus waiter', lines: ['The 42 is late again.', 'Twenty minutes, it said.'] });
 
   // ------------------------------------------------------------ animals
   // a cat sunning itself on Mr Grubb's wall (it's the LOST CAT from the notice board)
@@ -258,7 +267,8 @@ export function buildLife(ctx, S, L, D, J) {
   // a sleepy dog by the pub door
   const pd = L.anchors.pubDoor;
   const pubDog = new Dog({ seed: 3, variant: { coat: '#fbf7f0', light: '#fbf7f0', patch: '#2b2b3a', ear: '#2b2b3a' } });
-  cast.animal(pubDog, pd.x + 1.6, pd.z + 0.9, L.pubAt.ry + 0.8, { name: 'dog' });
+  const [pdx, pdz] = local(pd.x, pd.z, PR, 1.8, 1.0);
+  cast.animal(pubDog, pdx, pdz, PR + 0.8, { name: 'dog' });
   pubDog.setAction('sleep');
   // hens in Mr Grubb's garden
   const G = L.grubb;
@@ -267,12 +277,28 @@ export function buildLife(ctx, S, L, D, J) {
     const hen = new Chicken({ seed: 40 + i });
     cast.animal(hen, x, z, rng.range(0, 6), { name: 'chicken' });
     hen.setAction('peck');
-    const home = new THREE.Vector3(x, 0, z);
     new Walker(hen, [[x, z], [x + 1.2, z + 0.6], [x + 0.4, z - 1.1]], { loop: true, speed: 0.35, pauseAt: [{ index: 1, duration: 3, action: 'peck' }, { index: 2, duration: 2.5, action: 'idle' }] });
-    void home;
   });
-  // gulls wheeling over the square (sea's not far)
-  [[0, -18, 26, 20, false], [8, -6, 34, 24, true], [-14, -30, 20, 18, false]].forEach(([x, z, r, h, cwise], i) => {
+  // sheep in the paddock over the west road
+  const pk = D.paddock;
+  for (let i = 0; i < 3; i++) {
+    const sh = new Sheep({ seed: 70 + i });
+    const x = rng.range(pk.x0 + 1.5, pk.x1 - 1.5), z = rng.range(pk.z0 + 2, pk.z1 - 2);
+    cast.animal(sh, x, z, rng.range(0, 6), { name: 'sheep' });
+    sh.setAction?.(i % 2 ? 'graze' : 'idle');
+    new Walker(sh, [[x, z], [x + rng.range(-2, 2), z + rng.range(1.5, 3)], [x + rng.range(-2, 2), z - rng.range(1, 2)]], { loop: true, speed: 0.3, action: 'walk', pauseAt: [{ index: 1, duration: 6, action: 'graze' }, { index: 2, duration: 5, action: 'graze' }] });
+  }
+  every(ctx, () => rng.range(10, 18), () => ctx.sfx('baa', { position: new THREE.Vector3((pk.x0 + pk.x1) / 2, 1, (pk.z0 + pk.z1) / 2), volume: 0.7 }));
+  // ducks on the pond
+  const pond = D.pond;
+  for (let i = 0; i < 2; i++) {
+    const d = new Duck({ seed: 520 + i });
+    cast.animal(d, pond.x, pond.z, 0, { y: 0.11, blob: false, name: 'duck' });
+    d.setAction('swim');
+    new Walker(d, circlePath(pond.x, pond.z, 1.6 + i * 0.9, 12), { loop: true, speed: 0.4 + i * 0.1, action: 'swim', variety: 0, groundY: () => 0.11 });
+  }
+  // gulls wheeling over the square (the sea's not far)
+  [[0, -6, 22, 19, false], [8, 2, 28, 23, true], [-12, -14, 18, 17, false]].forEach(([x, z, r, h, cwise], i) => {
     const g = new Gull({ seed: 60 + i });
     cast.animal(g, x, z, 0, { blob: false, name: 'gull' });
     g.setAction('circle', { center: new THREE.Vector3(x, 0, z), radius: r, height: h, speed: 5 + i, clockwise: cwise });
@@ -307,7 +333,7 @@ export function buildLife(ctx, S, L, D, J) {
     ribbons.raycast = () => {};
     root.add(ribbons);
     const top = new THREE.Vector3(MP.x, MP.top, MP.z);
-    const A = new THREE.Vector3(), Bv = new THREE.Vector3(), P0 = new THREE.Vector3(), P1 = new THREE.Vector3(), side = new THREE.Vector3(), dir = new THREE.Vector3();
+    const A = new THREE.Vector3(), Bv = new THREE.Vector3(), P0 = new THREE.Vector3(), P1 = new THREE.Vector3(), sd = new THREE.Vector3(), dir = new THREE.Vector3();
     const Y = new THREE.Vector3(0, 1, 0);
     const pt = (u, sag, out) => out.lerpVectors(A, Bv, u).setY(A.y + (Bv.y - A.y) * u - Math.sin(Math.PI * u) * sag);
     ctx.onUpdate((dt, t) => {
@@ -318,16 +344,16 @@ export function buildLife(ctx, S, L, D, J) {
         if (r < dancers.length) dancers[r].bones.handR.getWorldPosition(Bv);
         else Bv.set(top.x + Math.cos(a) * 0.9, 1.4 + Math.sin(t * 2.3 + r) * 0.25, top.z + Math.sin(a) * 0.9);
         dir.subVectors(Bv, A).normalize();
-        side.crossVectors(dir, Y);
-        if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
-        side.normalize().multiplyScalar(0.045);
+        sd.crossVectors(dir, Y);
+        if (sd.lengthSq() < 1e-6) sd.set(1, 0, 0);
+        sd.normalize().multiplyScalar(0.045);
         const sag = r < dancers.length ? 0.25 : 0.05;
         for (let k = 0; k < SEG; k++) {
           pt(k / SEG, sag, P0);
           pt((k + 1) / SEG, sag, P1);
           const tw = Math.sin(t * 6 + r + k) * 0.02;
-          const q = [P0.x - side.x, P0.y - side.y + tw, P0.z - side.z, P0.x + side.x, P0.y + side.y - tw, P0.z + side.z,
-            P1.x + side.x, P1.y + side.y + tw, P1.z + side.z, P1.x - side.x, P1.y - side.y - tw, P1.z - side.z];
+          const q = [P0.x - sd.x, P0.y - sd.y + tw, P0.z - sd.z, P0.x + sd.x, P0.y + sd.y - tw, P0.z + sd.z,
+            P1.x + sd.x, P1.y + sd.y + tw, P1.z + sd.z, P1.x - sd.x, P1.y - sd.y - tw, P1.z - sd.z];
           pos.set([q[0], q[1], q[2], q[3], q[4], q[5], q[6], q[7], q[8], q[0], q[1], q[2], q[6], q[7], q[8], q[9], q[10], q[11]], o);
           o += 18;
         }
@@ -336,27 +362,27 @@ export function buildLife(ctx, S, L, D, J) {
       geo.computeVertexNormals();
     });
   }
-  // two grandads snoozing in deckchairs
+  // a grandad snoozing in a deckchair
   D.deckchairs.slice(0, 1).forEach((dc, i) => {
     const [x, z] = local(dc.x, dc.z, dc.ry, 0, 0.22);
-    cast.person({ seed: 4601 + i, age: 'elder', hat: i ? { type: 'sunhat', color: '#fff1d6', band: P.teal } : { type: 'flatcap', color: '#8b6b4a' }, accessory: null, top: i ? { type: 'hawaiian', color: P.tomato, color2: P.sunflower, sleeves: 'short' } : { type: 'cardigan', color: '#7d8595', sleeves: 'long' } },
+    cast.person({ seed: 4601 + i, age: 'elder', hat: { type: 'flatcap', color: '#8b6b4a' }, accessory: null, top: { type: 'cardigan', color: '#7d8595', sleeves: 'long' } },
       x, z, dc.ry, 'lie', { pose: 'deckchair', height: dc.seat }, { name: 'snoozer', lines: ['Zzz...', 'Wake me up for the cake judging.'] });
   });
 
-  // ------------------------------------------------------------ vehicles
+  // ------------------------------------------------------------ vehicles on the ring road
   const bus = K.bus({ seed: 3, color: P.tomato });
   root.add(bus);
   ctx.surface(bus, 'metal');
   ctx.onUpdate(bus.userData.update);
   ctx.prop(bus, { surface: 'metal', onHit: () => { bus.userData.bump?.(0.8); ctx.sfx('honk', { position: worldPos(bus), pitch: 0.8 }); } });
-  const busDrive = new Drive(bus, ROAD_PTS, { speed: 9, stops: [[-24, 45.2, 5]], wait: 14, start: 0.05, lane: 1.8, onStop: () => ctx.sfx('honk', { position: worldPos(bus), pitch: 0.75, volume: 0.6 }) });
+  const busDrive = new Drive(bus, ROAD_PTS, { speed: 9, stops: [[D.busStopAt.x, D.busStopAt.z, 5]], wait: 14, start: 0.18, lane: 1.8, onStop: () => ctx.sfx('honk', { position: worldPos(bus), pitch: 0.75, volume: 0.6 }) });
   ctx.onUpdate((dt) => busDrive.update(dt));
   const car = K.car({ style: 'beetle', color: P.sunflower, seed: 5 });
   root.add(car);
   ctx.surface(car, 'metal');
   ctx.onUpdate(car.userData.update);
   ctx.prop(car, { surface: 'metal', onHit: () => { car.userData.bump?.(1); ctx.sfx('honk', { position: worldPos(car), pitch: 1.2 }); } });
-  const carDrive = new Drive(car, ROAD_PTS.slice().reverse(), { speed: 11, wait: 9, start: 0.55, lane: 1.8 });
+  const carDrive = new Drive(car, ROAD_PTS.slice().reverse(), { speed: 11, wait: 9, start: 0.6, lane: 1.8 });
   ctx.onUpdate((dt) => carDrive.update(dt));
   // cyclist (pedalling in place on a moving bike)
   const bike = K.bicycle({ seed: 9, color: P.teal, basket: true });
@@ -367,15 +393,14 @@ export function buildLife(ctx, S, L, D, J) {
   bike.userData.parts.body.add(rider.root);
   rider.root.position.set(0, 0.3, -0.12);
   rider.speed = 0.95;
-  const bikeDrive = new Drive(bike, ROAD_PTS, { speed: 4.2, wait: 11, start: 0.62, lane: 3.0 });
+  const bikeDrive = new Drive(bike, ROAD_PTS, { speed: 4.2, wait: 11, start: 0.72, lane: 3.0 });
   ctx.onUpdate((dt) => { bikeDrive.update(dt); rider.speed = Math.max(0.2, bike.userData.speed * 0.25); });
   every(ctx, 14, () => { if (bike.visible) ctx.sfx('ding', { position: worldPos(bike), pitch: 1.35, volume: 0.5 }); });
-  // parked cars along the east lane + a tractor by the fête
+  // parked on the flanks: a milk float by the east road, the tractor by the allotments
   const parked = [
-    [K.car({ style: 'hatch', color: P.cobalt, seed: 11 }), 58.2, -16, Math.PI],
-    [K.car({ style: 'van', color: '#fff1d6', seed: 12 }), 58.3, -2, Math.PI],
-    [K.car({ style: 'pickup', color: P.tomato, seed: 13 }), 58.2, 26, 0],
-    [K.tractor({ seed: 14, color: '#4f9a3c' }), 50.2, 31, -0.2],
+    [K.car({ style: 'van', color: '#f4f7fb', seed: 12 }), 49.2, -6, Math.PI + 0.05],
+    [K.car({ style: 'pickup', color: P.tomato, seed: 13 }), 48.8, 8.5, Math.PI - 0.08],
+    [K.tractor({ seed: 14, color: '#4f9a3c' }), -50.2, 38.2, 0.5],
   ];
   for (const [o, x, z, ry] of parked) {
     put(root, o, x, z, ry);
@@ -383,16 +408,17 @@ export function buildLife(ctx, S, L, D, J) {
     ctx.prop(o, { surface: 'metal', onHit: () => { o.userData.bump?.(1); ctx.sfx('honk', { position: worldPos(o), pitch: 0.9 + rng.range(0, 0.3) }); } });
     ctx.onUpdate(o.userData.update);
   }
+  for (const o of D.parkedCars || []) ctx.prop(o, { surface: 'metal', onHit: () => { o.userData.bump?.(1); ctx.sfx('honk', { position: worldPos(o), pitch: 1.1 }); } });
 
   // ------------------------------------------------------------ chimney smoke (a few, lazily)
   const chimneys = [
     ...L.anchors.terraceChimneys.filter((_, i) => i % 2 === 0),
     ...(L.west[1]?.chimneys || []).slice(0, 1), ...(L.west[4]?.chimneys || []).slice(0, 1),
-    ...L.anchors.pubChimneys.slice(0, 1), ...L.anchors.grubbChimneys.slice(0, 1), ...L.anchors.cottageNWChimneys.slice(0, 1),
+    ...L.anchors.pubChimneys.slice(0, 1), ...L.anchors.grubbChimneys.slice(0, 1), ...(L.extraChimneys || []).slice(0, 1),
   ];
   for (const c of chimneys) ctx.smoke(c.clone().add(v3(0, 0.25, 0)), { rate: rng.range(0.7, 1.1) });
 
-  return { shoppers, jogger, owner, bigDog, painter, bobby, binMan, hatLady, cakeLady, bus, car, bike };
+  return { shoppers, jogger, owner, bigDog, painter, binMan, hatLady, cakeLady, busker, stroller, bus, car, bike };
 }
 
 export { Drive, UP };

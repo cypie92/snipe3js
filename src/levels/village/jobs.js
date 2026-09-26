@@ -27,6 +27,20 @@ export function buildJobs(ctx, S, L, D) {
     return st === 'done' ? after : st === 'failed' ? failed : before;
   };
 
+  /**
+   * A looping audio tell (jingle, snore, drip, creak) that plays while cond() holds and the shift is
+   * on. Started lazily (audio may load after the level is built; loops are stopped when leaving).
+   */
+  const tellLoop = (name, opts, cond) => {
+    const L2 = { h: null, set: (o) => { Object.assign(opts, o); L2.h?.set?.(o); } };
+    ctx.onUpdate(() => {
+      const want = cond() && ctx.game?.state === 'play';
+      if (want && !(L2.h && L2.h.playing !== false && !L2.h.stopped)) L2.h = ctx.audio?.loop?.(name, { ...opts }) || null;
+      else if (!want && L2.h) { L2.h.stop?.(0.3); L2.h = null; }
+    });
+    return L2;
+  };
+
   // ---------------------------------------------------------------- escalating tells ("nag")
   // After `after` seconds of play with the job still open (and unlocked), its owner waves for help
   // with a '!' every few seconds and the target does something louder (fn).
@@ -312,7 +326,7 @@ export function buildJobs(ctx, S, L, D) {
   landlord.faceTowards(signPos);
   landlord.lookAt(signPos);
   const landlordR = routine(ctx, landlord, [['scratch', 2.8], ['point', 2.4, { at: signPos }], ['shrug', 1.8], ['idle', 2.2]], 0.8);
-  every(ctx, () => rng.range(4.5, 7.5), () => ctx.sfx('signCreak', { position: signPos, volume: 0.8 }), { cond: () => open('sign'), start: 2 });
+  const creak = tellLoop('signCreak', { position: signPivot, swing: 1.5, volume: 0.75 }, () => open('sign'));
   let signKick = 0;
   ctx.onUpdate((dt, t) => { // added after the kit's own swing: a hard wobble while the landlord nags
     if (signKick <= 0) return;
@@ -339,7 +353,7 @@ export function buildJobs(ctx, S, L, D) {
       ctx.delay(0.8, () => cast.cheerNear(signPos, 9, { except: [landlord] }));
     },
   });
-  nag('sign', { owner: landlord, r: landlordR, lines: ["Somebody sort that sign out!", "It'll have somebody's eye out!"], fn: () => { signKick = 2.2; ctx.sfx('signCreak', { position: signPos, volume: 1.3 }); } });
+  nag('sign', { owner: landlord, r: landlordR, lines: ["Somebody sort that sign out!", "It'll have somebody's eye out!"], fn: () => { signKick = 2.2; creak.set({ swing: 0.6, volume: 1.2 }); ctx.delay(2.4, () => creak.set({ swing: 1.5, volume: 0.75 })); } });
   J.landlord = landlord;
 
   // ================================================================ 4. bunting for the fête
@@ -544,9 +558,10 @@ export function buildJobs(ctx, S, L, D) {
   }
   van.add(cone);
   ctx.collider(cone, new THREE.SphereGeometry(0.62, 8, 6));
-  let jingleOn = true, jingleRate = 1;
-  const playJingle = () => ctx.sfx('iceCream', { position: worldPos(speaker), volume: 0.8, rate: jingleRate, pitch: jingleRate });
-  every(ctx, () => 7.5 / jingleRate, playJingle, { cond: () => jingleOn, start: 1.5 });
+  let jingleOn = true;
+  const TUNE = [0, 4, 7, 12, 11, 7, 9, 5, 7, 4, 2, 0, 0, 0];
+  const BEATS = [1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 1, 2];
+  const jingle = tellLoop('iceCream', { position: speaker, tune: TUNE, beats: BEATS, step: 0.17, gap: 3.5, volume: 0.9 }, () => jingleOn);
   const vw = (lx, lz) => { const [x, z] = local(VAN[0], VAN[1], Math.PI, lx, lz); return new THREE.Vector3(x, 0, z); };
   const vanMan = cast.person({ seed: 1601, hat: { type: 'cap', color: P.bubblegum, color2: '#fff8ee' }, top: { type: 'apron', color: '#fff8ee', color2: '#ff9ec4', apronStripe: P.bubblegum, sleeves: 'short' }, bottom: { type: 'trousers', color: '#3d5a8a' }, facial: 'moustache', accessory: null },
     0, 0, 0, 'talk', {}, { name: 'ice-cream man', lines: until('icecream', ["It won't switch off!", 'Same tune since breakfast...', 'Ninety-nines! Get your ninety-nines!'], ['Lovely and quiet now.', 'Ninety-nines! Get your ninety-nines!', 'Anyone seen a spanner?'], ["It's stuck on FAST now!", "Well. That's that, then."]) });
@@ -584,11 +599,8 @@ export function buildJobs(ctx, S, L, D) {
       const cp = worldPos(cone);
       ctx.fx.burst('soft', cp, UP, { scale: 1 });
       ctx.sfx('hitSoft', { position: cp });
-      // the jingle goes into overdrive, three times, then the battery gives up
-      jingleRate = 1.6;
-      playJingle();
-      ctx.delay(3.2, playJingle);
-      ctx.delay(6.4, playJingle);
+      // the jingle goes into overdrive for a bit, then the battery gives up
+      jingle.set({ step: 0.1, gap: 0.6 });
       ctx.delay(9.6, () => {
         jingleOn = false;
         notes.on = false;
@@ -614,8 +626,7 @@ export function buildJobs(ctx, S, L, D) {
   put(root, clock, pbw(0.55, -0.02).x, pbw(0.55, -0.02).z, pb.ry - 0.35, 0.51);
   ctx.collider(clock, new THREE.SphereGeometry(0.44, 8, 6), { y: 0.3 });
   ctx.onUpdate(clock.userData.update);
-  let snoreVol = 0.7;
-  every(ctx, () => rng.range(3.2, 4), () => ctx.sfx('snore', { position: worldPos(pete.root).setY(1), volume: snoreVol }), { cond: () => open('postman'), start: 1 });
+  const snore = tellLoop('snore', { position: pete.root, volume: 0.9 }, () => open('postman'));
   const doors = L.anchors.terraceDoors.slice().sort((a, b) => b.x - a.x);
   const round = [
     [pete.root.position.x, pete.root.position.z], [pb.x - 1.6, pb.z + 1.9], [15.5, -25.2],
@@ -645,7 +656,7 @@ export function buildJobs(ctx, S, L, D) {
   });
   nag('postman', {
     owner: pete, big: false, tell: 'z', every: 7,
-    fn: () => { snoreVol = 1.25; ctx.sfx('snore', { position: worldPos(pete.root).setY(1), volume: 1.3, pitch: 0.8 }); ctx.sfx('tick', { position: worldPos(clock) }); },
+    fn: () => { snore.set({ volume: 1.35, rate: 1.2 }); ctx.sfx('tick', { position: worldPos(clock) }); },
   });
   J.pete = pete;
 
@@ -786,7 +797,7 @@ export function buildJobs(ctx, S, L, D) {
   grubb.root.position.copy(gw(0.2, G.d / 2 + 2.3));
   grubb.faceTowards(tp);
   const grubbR = routine(ctx, grubb, [['shakeFist', 3], ['angry', 2.4], ['scratch', 1.8]], 1);
-  every(ctx, () => rng.range(0.8, 1.3), () => ctx.sfx('drip', { position: tp.clone().setY(1), volume: 0.8 }), { cond: () => open('tap'), start: 1 });
+  tellLoop('drip', { position: handle, volume: 0.9 }, () => stateOf('tap') !== 'done');
   const can = wateringCan();
   can.visible = false;
   grubb.bones.handR.add(can);

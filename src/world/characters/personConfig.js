@@ -347,8 +347,27 @@ export function resolveConfig(opts = {}) {
   return cfg;
 }
 
+const FEMININE_HAIR = new Set(['bob', 'bun', 'pigtails', 'long', 'ponytail']);
+const POSH_HATS = new Set(['tophat', 'bowler']);
+/**
+ * Babble voice for speech bubbles: 'kid' | 'old' | 'posh' | 'man' | 'woman' (explicit `voice` wins).
+ * Deterministic from the look, so the same villager always sounds the same.
+ */
+export function voiceFor(cfg) {
+  if (cfg.voice) return cfg.voice;
+  if (cfg.kid || cfg.age === 'kid') return 'kid';
+  if (cfg.elder || cfg.age === 'elder') return 'old';
+  const top = cfg.top?.type, hat = cfg.hat?.type;
+  if (POSH_HATS.has(hat) || top === 'wedding' || (top === 'suit' && cfg.top.bow)) return 'posh';
+  const style = cfg.hair?.style;
+  if (cfg.facial) return 'man';
+  if (FEMININE_HAIR.has(style) || top === 'dress' || top === 'swimsuit' || ['skirt', 'long'].includes(cfg.bottom?.type) || cfg.hat?.type === 'veil') return 'woman';
+  if (['short', 'spiky', 'quiff', 'bald', 'balding', 'parted', 'mohawk'].includes(style) || top === 'bare') return 'man';
+  return ((cfg.motion?.phase ?? 0) * 7) % 2 < 1 ? 'woman' : 'man'; // curly / afro / hat-hidden: either
+}
+
 /** Cache key for geometry (look only). */
 export function lookKey(cfg) {
-  const { motion, seed, defaultAction, preset, name, scale, theme, ...look } = cfg;
+  const { motion, seed, defaultAction, preset, name, scale, theme, voice, ...look } = cfg;
   return JSON.stringify(look);
 }

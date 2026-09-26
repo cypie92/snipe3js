@@ -8,7 +8,7 @@ import { characterMaterial, CHARACTER } from './look.js';
 import { emitCharacterEvent } from './events.js';
 import { instantiate } from './rig.js';
 import { buildPerson } from './personBuild.js';
-import { resolveConfig, lookKey, PRESET_NAMES } from './personConfig.js';
+import { resolveConfig, lookKey, PRESET_NAMES, voiceFor } from './personConfig.js';
 import {
   PersonPose, ACTIONS, ACTION_NAMES, ACTION_PROPS, GAIT_ACTIONS, WATER_ACTIONS, SEATED_ACTIONS, ACTION_ICONS,
   reactPose, celebratePose, REACT_DURATION, CELEBRATE_DURATION,
@@ -87,6 +87,7 @@ export class Person {
     this.shadow = opts.shadow === false ? null : blobShadow(this.shadowSize);
     if (this.shadow) this.body.add(this.shadow);
     this.root.userData.character = this;
+    this.voice = this.root.userData.voice = opts.voice || voiceFor(cfg); // babble voice for speech bubbles
 
     const iconY = Math.max(d.top, d.headC + (this.meta.hatTop || 0)) + 0.1;
     this.icon = new IconPop(this.body, iconY, 0.62 / Math.max(0.8, cfg.scale));
