@@ -9,6 +9,9 @@ import { Effect, EffectAttribute, BlendFunction, Pass } from 'postprocessing';
 
 export const VIEWMODEL_LAYER = 5;
 
+/** Live view state published by the Renderer (e.g. particles skip the muzzle puff while scoped). */
+export const viewState = { scope: 0 };
+
 const gradeFrag = /* glsl */ `
 uniform vec3 uLift;
 uniform vec3 uGain;
@@ -16,6 +19,7 @@ uniform float uGamma;
 uniform float uContrast;
 uniform float uSaturation;
 uniform float uVibrance;
+uniform vec3 uGreen;         // yellow-green taming: saturation scale, hue shift (turns), lightness scale
 uniform vec4 uVignette;      // inner radius, outer radius, strength, scope amount (0..1)
 uniform vec3 uVignetteColor;
 uniform float uScopeRadius;  // scope circle radius in screen-height units
@@ -52,6 +56,14 @@ MAIN_IMAGE_SIGNATURE {
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float chroma = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
   c = mix(vec3(l), c, uSaturation + uVibrance * (1.0 - chroma) * (1.0 - chroma));
+  // Big lawns/hedges are the largest areas on screen: calm yellow-greens a little so the colourful
+  // houses, props and villagers pop against them (hue window ~55..165 degrees).
+  vec3 hsl = RGBToHSL(clamp(c, 0.0, 1.0));
+  float gw = smoothstep(0.15, 0.21, hsl.x) * (1.0 - smoothstep(0.4, 0.46, hsl.x));
+  hsl.x += gw * uGreen.y;
+  hsl.y *= mix(1.0, uGreen.x, gw);
+  hsl.z *= mix(1.0, uGreen.z, gw);
+  c = HSLToRGB(hsl);
 
   // tinted vignette; when scoped it becomes a lens falloff toward the scope rim
   vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
@@ -83,6 +95,7 @@ export class GradeEffect extends Effect {
         ['uContrast', new THREE.Uniform(0)],
         ['uSaturation', new THREE.Uniform(1)],
         ['uVibrance', new THREE.Uniform(0)],
+        ['uGreen', new THREE.Uniform(new THREE.Vector3(1, 0, 1))],
         ['uVignette', new THREE.Uniform(new THREE.Vector4(0.45, 1.05, 0.25, 0))],
         ['uVignetteColor', new THREE.Uniform(new THREE.Color('#3b3560'))],
         ['uScopeRadius', new THREE.Uniform(0.47)],
@@ -103,6 +116,7 @@ export class GradeEffect extends Effect {
     u.get('uContrast').value = g.contrast;
     u.get('uSaturation').value = g.saturation;
     u.get('uVibrance').value = g.vibrance;
+    u.get('uGreen').value.set(...(g.green || [1, 0, 1]));
     const v = u.get('uVignette').value;
     v.x = g.vignette[0]; v.y = g.vignette[1]; v.z = g.vignette[2];
     u.get('uVignetteColor').value.set(g.vignetteColor);

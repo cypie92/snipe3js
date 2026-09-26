@@ -6,6 +6,7 @@ import { Duck, PigeonFlock, Walker } from '../../world/characters/index.js';
 import { P } from '../../gfx/palette.js';
 import { materials } from '../../gfx/materials.js';
 import { put, local, yawTo, facePerch, worldPos, NoteFountain, PropIcon, wateringCan, Leash, v3, circlePath, TAU, routine, every } from './util.js';
+import { buntingBundle } from './custom.js';
 import { FOUNTAIN } from './layout.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -17,12 +18,17 @@ export function buildJobs(ctx, S, L, D) {
   const rng = ctx.rng;
   const J = {};
   const open = (id) => ctx.jobs.get(id)?.state === 'open';
+  /** Chatter that moves on once a job is done (or botched). */
+  const until = (id, before, after, failed = before) => () => {
+    const st = ctx.jobs.get(id)?.state;
+    return st === 'done' ? after : st === 'failed' ? failed : before;
+  };
 
   // ================================================================ 1. fountain
   const fountain = L.fountain;
   const valve = fountain.userData.parts.valve;
   const tapper = cast.person({ preset: 'kid', seed: 3101, accessory: null, hair: { style: 'short', color: P.hair[1] }, top: { type: 'stripes', color: P.teal, color2: '#fff8ee', sleeves: 'short' } },
-    -2.3, -7.75, 0, 'point', {}, { name: 'kid-tapper', lines: ["It's broken!", 'Plip... plip... plip.', 'Mum, the fountain is sulking.'] });
+    -2.3, -7.75, 0, 'point', {}, { name: 'kid-tapper', lines: until('fountain', ["It's broken!", 'Plip... plip... plip.', 'Mum, the fountain is sulking.'], ['Splashy splashy!', 'Look, DUCKS!', 'It works! It WORKS!']) });
   tapper.faceTowards(FC);
   const basinPt = new THREE.Vector3(-1.2, 0.8, -10.2);
   tapper.pointAt(basinPt);
@@ -86,23 +92,25 @@ export function buildJobs(ctx, S, L, D) {
   const bell = church.userData.parts.bell;
   const cw = (lx, lz) => { const [x, z] = local(L.churchAt.x, L.churchAt.z, L.churchAt.ry, lx, lz); return new THREE.Vector3(x, 0, z); };
   const CR = L.churchAt.ry;
-  const bride = cast.person({ preset: 'bride', seed: 1201 }, 0, 0, CR, 'lookUp', {}, { name: 'bride', lines: ['Why won\'t it ring?', 'Ding... dong... anyone?', 'Best day ever! Nearly.'] });
-  const groom = cast.person({ preset: 'groom', seed: 1202 }, 0, 0, CR, 'lookUp', {}, { name: 'groom', lines: ['The bell-ringer overslept.', 'Just one ding-dong, please!'] });
-  bride.root.position.copy(cw(0.55, 10.5));
-  groom.root.position.copy(cw(-0.5, 10.5));
-  const vicar = cast.person({ preset: 'vicar', seed: 1203 }, 0, 0, 0, 'checkWatch', {}, { name: 'vicar', lines: ['Any minute now...', 'Tick tock, tick tock.', 'Dearly beloved... er...'] });
-  vicar.root.position.copy(cw(-1.85, 10.1));
-  vicar.faceTowards(cw(0, 11.5));
-  const guestSpots = [[2.5, 12.3, 'talk'], [1.3, 13.5, 'clap'], [3.5, 11.0, 'impatient'], [-3.0, 12.0, 'talk']];
+  const bride = cast.person({ preset: 'bride', seed: 1201 }, 0, 0, CR, 'lookUp', {}, { name: 'bride', lines: until('bell', ['Why won\'t it ring?', 'Ding... dong... anyone?', 'Best day ever! Nearly.'], ['Best day EVER!', 'Ding dong! Ding dong!']) });
+  const groom = cast.person({ preset: 'groom', seed: 1202 }, 0, 0, CR, 'lookUp', {}, { name: 'groom', lines: until('bell', ['The bell-ringer overslept.', 'Just one ding-dong, please!'], ['I do! I mean... I did!', 'Who wants cake?']) });
+  // on the church path just outside the gate — the right-hand half of it, which the west row doesn't hide
+  bride.root.position.copy(cw(3.4, 10.9));
+  groom.root.position.copy(cw(4.4, 11.0));
+  const vicar = cast.person({ preset: 'vicar', seed: 1203 }, 0, 0, 0, 'checkWatch', {}, { name: 'vicar', lines: until('bell', ['Any minute now...', 'Tick tock, tick tock.', 'Dearly beloved... er...'], ['Bless you, whoever you are.', 'Dearly beloved... we made it.']) });
+  vicar.root.position.copy(cw(2.4, 12.2));
+  vicar.faceTowards(cw(3.9, 11.0));
+  // two staggered rows so nobody hides anybody from the perch (sight line ≈ local (-0.11, 0.99))
+  const guestSpots = [[6.3, 10.9, 'impatient'], [7.3, 11.1, 'talk'], [5.35, 12.3, 'clap'], [8.2, 12.3, 'talk']];
   const guests = guestSpots.map(([lx, lz, act], i) => {
     const g = cast.person({ seed: 1210 + i, hat: i === 0 ? { type: 'sunhat', color: '#ffb8c2', band: P.violet } : i === 3 ? { type: 'tophat', color: '#3d4a6b' } : undefined, top: i === 1 ? { type: 'dress', color: P.violet } : i === 3 ? { type: 'suit', color: '#5b6b7a' } : undefined, accessory: null, age: 'adult' },
-      0, 0, 0, act, {}, { name: 'guest', lines: ['What a lovely couple.', 'Is it time for cake yet?', 'Ooh, I do love a wedding.'] });
+      0, 0, 0, act, {}, { name: 'guest', lines: until('bell', ['What a lovely couple.', 'Is it time for cake yet?', 'Ooh, I do love a wedding.'], ['Throw the bouquet!', 'Is it time for cake yet?', 'I always cry at weddings.']) });
     g.root.position.copy(cw(lx, lz));
-    g.faceTowards(cw(0, 10.6));
+    g.faceTowards(cw(3.9, 11.0));
     return g;
   });
-  routine(ctx, vicar, [['checkWatch', 3.2], ['shrug', 1.8], ['lookUp', 2.6]], 1);
-  routine(ctx, bride, [['lookUp', 3.4], ['idle', 1.6], ['lookUp', 2.4], ['shrug', 1.6]], 0.5);
+  const vicarR = routine(ctx, vicar, [['checkWatch', 3.2], ['shrug', 1.8], ['lookUp', 2.6]], 1);
+  const brideR = routine(ctx, bride, [['lookUp', 3.4], ['idle', 1.6], ['lookUp', 2.4], ['shrug', 1.6]], 0.5);
   const door = L.anchors.churchDoor;
   let dings = 0;
   const ringRound = (n, gap = 1.25, pitch = 1) => {
@@ -118,25 +126,28 @@ export function buildJobs(ctx, S, L, D) {
       ctx.popText(bp.clone().add(v3(0, 1.6, 0)), dings === 0 ? 'DING!' : 'DONG!', { cls: 'pop-big', duration: 1.6 });
       if (dings === 0) {
         bride.perform('cheer', 1.4);
-        ctx.delay(1.0, () => cast.say(groom, 'That\'s the ding! Now the dong!', 2.8));
+        ctx.delay(0.9, () => { if (dings < 2) cast.say(groom, 'That\'s the ding! Now the dong!', 2.6); });
       }
       dings++;
       return 'progress';
     },
     onComplete() {
+      vicarR.on = false;
+      brideR.on = false;
       ringRound(6, 1.3, 1);
-      const conf = door.clone().setY(3.2);
+      const conf = cw(3.9, 11.4).setY(3.4); // over the couple (the church door itself is hidden from the perch)
       for (let i = 0; i < 4; i++) ctx.delay(0.3 + i * 0.45, () => ctx.fx.burst('confetti', conf.clone().add(v3(rng.range(-1.5, 1.5), rng.range(0, 1), rng.range(-1, 1))), UP, { scale: 1.1 }));
       ctx.delay(0.6, () => ctx.sfx('crowdCheer', { position: door }));
       bride.faceTowards(groom.root.position);
       groom.faceTowards(bride.root.position);
       bride.setAction('idle'); groom.setAction('idle');
+      cast.hush(bride, groom, vicar, ...guests);
       bride.celebrate(); groom.celebrate();
-      ctx.delay(1.4, () => { bride.celebrate(); groom.celebrate(); cast.say(bride, 'Mwah!', 1.6); });
-      ctx.delay(3.2, () => { bride.setAction('dance'); groom.setAction('dance'); });
+      ctx.delay(3.0, () => { bride.celebrate(); groom.celebrate(); cast.say(bride, 'Mwah!', 1.6); ctx.fx.burst('pop', worldPos(bride.root).lerp(worldPos(groom.root), 0.5).add(v3(0, 2, 0)), UP, { scale: 0.9, color: ['#ff6b8a', '#ff9ec4', '#fff8ee'] }); });
+      ctx.delay(4.6, () => { bride.setAction('dance'); groom.setAction('dance'); });
       vicar.setAction('cheer');
       guests.forEach((g, i) => ctx.delay(0.2 * i, () => { g.setAction(i % 2 ? 'clap' : 'cheer'); g.celebrate(); ctx.fx.burst('pop', worldPos(g.root).add(v3(0, 1.8, 0)), UP, { scale: 0.8 }); }));
-      ctx.delay(1, () => cast.say(vicar, 'You may now kiss the bride!', 2.6));
+      ctx.delay(0.6, () => cast.say(vicar, 'You may now kiss the bride!', 2.3));
     },
   });
   J.wedding = [bride, groom, vicar, ...guests];
@@ -146,12 +157,12 @@ export function buildJobs(ctx, S, L, D) {
   const bolt = pub.userData.parts.bolt;
   const pw = (lx, lz) => { const [x, z] = local(L.pubAt.x, L.pubAt.z, L.pubAt.ry, lx, lz); return new THREE.Vector3(x, 0, z); };
   const landlord = cast.person({ seed: 1301, top: { type: 'apron', color: '#fbf7f0', color2: '#fbf7f0', apronStripe: '#2f7d62', sleeves: 'short' }, bottom: { type: 'trousers', color: '#34384a' }, hair: { style: 'balding', color: '#5a3a22' }, facial: 'handlebar', hat: null, accessory: null, build: { belly: 1, width: 1.25 } },
-    0, 0, 0, 'scratch', {}, { name: 'landlord', lines: ['Wonky again! Every blooming week.', 'Can\'t have a wonky sign at the Wonky Pint.', 'Fancy a pint?'] });
+    0, 0, 0, 'scratch', {}, { name: 'landlord', lines: until('sign', ['Wonky again! Every blooming week.', 'Can\'t have a wonky sign at the Wonky Pint.', 'Fancy a pint?'], ['Straight as a die!', 'Fancy a pint?', 'Best sign in the county, that.']) });
   landlord.root.position.copy(pw(-4.4, 6.5));
   const signPos = worldPos(pub.userData.parts.signPivot);
   landlord.faceTowards(signPos);
   landlord.lookAt(signPos);
-  routine(ctx, landlord, [['scratch', 2.8], ['point', 2.4, { at: signPos }], ['shrug', 1.8], ['idle', 2.2]], 0.8);
+  const landlordR = routine(ctx, landlord, [['scratch', 2.8], ['point', 2.4, { at: signPos }], ['shrug', 1.8], ['idle', 2.2]], 0.8);
   every(ctx, () => rng.range(6.5, 10.5), () => ctx.sfx('creak', { position: signPos, volume: 0.55 }), { cond: () => open('sign'), start: 3 });
   ctx.job({
     id: 'sign', title: 'Wonky pub sign', clue: "Landlord says his sign's gone all wonky. Again.", hint: 'Look where the chain is hanging loose.',
@@ -162,6 +173,7 @@ export function buildJobs(ctx, S, L, D) {
       ctx.delay(0.5, () => ctx.sfx('ding', { position: signPos, pitch: 1.2 }));
       ctx.delay(0.75, () => ctx.sfx('ding', { position: signPos, pitch: 1.6 }));
       ctx.delay(0.6, () => ctx.popText(signPos.clone().add(v3(0, 1.2, 0)), 'TA-DA!', { cls: 'pop-big' }));
+      landlordR.on = false;
       landlord.lookAt(null);
       landlord.setAction('cheer');
       ctx.delay(2.2, () => landlord.setAction('wave'));
@@ -188,16 +200,25 @@ export function buildJobs(ctx, S, L, D) {
     return bn;
   });
   const coil = lines[0].userData.parts.coil;
+  // the big furled bundle on its bracket (reads at 85 m; the kit coil hides inside it)
+  const bracket = buntingBundle({ out: 0.62 });
+  put(root, bracket, po.front[0] + DIRW[0] * 3.1, po.front[1] + DIRW[1] * 3.1, L.rotW, hook.y - 0.07);
+  const bundle = bracket.userData.parts.bundle;
+  ctx.collider(bundle, new THREE.SphereGeometry(0.62, 8, 6), { y: -0.46 });
+  ctx.surface(bracket, 'soft');
   const postie = cast.person({ seed: 1401, hair: { style: 'bun', color: P.hair[4] }, glasses: 'round', top: { type: 'cardigan', color: P.tomato, sleeves: 'long' }, bottom: { type: 'skirt', color: '#3d4a6b' }, accessory: null, age: 'elder' },
-    0, 0, 0, 'lookUp', {}, { name: 'postmistress', lines: ['Who hung the bunting on MY hook?', 'The fête starts at two!', 'Too high for my old arms.'] });
-  postie.root.position.set(po.front[0] + DIRW[0] * 1.2 + NW[0] * 2.2, 0, po.front[1] + DIRW[1] * 1.2 + NW[1] * 2.2);
+    0, 0, 0, 'lookUp', {}, { name: 'postmistress', lines: until('bunting', ['Who hung the bunting on MY hook?', 'The fête starts at two!', 'Too high for my old arms.'], ['Doesn\'t the square look grand?', 'The fête starts at two!', 'Flags! Proper flags!']) });
+  postie.root.position.set(po.front[0] + DIRW[0] * 2.6 + NW[0] * 2.4, 0, po.front[1] + DIRW[1] * 2.6 + NW[1] * 2.4);
   postie.faceTowards(hook);
   postie.lookAt(hook);
-  routine(ctx, postie, [['lookUp', 3], ['point', 2.4, { at: hook }], ['shrug', 1.6]], 1.5);
+  const postieR = routine(ctx, postie, [['lookUp', 3], ['point', 2.4, { at: hook }], ['shrug', 1.6]], 1.5);
   ctx.job({
     id: 'bunting', title: 'Bunting for the fête', clue: "Can't have a fête without bunting!", hint: 'A coil of flags hanging on a hook by the post office.',
-    reward: 40, targets: [coil], focus: coil,
+    reward: 40, targets: [bundle, coil], focus: bundle,
     onComplete() {
+      const b0 = bundle.scale.x;
+      ctx.tweens.run(0.5, (k) => { bundle.scale.setScalar(Math.max(0.001, b0 * (1 - k))); bundle.rotation.x = k * 5; }, { onComplete: () => { bundle.visible = false; } });
+      ctx.fx.burst('pop', worldPos(bundle).add(v3(0, -0.4, 0)), UP, { scale: 1.2 });
       lines[0].userData.setFurled(false);
       ctx.sfx('whoosh', { position: hook });
       lines.slice(1).forEach((bn, i) => ctx.delay(1.2 + i * 0.85, () => {
@@ -207,16 +228,19 @@ export function buildJobs(ctx, S, L, D) {
         ctx.sfx('whoosh', { position: a ? worldPos(a) : FC, pitch: 1.1 + i * 0.08 });
       }));
       ctx.delay(3.6, () => { ctx.sfx('crowdCheer', { position: FC.clone().setY(2) }); cast.cheerNear(FC, 26, { say: 'Now THAT is a fête!' }); });
+      postieR.on = false;
       postie.lookAt(null);
-      postie.perform('clap', 3);
+      postie.setAction('clap');
+      ctx.delay(3, () => postie.setAction('wave'));
     },
   });
   J.bunting = lines;
+  J.postie = postie;
 
   // ================================================================ 5. Mrs Crumb's pigeons (flour sack = wrong bag!)
   const cb = D.crumbBench;
   const bw = (lx, lz) => { const [x, z] = local(cb.x, cb.z, cb.ry, lx, lz); return new THREE.Vector3(x, 0, z); };
-  const crumb = cast.person({ preset: 'oldLady', seed: 1501 }, 0, 0, cb.ry, 'sit', { height: 0.5 }, { name: 'Mrs Crumb', lines: ['Come on, my little dears...', 'My arms are ever so tired.', 'That\'s the seed bag, dear. The brown one.'] });
+  const crumb = cast.person({ preset: 'oldLady', seed: 1501 }, 0, 0, cb.ry, 'sit', { height: 0.5 }, { name: 'Mrs Crumb', lines: until('pigeons', ['Come on, my little dears...', 'My arms are ever so tired.', 'That\'s the seed bag, dear. The brown one.'], ['Look at them tuck in!', 'Not so fast, Gerald!', 'Who\'s a hungry boy, then?'], ['My flour! My lovely flour!', 'No cakes this year, dears.']) });
   crumb.root.position.copy(bw(-0.5, 0.27));
   const bag = K.birdseedBag({ seed: 3 });
   put(root, bag, bw(0.35, -0.02).x, bw(0.35, -0.02).z, cb.ry, 0.51);
@@ -258,7 +282,7 @@ export function buildJobs(ctx, S, L, D) {
 
   // ================================================================ 6. the ice-cream van jingle
   const van = K.iceCreamVan({ seed: 2 });
-  const VAN = [54.3, 14.6];
+  const VAN = [54.3, 3.6];
   put(root, van, VAN[0], VAN[1], Math.PI);
   ctx.surface(van, 'metal');
   ctx.onUpdate(van.userData.update);
@@ -278,16 +302,16 @@ export function buildJobs(ctx, S, L, D) {
   every(ctx, 6.4, playJingle, { cond: () => jingleOn, start: 1.5 });
   const vw = (lx, lz) => { const [x, z] = local(VAN[0], VAN[1], Math.PI, lx, lz); return new THREE.Vector3(x, 0, z); };
   const vanMan = cast.person({ seed: 1601, hat: { type: 'cap', color: P.bubblegum, color2: '#fff8ee' }, top: { type: 'apron', color: '#fff8ee', color2: '#ff9ec4', apronStripe: P.bubblegum, sleeves: 'short' }, bottom: { type: 'trousers', color: '#3d5a8a' }, facial: 'moustache', accessory: null },
-    0, 0, 0, 'talk', {}, { name: 'ice-cream man', lines: ['It won\'t switch off!', 'Same tune since breakfast...', 'Ninety-nines! Get your ninety-nines!'] });
+    0, 0, 0, 'talk', {}, { name: 'ice-cream man', lines: until('icecream', ['It won\'t switch off!', 'Same tune since breakfast...', 'Ninety-nines! Get your ninety-nines!'], ['Lovely and quiet now.', 'Ninety-nines! Get your ninety-nines!', 'Anyone seen a spanner?']) });
   vanMan.root.position.copy(vw(2.25, -0.4));
   vanMan.root.rotation.y = -Math.PI / 2;
-  const queue = [[3.7, 0.1, 'impatient'], [4.8, 1.3, 'eat']].map(([lx, lz, act], i) => {
-    const q = cast.person({ seed: 1610 + i, accessory: act === 'eat' ? 'icecream' : null }, 0, 0, Math.PI / 2, act, {}, { name: 'customer', lines: ['This tune is doing my head in.', 'Two scoops, please!'] });
+  const queue = [[3.7, 0.1, 'impatient']].map(([lx, lz, act], i) => {
+    const q = cast.person({ seed: 1610 + i, accessory: act === 'eat' ? 'icecream' : null }, 0, 0, Math.PI / 2, act, {}, { name: 'customer', lines: until('icecream', ['This tune is doing my head in.', 'Two scoops, please!'], ['Ahh. Peace at last.', 'Two scoops, please!']) });
     q.root.position.copy(vw(lx, lz));
     q.faceTowards(vanMan.root.position);
     return q;
   });
-  routine(ctx, vanMan, [['talk', 3], ['shrug', 1.8], ['point', 2, { at: speaker }], ['scratch', 2]], 2);
+  const vanManR = routine(ctx, vanMan, [['talk', 3], ['shrug', 1.8], ['point', 2, { at: speaker }], ['scratch', 2]], 2);
   ctx.job({
     id: 'icecream', title: 'That blasted jingle', clue: "The ice-cream van jingle's stuck on repeat. Make it stop!", hint: 'Follow the music to the van roof.',
     reward: 50, targets: [speaker], focus: speaker,
@@ -300,17 +324,19 @@ export function buildJobs(ctx, S, L, D) {
       ctx.sfx('clang', { position: sp });
       ctx.delay(0.25, () => ctx.sfx('spring', { position: sp, pitch: 0.7 }));
       for (let i = 0; i < 5; i++) ctx.delay(0.2 + i * 0.35, () => ctx.fx.burst('smoke', sp.clone().add(v3(0, 0.3, 0)), UP, { scale: 0.7, color: ['#b9bcc6', '#8d92a0'] }));
+      vanManR.on = false;
       vanMan.perform('cheer', 2.2);
       ctx.delay(2.3, () => vanMan.setAction('wave'));
       cast.say(vanMan, 'Peace and quiet at last!', 3);
       queue.forEach((q) => q.celebrate());
     },
   });
+  J.vanMan = vanMan;
 
   // ================================================================ 7. wake the postman
   const pb = D.peteBench;
   const pbw = (lx, lz) => { const [x, z] = local(pb.x, pb.z, pb.ry, lx, lz); return new THREE.Vector3(x, 0, z); };
-  const pete = cast.person({ preset: 'postman', seed: 1701 }, 0, 0, pb.ry, 'sleep', { height: 0.5 }, { name: 'Postie Pete', lines: ['Zzz... first class... zzz', 'Mmm... five more minutes...'] });
+  const pete = cast.person({ preset: 'postman', seed: 1701 }, 0, 0, pb.ry, 'sleep', { height: 0.5 }, { name: 'Postie Pete', lines: until('postman', ['Zzz... first class... zzz', 'Mmm... five more minutes...'], ['Post! Morning! Post!', 'Letters! Parcels!', 'Nobody tell the boss.']) });
   pete.root.position.copy(pbw(-0.45, 0.27));
   const clock = K.alarmClock({ seed: 5, size: 0.75, color: P.tomato });
   put(root, clock, pbw(0.55, -0.02).x, pbw(0.55, -0.02).z, pb.ry - 0.35, 0.51);
@@ -362,8 +388,8 @@ export function buildJobs(ctx, S, L, D) {
   root.add(branch);
   ctx.surface(branch, 'wood');
   const poppy = cast.person({ preset: 'kid', seed: 1801, accessory: null, hair: { style: 'pigtails', color: P.hair[6], tie: P.sunflower }, top: { type: 'dress', color: P.bubblegum, sleeves: 'short' } },
-    0, 0, 0, 'point', { at: knotPos }, { name: 'Poppy', lines: ['My kite! It\'s stuck!', 'Silly tree ate my kite.', 'Can you get it down, mister?'] });
-  poppy.root.position.set(oak.x + toPerch.x * 7.4 - 2.6, 0, oak.z + toPerch.y * 7.4 + 0.6);
+    0, 0, 0, 'point', { at: knotPos }, { name: 'Poppy', lines: until('kite', ['My kite! It\'s stuck!', 'Silly tree ate my kite.', 'Can you get it down, mister?'], ['Wheee!', 'Look how high it goes!', 'Thank you, mister!']) });
+  poppy.root.position.set(oak.x - 6.4, 0, oak.z + 4.2);
   poppy.faceTowards(knotPos);
   const poppyR = routine(ctx, poppy, [['point', 3, { at: knotPos }], ['shrug', 1.6], ['lookUp', 2.4]], 2);
   let kiteFollow = false;
@@ -371,12 +397,12 @@ export function buildJobs(ctx, S, L, D) {
   const string = new Leash(root, '#fff8ee', 0.012);
   string.mesh.visible = false;
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _k = new THREE.Vector3();
-  ctx.onUpdate((dt) => {
+  // once freed the kite flies high and downwind of Poppy (above every roof, so it reads from the perch)
+  ctx.onUpdate((dt, t) => {
     if (!kiteFollow) return;
     const pr = poppy.root;
-    const fwd = _a.set(Math.sin(pr.rotation.y), 0, Math.cos(pr.rotation.y));
-    _k.copy(pr.position).addScaledVector(fwd, -3.2).setY(5.6);
-    kite.position.lerp(_k, 1 - Math.exp(-dt * 1.4));
+    _k.copy(pr.position).add(_a.set(Math.sin(t * 0.45) * 1.8, 10.8 + Math.sin(t * 1.1) * 0.6, -5.5));
+    kite.position.lerp(_k, 1 - Math.exp(-dt * 1.1));
     poppy.bones.handR.getWorldPosition(_a);
     kitePivot.getWorldPosition(_b);
     string.set(_a, _b);
@@ -395,11 +421,11 @@ export function buildJobs(ctx, S, L, D) {
       poppy.perform('cheer', 2.4);
       cast.say(poppy, 'Yay! My kite!', 2.4);
       ctx.delay(2.6, () => {
-        kite.scale.setScalar(1.35);
         kiteFollow = true;
         string.mesh.visible = true;
-        const o = L.oakAt;
-        new Walker(poppy, [[o.x + 5, o.z + 8], [o.x + 12, o.z + 6], [o.x + 14, o.z - 2], [o.x + 10, o.z - 9], [o.x + 3, o.z - 11], [o.x + 6, o.z + 2]], { loop: true, speed: 2.5, action: 'run' });
+        // laps of the lawn in the gap between the cottages (the stretch you can see from the perch)
+        const o = L.oakAt, pp = poppy.root.position;
+        new Walker(poppy, [[pp.x, pp.z], [o.x - 5.5, o.z - 0.8], [o.x - 3.4, o.z - 8], [o.x - 1.2, o.z - 5.2], [o.x - 2.4, o.z + 1.8]], { loop: true, speed: 2.4, action: 'run' });
       });
     },
   });
@@ -416,7 +442,7 @@ export function buildJobs(ctx, S, L, D) {
   ctx.onUpdate(camT.userData.update);
   const tourists = [0.6, -0.6].map((s, i) => {
     const t = cast.person({ preset: 'tourist', seed: 1901 + i, accessory: null, top: i ? { type: 'hawaiian', color: P.tomato, color2: P.sunflower, sleeves: 'short' } : undefined, hat: i ? { type: 'sunhat', color: '#f2d27a', band: P.teal } : undefined },
-      T0.x + pr.x * s, T0.z + pr.y * s, 0, 'shrug', {}, { name: 'tourist', lines: () => (open('fountain') ? ['Shame the fountain\'s off.', 'Not very photogenic, is it?'] : ['Say cheese!', 'Can anyone reach the button?', 'Perfect with the fountain!']) });
+      T0.x + pr.x * s, T0.z + pr.y * s, 0, 'shrug', {}, { name: 'tourist', lines: () => (open('fountain') ? ['Shame the fountain\'s off.', 'Not very photogenic, is it?'] : open('selfie') ? ['Say cheese!', 'Can anyone reach the button?', 'Perfect with the fountain!'] : ['What a lovely village!', 'Wait till they see this back home!']) });
     t.faceTowards(FC);
     return t;
   });
@@ -453,14 +479,16 @@ export function buildJobs(ctx, S, L, D) {
   const G = L.grubb;
   const gw = (lx, lz) => { const [x, z] = local(G.x, G.z, G.ry, lx, lz); return new THREE.Vector3(x, 0, z); };
   const tap = K.gardenTap({ seed: 8, mount: 'wall', under: 'none', dripping: true });
-  const tp = gw(G.w / 2 - 0.7, G.d / 2 + 0.02);
+  // between the front door and the right-hand window box (the box would swallow it)
+  const tp = gw(1.22, G.d / 2 + 0.02);
+  tap.scale.setScalar(1.5); // a chunky toy tap so it reads at 60 m
   put(root, tap, tp.x, tp.z, G.ry);
   ctx.surface(tap, 'metal');
   ctx.onUpdate(tap.userData.update);
   const handle = tap.userData.parts.handle;
   const grubb = cast.person({ seed: 2001, hat: { type: 'flatcap', color: '#6b7a5a' }, top: { type: 'overalls', color: '#4f9a3c', sleeves: 'long' }, bottom: { type: 'trousers', color: '#4f9a3c' }, facial: 'bigbeard', age: 'elder', glasses: null, accessory: null, boots: '#5a3a22' },
-    0, 0, 0, 'shakeFist', {}, { name: 'Mr Grubb', lines: ['Drip, drip, DRIP!', 'That tap\'s drowning my petunias.', 'Hmph.'] });
-  grubb.root.position.copy(gw(G.w / 2 - 1.2, G.d / 2 + 1.9));
+    0, 0, 0, 'shakeFist', {}, { name: 'Mr Grubb', lines: until('tap', ['Drip, drip, DRIP!', 'That tap\'s drowning my petunias.', 'Hmph.'], ['There we go, my beauties.', 'Hmph. Thank you, I suppose.', 'Prize marrow, this. Don\'t touch.']) });
+  grubb.root.position.copy(gw(-0.5, G.d / 2 + 1.3));
   grubb.faceTowards(tp);
   const grubbR = routine(ctx, grubb, [['shakeFist', 3], ['angry', 2.4], ['scratch', 1.8]], 1);
   const can = wateringCan();
@@ -474,7 +502,7 @@ export function buildJobs(ctx, S, L, D) {
     ctx.fx.emit('blob', sp, 3, { dir: v3(0, -1, 0), speed: 1.2, spread: 0.25, size: 0.05, gravity: 9, life: 0.5, color: ['#bfeeff', '#8fdcf7'] });
   }, { cond: () => watering });
   ctx.job({
-    id: 'tap', title: 'Leaky tap', clue: "Mr Grubb's garden tap won't stop dribbling.", hint: 'On the front wall of the cottage by the allotments.',
+    id: 'tap', title: 'Leaky tap', clue: "Mr Grubb's garden tap won't stop dribbling.", hint: 'Beside the front door of the cottage by the allotments.',
     reward: 30, targets: [handle], focus: handle,
     onComplete() {
       tap.userData.turnHandle(1.5);
@@ -500,11 +528,16 @@ export function buildJobs(ctx, S, L, D) {
   // ================================================================ secret: the weathervane
   const vane = church.userData.parts.weathervane;
   ctx.collider(vane, new THREE.SphereGeometry(1.05, 8, 6), { y: 0.65 });
-  let vaneSpin = 0, vaneVel = 0;
-  ctx.onUpdate((dt) => {
+  // really is stuck pointing at the pub (overrides the kit's idle swing, which runs first) until shot
+  const vp0 = worldPos(vane);
+  const parentYaw = new THREE.Euler().setFromQuaternion(vane.parent.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
+  const stuckYaw = Math.atan2(-(L.pubAt.z - vp0.z), L.pubAt.x - vp0.x) - parentYaw;
+  let vaneSpin = 0, vaneVel = 0, vaneFree = 0;
+  ctx.onUpdate((dt, t) => {
     vaneVel *= Math.exp(-dt * 0.3);
     vaneSpin += vaneVel * dt;
-    vane.rotation.y += vaneSpin;
+    if (vaneVel > 0) vaneFree = Math.min(1, vaneFree + dt * 0.15);
+    vane.rotation.y = stuckYaw + vaneSpin + Math.sin(t * 7.3) * 0.015 * (1 - vaneFree) + Math.sin(t * 0.21) * 0.6 * vaneFree;
   });
   ctx.job({
     id: 'vane', bonus: true, title: "Which way's the wind?", clue: 'The weathervane is stuck pointing at the pub. Suspicious.',

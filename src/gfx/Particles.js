@@ -1,6 +1,10 @@
-// Pooled, instanced particle system with chunky toy-like particles (blobs, shards, confetti, sparks).
+// Pooled, instanced particle system with chunky toy-like particles (puffs, shards, chips, confetti,
+// sparks). Puffs are smooth "cotton" balls that pop in with a little overshoot; sparks are HDR streaks
+// stretched along their velocity so they bloom; water hits also leave GPU splash rings.
 import * as THREE from 'three';
 import { P, ACCENTS } from './palette.js';
+import { createSplashRings } from './water.js';
+import { viewState } from './post.js';
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -9,17 +13,21 @@ const _v = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 const UP = new THREE.Vector3(0, 1, 0);
+const _dir = new THREE.Vector3();
+const _mz = new THREE.Vector3();
+const backOut = (x) => 1 + 2.2 * Math.pow(x - 1, 3) + 1.2 * Math.pow(x - 1, 2);
 
 class Pool {
-  constructor(scene, geometry, material, max) {
+  constructor(scene, geometry, material, max, { stretch = 0, shadows = true } = {}) {
     this.max = max;
+    this.stretch = stretch; // > 0: orient along velocity and lengthen by speed * stretch
     this.mesh = new THREE.InstancedMesh(geometry, material, max);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.setColorAt(0, _c.set('#ffffff'));
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
-    this.mesh.receiveShadow = false;
+    this.mesh.receiveShadow = shadows;
     this.mesh.userData.noHit = true;
     scene.add(this.mesh);
     this.n = 0;
@@ -82,13 +90,21 @@ class Pool {
       }
       this.rot[i3] += this.spin[i3] * dt; this.rot[i3 + 1] += this.spin[i3 + 1] * dt; this.rot[i3 + 2] += this.spin[i3 + 2] * dt;
       const k = this.life[i] / this.maxLife[i];
-      // pop in fast, hold, shrink out
-      const env = Math.min(1, k * 8) * (k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1);
+      // pop in with a springy overshoot, hold, shrink out (toy-like, no alpha fades)
+      const pin = Math.min(1, k * 9);
+      const env = (pin < 1 ? backOut(pin) : 1) * (k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1);
       const s = Math.max(0.0001, this.size[i] * (1 + this.grow[i] * k) * env);
-      _e.set(this.rot[i3], this.rot[i3 + 1], this.rot[i3 + 2]);
-      _q.setFromEuler(_e);
       _v.set(this.pos[i3], this.pos[i3 + 1], this.pos[i3 + 2]);
-      _s.set(s, s, s);
+      if (this.stretch > 0) {
+        _dir.set(this.vel[i3], this.vel[i3 + 1], this.vel[i3 + 2]);
+        const sp = _dir.length();
+        if (sp > 1e-4) _q.setFromUnitVectors(UP, _dir.multiplyScalar(1 / sp));
+        _s.set(s * 0.45, s * (1 + sp * this.stretch), s * 0.45);
+      } else {
+        _e.set(this.rot[i3], this.rot[i3 + 1], this.rot[i3 + 2]);
+        _q.setFromEuler(_e);
+        _s.set(s, s, s);
+      }
       _m.compose(_v, _q, _s);
       mesh.setMatrixAt(i, _m);
       mesh.setColorAt(i, _c.setRGB(this.col[i3], this.col[i3 + 1], this.col[i3 + 2]));
@@ -101,16 +117,25 @@ class Pool {
 
 export class Particles {
   constructor(scene) {
-    const lit = new THREE.MeshStandardMaterial({ roughness: 0.75, flatShading: true });
-    const glow = new THREE.MeshBasicMaterial({ toneMapped: false });
-    const paper = new THREE.MeshStandardMaterial({ roughness: 0.6, side: THREE.DoubleSide });
+    // puffs: smooth, soft, slightly self-lit so smoke/dust never goes grey-dark on its shadow side
+    const puff = new THREE.MeshStandardMaterial({ roughness: 0.95, emissive: '#ffffff', emissiveIntensity: 0.12 });
+    puff.name = 'fx-puff';
+    const lit = new THREE.MeshStandardMaterial({ roughness: 0.7, flatShading: true });
+    lit.name = 'fx-lit';
+    // HDR white x instance colour: sparks and stars sit above the bloom threshold
+    const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 2.6, 2.6), toneMapped: false });
+    glow.name = 'fx-glow';
+    const paper = new THREE.MeshStandardMaterial({ roughness: 0.55, side: THREE.DoubleSide, emissive: '#ffffff', emissiveIntensity: 0.08 });
+    paper.name = 'fx-paper';
     this.pools = {
-      blob: new Pool(scene, new THREE.IcosahedronGeometry(1, 0), lit, 900),
+      blob: new Pool(scene, new THREE.IcosahedronGeometry(1, 2), puff, 900),
       shard: new Pool(scene, new THREE.TetrahedronGeometry(1), lit, 600),
-      chip: new Pool(scene, new THREE.BoxGeometry(1, 0.35, 0.7), lit, 400),
+      chip: new Pool(scene, new THREE.BoxGeometry(1, 0.42, 0.72), lit, 400),
       confetti: new Pool(scene, new THREE.PlaneGeometry(1, 0.62), paper, 700),
-      spark: new Pool(scene, new THREE.OctahedronGeometry(1, 0), glow, 500),
+      spark: new Pool(scene, new THREE.OctahedronGeometry(1, 0), glow, 500, { stretch: 0.09, shadows: false }),
+      star: new Pool(scene, new THREE.OctahedronGeometry(1, 0), glow, 300, { shadows: false }),
     };
+    this.rings = createSplashRings(scene, { max: 24 });
   }
 
   /** Low-level: n particles of kind with options. */
@@ -137,61 +162,82 @@ export class Particles {
     }
   }
 
+  /** Quick bright "pop" at an impact point: one puff that balloons and vanishes (reads at 100 m). */
+  flash(pos, normal, s = 1, color = '#ffffff') {
+    this.pools.blob.spawn({
+      x: pos.x + normal.x * 0.1, y: pos.y + normal.y * 0.1, z: pos.z + normal.z * 0.1,
+      vx: normal.x * 0.6, vy: normal.y * 0.6, vz: normal.z * 0.6,
+      life: 0.12, size: 0.13 * s, grow: 1.3, gravity: 0, drag: 4, color,
+    });
+  }
+
   /** High-level named effects. normal = surface normal (optional). */
   burst(name, pos, normal, opts = {}) {
     const n = normal || UP;
     const s = opts.scale ?? 1;
     switch (name) {
       case 'dust':
-        this.emit('blob', pos, 7, { dir: n, speed: 1.6 * s, size: 0.18 * s, grow: 2.2, gravity: -0.4, drag: 2.2, life: 0.9, color: ['#efe3c8', '#e2d2ae', '#f7efdc'] });
-        this.emit('chip', pos, 4, { dir: n, speed: 4 * s, size: 0.06 * s, gravity: 12, life: 0.7, color: ['#c9ad7f', '#a88c62'] });
+        this.flash(pos, n, s, '#fff8ea');
+        this.emit('blob', pos, 9, { dir: n, speed: 2.0 * s, spread: 1.1, size: 0.2 * s, grow: 2.2, gravity: -0.4, drag: 2.4, life: 0.95, color: ['#efe3c8', '#e2d2ae', '#f7efdc'] });
+        this.emit('chip', pos, 5, { dir: n, speed: 4.5 * s, size: 0.075 * s, gravity: 12, life: 0.75, color: ['#c9ad7f', '#a88c62'] });
         break;
       case 'grass':
-        this.emit('shard', pos, 8, { dir: n, speed: 3.5 * s, size: 0.07 * s, gravity: 6, drag: 1.2, life: 0.9, color: [P.grass, P.grassDark, P.grassLight] });
-        this.emit('blob', pos, 4, { dir: n, speed: 1.2 * s, size: 0.14 * s, grow: 2, gravity: -0.3, drag: 2.5, life: 0.7, color: ['#e9e2c7'] });
+        this.flash(pos, n, s, '#f4ffe0');
+        this.emit('shard', pos, 10, { dir: n, speed: 3.8 * s, size: 0.085 * s, gravity: 6, drag: 1.2, life: 0.95, color: [P.grass, P.grassDark, P.grassLight] });
+        this.emit('blob', pos, 5, { dir: n, speed: 1.4 * s, spread: 1.0, size: 0.16 * s, grow: 2, gravity: -0.3, drag: 2.5, life: 0.75, color: ['#e9e2c7'] });
         break;
       case 'wood':
-        this.emit('chip', pos, 9, { dir: n, speed: 5 * s, size: 0.09 * s, gravity: 12, life: 0.9, color: [P.wood, P.woodLight, P.woodDark] });
-        this.emit('blob', pos, 3, { dir: n, speed: 1 * s, size: 0.12 * s, grow: 2, gravity: -0.3, drag: 2.5, life: 0.6, color: ['#e8dcc0'] });
+        this.flash(pos, n, s, '#fff3d6');
+        this.emit('chip', pos, 11, { dir: n, speed: 5.2 * s, size: 0.11 * s, gravity: 12, life: 0.95, color: [P.wood, P.woodLight, P.woodDark] });
+        this.emit('blob', pos, 4, { dir: n, speed: 1.2 * s, size: 0.15 * s, grow: 2, gravity: -0.3, drag: 2.5, life: 0.65, color: ['#e8dcc0'] });
         break;
       case 'metal':
-        this.emit('spark', pos, 12, { dir: n, speed: 7 * s, spread: 1.1, size: 0.035 * s, gravity: 14, drag: 1, life: 0.45, color: ['#fff3b0', '#ffd166', '#ffffff'] });
-        this.emit('blob', pos, 2, { dir: n, speed: 0.8, size: 0.1 * s, grow: 2, gravity: -0.4, drag: 2, life: 0.6, color: ['#d8dde6'] });
+        this.flash(pos, n, s, '#fff6c8');
+        this.emit('spark', pos, 16, { dir: n, speed: 7.5 * s, spread: 1.15, size: 0.05 * s, gravity: 14, drag: 1, life: 0.5, color: ['#fff3b0', '#ffd166', '#ffffff'] });
+        this.emit('blob', pos, 3, { dir: n, speed: 0.9, size: 0.12 * s, grow: 2, gravity: -0.4, drag: 2, life: 0.6, color: ['#d8dde6'] });
         break;
       case 'stone':
-        this.emit('chip', pos, 8, { dir: n, speed: 4.5 * s, size: 0.07 * s, gravity: 12, life: 0.8, color: [P.stone, P.stoneDark, '#e7e0d4'] });
-        this.emit('blob', pos, 5, { dir: n, speed: 1.4 * s, size: 0.16 * s, grow: 2, gravity: -0.3, drag: 2.4, life: 0.8, color: ['#ece6da'] });
+        this.flash(pos, n, s, '#fffaf0');
+        this.emit('chip', pos, 9, { dir: n, speed: 4.8 * s, size: 0.085 * s, gravity: 12, life: 0.85, color: [P.stone, P.stoneDark, '#e7e0d4'] });
+        this.emit('blob', pos, 7, { dir: n, speed: 1.7 * s, spread: 1.1, size: 0.19 * s, grow: 2, gravity: -0.3, drag: 2.4, life: 0.85, color: ['#ece6da', '#f4efe6'] });
         break;
       case 'glass':
-        this.emit('shard', pos, 14, { dir: n, speed: 4 * s, size: 0.06 * s, gravity: 11, life: 0.9, color: ['#cdefff', '#9fdcf7', '#ffffff'] });
+        this.flash(pos, n, s, '#eefaff');
+        this.emit('shard', pos, 16, { dir: n, speed: 4.2 * s, size: 0.075 * s, gravity: 11, life: 0.95, color: ['#cdefff', '#9fdcf7', '#ffffff'] });
         break;
       case 'water':
       case 'splash':
-        this.emit('blob', pos, 14, { dir: UP, speed: 4.5 * s, spread: 0.5, size: 0.09 * s, gravity: 11, drag: 0.4, life: 0.8, color: ['#bfeeff', '#8fdcf7', '#ffffff'] });
-        this.emit('blob', pos, 5, { dir: UP, speed: 0.8, size: 0.2 * s, grow: 1.5, gravity: 0, drag: 3, life: 0.5, color: ['#e9fbff'] });
+        this.emit('blob', pos, 16, { dir: UP, speed: 4.8 * s, spread: 0.5, size: 0.1 * s, gravity: 11, drag: 0.4, life: 0.85, color: ['#bfeeff', '#8fdcf7', '#ffffff'] });
+        this.emit('blob', pos, 4, { dir: UP, speed: 0.9, spread: 1.2, size: 0.15 * s, grow: 1.4, gravity: 0, drag: 3, life: 0.45, color: ['#e9fbff'] });
+        this.rings.spawn(pos, { size: 0.9 * s, life: 1.0 });
+        this.rings.spawn(pos, { size: 1.6 * s, life: 1.4 });
         break;
       case 'soft':
-        this.emit('blob', pos, 6, { dir: n, speed: 1.5 * s, size: 0.14 * s, grow: 1.5, gravity: 0.5, drag: 2, life: 0.6, color: ['#ffffff', '#f3ecff'] });
+        this.emit('blob', pos, 8, { dir: n, speed: 1.7 * s, spread: 1.0, size: 0.16 * s, grow: 1.5, gravity: 0.5, drag: 2, life: 0.65, color: ['#ffffff', '#f3ecff'] });
         break;
       case 'leaves':
-        this.emit('shard', pos, 12, { dir: n, speed: 2.5 * s, size: 0.1 * s, gravity: 2.2, drag: 2.2, spin: 10, life: 1.6, color: [P.grass, P.grassDark, P.grassLight, '#b8e07a'] });
+        this.emit('shard', pos, 14, { dir: n, speed: 2.6 * s, size: 0.12 * s, gravity: 2.2, drag: 2.2, spin: 10, life: 1.7, color: [P.grass, P.grassDark, P.grassLight, '#b8e07a'] });
         break;
       case 'pop':
-        this.emit('confetti', pos, 16, { dir: UP, speed: 4 * s, spread: 1.4, size: 0.12 * s, gravity: 5, drag: 2.5, spin: 14, life: 1.3, color: [].concat(opts.color || ACCENTS) });
+        this.emit('confetti', pos, 18, { dir: UP, speed: 4 * s, spread: 1.4, size: 0.13 * s, gravity: 5, drag: 2.5, spin: 14, life: 1.3, color: [].concat(opts.color || ACCENTS) });
         break;
       case 'confetti':
         this.emit('confetti', pos, Math.round(60 * s), { dir: UP, speed: 7 * s, spread: 0.9, size: 0.2, gravity: 3.2, drag: 1.6, spin: 12, life: 2.6, color: ACCENTS });
         break;
       case 'stars':
-        this.emit('spark', pos, 26, { dir: UP, speed: 3.5 * s, spread: 1.4, size: 0.07 * s, gravity: 1.5, drag: 2, life: 1.1, color: ['#fff3b0', '#ffd166', '#ffe9a8', '#ffffff'] });
+        this.emit('star', pos, 26, { dir: UP, speed: 3.5 * s, spread: 1.4, size: 0.07 * s, gravity: 1.5, drag: 2, life: 1.1, color: ['#fff3b0', '#ffd166', '#ffe9a8', '#ffffff'] });
         this.emit('blob', pos, 6, { dir: UP, speed: 1.5, size: 0.18 * s, grow: 2, gravity: -0.5, drag: 2, life: 0.8, color: ['#fff6cf'] });
         break;
       case 'smoke':
         this.emit('blob', pos, Math.round(3 * s), { dir: UP, speed: 1.2, spread: 0.25, size: 0.35 * s, grow: 2.5, gravity: -0.6, drag: 1.2, life: 2.5, color: opts.color || ['#f2f0ee', '#e4e2e6'] });
         break;
-      case 'muzzle':
-        this.emit('blob', pos, 4, { dir: n, speed: 2.5, spread: 0.3, size: 0.07, grow: 3, gravity: -0.5, drag: 3, life: 0.5, color: ['#eeeeee', '#d9d9d9'] });
+      case 'muzzle': {
+        // ~1 m from the lens: keep it a small quick puff, pushed forward; never inside the scope view
+        if (viewState.scope > 0.3) break;
+        _mz.copy(pos).addScaledVector(n, 0.35);
+        this.emit('blob', _mz, 3, { dir: n, speed: 1.6, spread: 0.35, size: 0.018, grow: 2.2, gravity: -0.4, drag: 4, life: 0.3, color: ['#f2f2f2', '#dedede'], jitter: 0.02 });
         break;
+      }
       default:
         this.burst('dust', pos, normal, opts);
     }
@@ -206,5 +252,6 @@ export class Particles {
       this.pools[k].n = 0;
       this.pools[k].mesh.count = 0;
     }
+    this.rings.clear();
   }
 }

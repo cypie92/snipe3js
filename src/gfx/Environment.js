@@ -9,41 +9,41 @@ import { Rng } from '../core/rng.js';
 import { VIEWMODEL_LAYER } from './post.js';
 
 /**
- * sunAzim: degrees around Y measured from +Z (the perch side) toward +X. -40 = over the player's left
- * shoulder, +40 = right shoulder. Colours are sRGB hex. fog = horizon haze colour (sky, fog and cloud
+ * sunAzim: degrees around Y measured from +Z (the perch side) toward +X. -50 = over the player's left
+ * shoulder (3/4 key: fronts lit, shadows fall back and to the right where the perch can see them). Colours are sRGB hex. fog = horizon haze colour (sky, fog and cloud
  * haze share it so distant hills melt into the horizon).
  */
 export const PRESETS = {
   morning: {
-    zenith: '#3f93ea', horizon: '#a9d6f7', haze: '#e3f1f6', below: '#c5dccb',
-    sun: '#fff0d9', sunIntensity: 2.7, sunElev: 41, sunAzim: -38,
-    hemiSky: '#bcd9ff', hemiGround: '#8a9a6a', hemiIntensity: 1.05,
-    fill: '#a9b9ff', fillIntensity: 0.45,
-    fogNear: 110, fogFar: 1150, env: 0.28,
-    cloudLit: '#fffdf8', cloudShade: '#a9b6dc', cloudHaze: 0.55,
+    zenith: '#3b8fe8', horizon: '#a3d0f5', haze: '#dcebf3', below: '#c0d6c8',
+    sun: '#ffeed6', sunIntensity: 3.0, sunElev: 38, sunAzim: -50,
+    hemiSky: '#a9bdf5', hemiGround: '#8a9470', hemiIntensity: 1.0,
+    fill: '#a7a8ff', fillIntensity: 0.5,
+    fogNear: 70, fogFar: 950, env: 0.22,
+    cloudLit: '#fffdf8', cloudShade: '#a3afd8', cloudHaze: 0.6,
     grade: {},
   },
   noon: {
-    zenith: '#3a8ff0', horizon: '#b3dcfa', haze: '#e6f4fa', below: '#c5dccb',
-    sun: '#fffaf0', sunIntensity: 3.1, sunElev: 58, sunAzim: 20,
-    hemiSky: '#c3dcff', hemiGround: '#8d9c6c', hemiIntensity: 1.15,
-    fill: '#b0c0ff', fillIntensity: 0.4,
-    fogNear: 130, fogFar: 1250, env: 0.32,
-    cloudLit: '#ffffff', cloudShade: '#b3bfdf', cloudHaze: 0.5,
+    zenith: '#3a8ff0', horizon: '#aed8f8', haze: '#e1f0f8', below: '#c0d6c8',
+    sun: '#fff8ec', sunIntensity: 3.3, sunElev: 55, sunAzim: 30,
+    hemiSky: '#b0c6f8', hemiGround: '#8d9c6c', hemiIntensity: 1.1,
+    fill: '#aab2ff', fillIntensity: 0.45,
+    fogNear: 90, fogFar: 1050, env: 0.26,
+    cloudLit: '#ffffff', cloudShade: '#adb9dc', cloudHaze: 0.55,
     grade: { contrast: 0.16 },
   },
   golden: {
-    zenith: '#5d8fe0', horizon: '#f6cfa2', haze: '#ffe4c4', below: '#d8c49a',
-    sun: '#ffc07a', sunIntensity: 3.0, sunElev: 21, sunAzim: 48,
-    hemiSky: '#d2c8f0', hemiGround: '#8a7a5a', hemiIntensity: 1.0,
-    fill: '#9fa8ff', fillIntensity: 0.5,
-    fogNear: 90, fogFar: 950, env: 0.3,
-    cloudLit: '#ffe6cc', cloudShade: '#b59ac6', cloudHaze: 0.6,
+    zenith: '#5d8fe0', horizon: '#f6cfa2', haze: '#ffe1c0', below: '#d8c49a',
+    sun: '#ffbe78', sunIntensity: 3.2, sunElev: 22, sunAzim: 56,
+    hemiSky: '#c6b9f0', hemiGround: '#8a7a5a', hemiIntensity: 0.95,
+    fill: '#9d9cff', fillIntensity: 0.55,
+    fogNear: 60, fogFar: 850, env: 0.24,
+    cloudLit: '#ffe6cc', cloudShade: '#b097c6', cloudHaze: 0.65,
     grade: { gain: [1.05, 0.99, 0.93], lift: [0.03, 0.012, 0.05], vibrance: 0.18 },
   },
   indoor: {
     zenith: '#bfe3ff', horizon: '#e8f5ff', haze: '#f1f8ff', below: '#e8f5ff',
-    sun: '#fff0d6', sunIntensity: 2.2, sunElev: 48, sunAzim: -25,
+    sun: '#fff0d6', sunIntensity: 2.2, sunElev: 48, sunAzim: -40,
     hemiSky: '#fff4e0', hemiGround: '#9a8a74', hemiIntensity: 1.3,
     fill: '#c8d4ff', fillIntensity: 0.3,
     fogNear: 400, fogFar: 1600, env: 0.55,
@@ -120,8 +120,9 @@ const cloudFrag = /* glsl */ `
     vec3 n = normalize(vN);
     vec3 v = normalize(cameraPosition - vW);
     float ndl = dot(n, uSunDir);
-    vec3 col = mix(uShade, uLit, smoothstep(-0.45, 0.8, ndl));      // soft wrap-around terminator
-    col *= mix(0.84, 1.0, smoothstep(0.0, 0.55, vH));              // cooler, darker belly
+    vec3 col = mix(uShade, uLit, smoothstep(-0.5, 0.75, ndl));      // soft wrap-around terminator
+    col *= 0.9 + 0.1 * n.y;                                         // sky light from above
+    col = mix(uShade * 0.92, col, smoothstep(0.0, 0.32, vH));       // cool, flat-bottomed belly
     float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.4);
     float toward = pow(clamp(dot(-v, uSunDir), 0.0, 1.0), 3.0);
     col += uSunColor * rim * (0.1 + 0.9 * toward);                 // silver lining, strongest when backlit
@@ -284,21 +285,19 @@ export class Environment {
     const pi = puff.index.array;
     const n = new THREE.Vector3();
     const down = new THREE.Vector3(0, -1, 0);
+    // One cumulus: a flat base, a couple of big core puffs and a bumpy "cauliflower" crown, all
+    // clamped flat underneath. Built around (cx, cy, cz), long axis rotated by yaw.
     const add = (cx, cy, cz, yaw, len, hgt, speed, puffs) => {
       const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
-      const base = cy - hgt * 0.32;
-      const ccy = cy - hgt * 0.25;
-      const list = [];
+      const base = cy;
+      const ccy = cy + hgt * 0.3;
+      const dep = hgt * 0.9;
+      const list = [[0, hgt * 0.36, 0, hgt * 0.56], [len * rng.range(-0.22, -0.12), hgt * 0.24, 0, hgt * 0.44], [len * rng.range(0.12, 0.24), hgt * 0.26, 0, hgt * 0.46]];
       for (let i = 0; i < puffs; i++) {
-        const t = puffs === 1 ? 0.5 : i / (puffs - 1);
-        const bell = Math.sin(Math.PI * (0.12 + 0.76 * t));
-        const r = hgt * (0.3 + 0.36 * bell) * rng.range(0.85, 1.15);
-        list.push([(t - 0.5) * len + rng.range(-0.06, 0.06) * len, hgt * 0.1 * bell + rng.range(-0.04, 0.06) * hgt, rng.range(-0.2, 0.2) * hgt, r]);
-      }
-      const crowns = Math.max(1, Math.round(puffs / 3));
-      for (let i = 0; i < crowns; i++) {
-        const t = rng.range(0.3, 0.7);
-        list.push([(t - 0.5) * len * 0.8, hgt * rng.range(0.28, 0.42), rng.range(-0.12, 0.12) * hgt, hgt * rng.range(0.34, 0.46)]);
+        const u = rng.range(-1, 1);
+        const prof = 1 - u * u;
+        const r = hgt * (0.2 + 0.24 * prof) * rng.range(0.8, 1.2);
+        list.push([u * len * 0.42, hgt * (0.12 + 0.62 * prof) * rng.range(0.55, 1.05), rng.range(-0.5, 0.5) * dep, r]);
       }
       for (const [lx, ly, lz, r] of list) {
         const px = cx + lx * cosY + lz * sinY;
@@ -308,36 +307,37 @@ export class Environment {
         for (let k = 0; k < pp.count; k++) {
           const nx = pp.getX(k), ny = pp.getY(k), nz = pp.getZ(k);
           const x = px + nx * r, z = pz + nz * r;
-          let y = py + ny * r * 0.92;
+          let y = py + ny * r;
           const flat = y < base;
           if (flat) y = base;
           // "spherified" normals: puff detail blended with the whole cloud's volume (soft, no seams)
-          _v.set(x - cx, (y - ccy) * 1.6, z - cz).normalize();
+          _v.set(x - cx, (y - ccy) * 1.5, z - cz).normalize();
           n.set(nx, ny, nz).multiplyScalar(0.55).addScaledVector(_v, 0.45).normalize();
-          if (flat) n.lerp(down, 0.7).normalize();
+          if (flat) n.lerp(down, 0.75).normalize();
           pos.push(x, y, z);
           nrm.push(n.x, n.y, n.z);
-          hs.push(THREE.MathUtils.clamp((y - base) / (hgt * 1.1), 0, 1));
+          hs.push(THREE.MathUtils.clamp((y - base) / hgt, 0, 1));
           sp.push(speed);
         }
         for (let k = 0; k < pi.length; k++) idx.push(first + pi[k]);
       }
     };
-    // Mid layer: big fair-weather cumulus. Low layer: flatter, hazier clouds sitting behind the hills.
-    for (let i = 0; i < 16; i++) {
-      const front = i < 11;
-      const a = front ? Math.PI + rng.range(-1.45, 1.45) : rng.range(-1.6, 1.6);
-      const dist = rng.range(480, 900);
-      const hgt = rng.range(20, 34);
-      add(Math.sin(a) * dist, rng.range(120, 210), Math.cos(a) * dist, a + rng.range(-0.4, 0.4) + Math.PI / 2,
-        hgt * rng.range(2.2, 3.6), hgt, rng.range(0.0012, 0.0024) * (i % 3 ? 1 : 0.7), rng.int(5, 8));
+    // Mid layer: big fair-weather cumulus, mostly in front of the perch. Low layer: long flat clouds
+    // far away that sit behind the backdrop hills (depth cue).
+    for (let i = 0; i < 14; i++) {
+      const front = i < 10;
+      const a = front ? Math.PI + rng.range(-1.35, 1.35) : rng.range(-1.7, 1.7);
+      const dist = rng.range(560, 1000);
+      const hgt = rng.range(30, 50) * (i % 4 === 3 ? 0.6 : 1);
+      add(Math.sin(a) * dist, rng.range(115, 200), Math.cos(a) * dist, a + Math.PI / 2 + rng.range(-0.35, 0.35),
+        hgt * rng.range(2.3, 3.4), hgt, rng.range(0.0012, 0.0022) * (i % 3 ? 1 : 0.7), rng.int(9, 13));
     }
-    for (let i = 0; i < 12; i++) {
-      const a = Math.PI + rng.range(-1.9, 1.9);
-      const dist = rng.range(850, 1250);
-      const hgt = rng.range(14, 22);
-      add(Math.sin(a) * dist, rng.range(55, 95), Math.cos(a) * dist, a + Math.PI / 2 + rng.range(-0.2, 0.2),
-        hgt * rng.range(3.5, 5.5), hgt, rng.range(0.0008, 0.0014), rng.int(5, 7));
+    for (let i = 0; i < 9; i++) {
+      const a = Math.PI + rng.range(-1.8, 1.8);
+      const dist = rng.range(950, 1300);
+      const hgt = rng.range(20, 30);
+      add(Math.sin(a) * dist, rng.range(45, 85), Math.cos(a) * dist, a + Math.PI / 2 + rng.range(-0.2, 0.2),
+        hgt * rng.range(3.6, 5.2), hgt, rng.range(0.0007, 0.0012), rng.int(9, 12));
     }
     puff.dispose();
     const g = new THREE.BufferGeometry();

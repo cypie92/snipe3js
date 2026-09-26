@@ -121,7 +121,7 @@ export class StaticBatcher {
   constructor({ cell = 45 } = {}) {
     this.items = [];
     this.cell = cell;
-    this.stats = { meshes: 0, batches: 0 };
+    this.stats = { meshes: 0, batches: 0, tris: 0, items: {} };
   }
 
   /** Whole static object tree (removed from its parent when built). */
@@ -168,6 +168,10 @@ export class StaticBatcher {
       if (Object.keys(g.attributes).sort().join() !== b.attrs) return false;
       b.geos.push(g);
       this.stats.meshes++;
+      const tris = g.attributes.position.count / 3;
+      this.stats.tris += tris;
+      const item = top.name || top.type;
+      this.stats.items[item] = (this.stats.items[item] || 0) + tris;
       return true;
     };
     for (const it of this.items) {

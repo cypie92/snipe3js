@@ -24,7 +24,7 @@
 // renderer, post stack and environment, framed like gameplay (12 m perch, 25-130 m targets).
 // URL params:
 //   preset=morning|noon|golden|indoor   quality=low|medium|high   tone=NEUTRAL|AGX|ACES_FILMIC
-//   cam=perch|scope|close|orbit|top|low   yaw=<deg> pitch=<deg> (perch/scope)   zoom=2|4|8 (scope)
+//   cam=perch|scope|close|study|orbit|top|low (study: at + off=<dx,dy,dz>)   yaw=<deg> pitch=<deg> (perch/scope)   zoom=2|4|8 (scope)
 //   at=<x,y,z> (scope/close target, default the fountain)   fov=<deg>
 //   ao=0 bloom=0 outline=0 grade=0 tilt=0|1 dof=0|1 (A/B toggles; also live: __lookdev.set({ ao: false }))
 //   vm=1 (first-person rifle)   fx=1 (particle bursts)   mask=1 (scope mask overlay when cam=scope)
@@ -157,10 +157,13 @@ add(K.easel({ seed: 1 }), 24, -2, -0.6);
 add(K.wheelbarrow({ seed: 1, load: 'pumpkins' }), -33, 23, 0.8);
 
 // water: duck pond (W.createWater) or nothing if the module is missing
-let pond = null;
+let pond = null, lake = null;
 if (W?.createWater) {
-  pond = W.createWater({ width: 16, depth: 10, shape: 'ellipse', y: 0.06 });
-  add(pond, -48, 30);
+  pond = W.createWater({ width: 16, depth: 10, shape: 'ellipse' });
+  add(pond, -40, 44, 0, 0.06);
+  // a wavy lake outline (polygon SDF path + swell) behind the pub
+  lake = W.createWater({ shape: [[0, 0], [34, -6], [58, 10], [62, 38], [40, 52], [8, 44], [-6, 20]], waves: 0.12, foamWidth: 0.9 });
+  add(lake, 72, -96, 0, 0.08);
 }
 
 // characters
@@ -187,7 +190,7 @@ updaters.push((dt, t) => cat.update(dt, t));
 if (pond) {
   for (let i = 0; i < 3; i++) {
     const d = new Duck({ seed: i + 1 });
-    d.root.position.set(-48 + (i - 1) * 3, 0.06, 30 + (i % 2) * 2);
+    d.root.position.set(-40 + (i - 1) * 3, 0.06, 43 + (i % 2) * 2);
     d.root.rotation.y = i * 2;
     add(d.root);
     updaters.push((dt, t) => d.update(dt, t));
@@ -208,7 +211,7 @@ function fxDemo() {
   burstAt('dust', -12, 0.1, -2);
   burstAt('wood', 13, 1.2, 2, 0, 0, 1, 1.5);
   burstAt('metal', -8, 3, -2, 0, 0, 1, 1.5);
-  burstAt('splash', -48, 0.1, 30, 0, 1, 0, 1.4);
+  burstAt('splash', -41, 0.1, 44, 0, 1, 0, 1.4);
   burstAt('smoke', 30, 9, -52, 0, 1, 0, 1.4);
   burstAt('stone', 0, 2.5, -9, 0, 0, 1, 1.5);
   burstAt('glass', 11, 3, -40, 0, 0, 1, 1.5);
@@ -228,7 +231,7 @@ const fakeRifle = { state: 'ready', progress: 0 };
 // ---------------------------------------------------------------- cameras
 const D2R = Math.PI / 180;
 const PERCH = new THREE.Vector3(0, 12, 62);
-const state = { cam: params.get('cam') || 'perch', yaw: num('yaw', 0), pitch: num('pitch', -7), zoom: num('zoom', 4), at: vec('at', new THREE.Vector3(0, 2, -10)), fov: num('fov', 58), scopeT: 0 };
+const state = { off: vec('off', new THREE.Vector3(-10, 8, 24)), cam: params.get('cam') || 'perch', yaw: num('yaw', 0), pitch: num('pitch', -7), zoom: num('zoom', 4), at: vec('at', new THREE.Vector3(0, 2, -10)), fov: num('fov', 58), scopeT: 0 };
 function placeCamera() {
   camera.rotation.order = 'YXZ';
   const s = state;
@@ -246,6 +249,10 @@ function placeCamera() {
   } else if (s.cam === 'close') {
     camera.position.copy(s.at).add(new THREE.Vector3(9, 5, 16));
     camera.fov = 40;
+    camera.lookAt(s.at);
+  } else if (s.cam === 'study') {
+    camera.position.copy(s.at).add(s.off);
+    camera.fov = 38;
     camera.lookAt(s.at);
   } else if (s.cam === 'low') {
     camera.position.set(s.at.x + 2, 1.7, s.at.z + 22);
@@ -345,11 +352,12 @@ renderer.renderer.compile(scene, camera);
 requestAnimationFrame(frame);
 
 window.__lookdev = {
-  THREE, scene, camera, renderer, env, fx, tracers, state, fountain, pond, crowd,
+  THREE, scene, camera, renderer, env, fx, tracers, state, fountain, pond, lake, crowd,
   set(o = {}) {
     if (o.preset) env.apply(o.preset);
     for (const k of ['cam', 'yaw', 'pitch', 'zoom', 'fov']) if (k in o) state[k] = o[k];
     if (o.at) state.at = new THREE.Vector3(...o.at);
+    if (o.off) state.off = new THREE.Vector3(...o.off);
     if (o.quality) renderer.setQuality(o.quality);
     if (o.grade && renderer.setGrade) renderer.setGrade(o.grade);
     if (o.env && env.set) env.set(o.env);

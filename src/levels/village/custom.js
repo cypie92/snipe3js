@@ -632,4 +632,177 @@ export function roundRectShape(w, d, r) {
   return s;
 }
 
+// ------------------------------------------------------------------ green furniture
+const BLOOMS = [P.bubblegum, P.sunflower, '#fff4e6', P.tomato, P.violet, P.tangerine, '#ffb8c2', '#9fdcf7'];
+const LEAVES = ['#5fae44', '#4f9a3c', '#6cbb4a', '#7cc653'];
+
+/**
+ * Flower bed: a low faceted dome of small cells — leafy green flecked with clustered patches of 2-3
+ * bloom colours — inside a chunky stone edging. One merged vertex-coloured geometry (~6 tris/m^2).
+ * userData.heightAt(x, z) (local) lets instanced flowers stand on its surface.
+ */
+export function flowerCarpet(r, { seed = 1, colors, edge = '#e8dcc4', dome = 0.1 } = {}) {
+  const rng = new Rng(`carpet-${seed}`);
+  const pal = colors || rng.shuffle(BLOOMS).slice(0, rng.int(2, 3));
+  const H = r * dome + 0.12;
+  const hAt = (d) => 0.06 + (H - 0.06) * Math.sqrt(Math.max(0, 1 - (d / r) ** 2));
+  const cell = 0.3;
+  const rings = Math.max(3, Math.round(r / cell));
+  const ringPts = [];
+  for (let k = 0; k <= rings; k++) {
+    const rr = (k / rings) * r;
+    const n = k === 0 ? 1 : Math.max(6, Math.round((2 * Math.PI * rr) / cell));
+    const a0 = rng.range(0, 1);
+    const row = [];
+    for (let i = 0; i < n; i++) {
+      const a = ((i + a0) / n) * TAU;
+      const j = k === 0 || k === rings ? 0 : (hash(k * 31 + i * 7 + seed) - 0.5) * cell * 0.5;
+      const x = Math.cos(a) * (rr + j), z = Math.sin(a) * (rr + j);
+      row.push([x, hAt(Math.hypot(x, z)) + (k < rings ? (hash(i * 13 + k * 5 + seed) - 0.5) * 0.05 : 0), z, a]);
+    }
+    ringPts.push(row);
+  }
+  const pos = [], col = [];
+  const c = new THREE.Color();
+  const ph = rng.range(0, 10);
+  const tri = (A, B, Cc) => {
+    const cx = (A[0] + B[0] + Cc[0]) / 3, cz = (A[2] + B[2] + Cc[2]) / 3;
+    const n = hash(Math.round(cx * 41 + 500) * 7919 + Math.round(cz * 37 + 500) * 131 + seed);
+    const patch = Math.sin(cx * 1.3 + ph) * Math.cos(cz * 1.4 - ph) + 0.6 * Math.sin((cx - cz) * 2.2 + ph);
+    const edgeLeaf = Math.hypot(cx, cz) > r - 0.28;
+    const leaf = edgeLeaf ? n < 0.7 : n < 0.42;
+    const hex = leaf ? LEAVES[Math.floor(n * 97) % LEAVES.length] : pal[Math.floor(((patch + 1.6) / 3.2) * pal.length + n * 0.6) % pal.length];
+    c.set(hex).offsetHSL(0, 0, (n - 0.5) * 0.07);
+    for (const v of [A, Cc, B]) { pos.push(v[0], v[1], v[2]); col.push(c.r, c.g, c.b); }
+  };
+  for (let k = 0; k < rings; k++) {
+    const inner = ringPts[k], outer = ringPts[k + 1];
+    const ni = inner.length, no = outer.length;
+    let i = 0, o = 0;
+    while (i < ni || o < no) {
+      const ai = inner[i % ni][3] + (i >= ni ? TAU : 0), ao = outer[o % no][3] + (o >= no ? TAU : 0);
+      const nextI = inner[(i + 1) % ni][3] + (i + 1 >= ni ? TAU : 0), nextO = outer[(o + 1) % no][3] + (o + 1 >= no ? TAU : 0);
+      if (o < no && (i >= ni || ni === 1 || nextO <= nextI)) { tri(inner[i % ni], outer[o % no], outer[(o + 1) % no]); o++; }
+      else { tri(inner[i % ni], outer[o % no], inner[(i + 1) % ni]); i++; }
+      void ai; void ao;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  const kit = new Kit('carpet');
+  kit.buckets.set(materials.foliage, [g]);
+  kit.add(new THREE.TorusGeometry(r + 0.06, 0.13, 5, Math.max(16, Math.round(r * 9))), [shade(edge, -0.12), edge], { y: 0.05, rx: Math.PI / 2 });
+  const grp = kit.build(new THREE.Group(), { shadows: false });
+  grp.name = 'flowerCarpet';
+  grp.userData.surface = 'leaves';
+  grp.userData.heightAt = (x, z) => hAt(Math.min(r, Math.hypot(x, z)));
+  return grp;
+}
+
+function hash(n) {
+  const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/** Maypole: candy-striped pole, flower crown and gold finial. Ribbons are animated by the level. */
+export function maypole({ h = 5.6 } = {}) {
+  const kit = new Kit('maypole');
+  const pole = new THREE.CylinderGeometry(0.085, 0.11, h, 10, 24).translate(0, h / 2, 0);
+  kit.add(pole, (x, y, z, c) => c.set((Math.floor((Math.atan2(z, x) / TAU + y * 0.9) * 2 + 20) % 2) ? P.tomato : '#fff8ee'));
+  kit.add(cyl(0.45, 0.55, 0.22, 12), '#fff8ee', { y: 0.11 });
+  kit.add(new THREE.TorusGeometry(0.42, 0.11, 6, 16), '#4f9a3c', { y: h - 0.35, rx: Math.PI / 2 }, materials.foliage);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * TAU;
+    kit.add(ball(0.07, 0), [P.bubblegum, P.sunflower, '#fff4e6', P.violet][i % 4], { x: Math.cos(a) * 0.42, y: h - 0.26, z: Math.sin(a) * 0.42 });
+  }
+  kit.add(cyl(0.2, 0.14, 0.12, 12), P.gold, { y: h + 0.02 }, materials.glossy);
+  kit.add(ball(0.16, 1), P.gold, { y: h + 0.2 }, materials.glossy);
+  const g = kit.build(new THREE.Group());
+  g.name = 'maypole';
+  g.userData.surface = 'wood';
+  g.userData.top = h - 0.3;
+  return g;
+}
+
+/** Striped canvas deckchair (front +Z). userData.seat = seat height for Person 'lie' {pose: 'deckchair'}. */
+export function deckchair({ colors = [P.tomato, '#fff8ee'], seed = 1 } = {}) {
+  const kit = new Kit('deckchair');
+  const wood = P.woodLight;
+  for (const sx of [-1, 1]) {
+    kit.add(box(0.05, 0.05, 1.25), wood, { x: sx * 0.3, y: 0.5, z: -0.05, rx: -0.72 });
+    kit.add(box(0.05, 0.05, 0.9), wood, { x: sx * 0.33, y: 0.26, z: 0.18, rx: 0.55 });
+    kit.add(box(0.05, 0.42, 0.05), wood, { x: sx * 0.33, y: 0.21, z: 0.52 });
+  }
+  kit.add(box(0.7, 0.04, 0.05), wood, { y: 0.4, z: 0.5 });
+  const n = 5;
+  for (let i = 0; i < n; i++) {
+    const w = 0.56 / n;
+    kit.add(box(w + 0.004, 0.02, 1.15), colors[i % 2], { x: -0.28 + w * (i + 0.5), y: 0.43, z: 0.02, rx: -0.62 });
+  }
+  void seed;
+  const g = kit.build(new THREE.Group());
+  g.name = 'deckchair';
+  g.userData.surface = 'soft';
+  g.userData.seat = 0.3;
+  return g;
+}
+
+/** Gingham picnic blanket with a hamper, plates and a lemonade jug. */
+export function picnicBlanket({ w = 2.2, d = 1.7, color = P.tomato } = {}) {
+  const kit = new Kit('picnic');
+  const n = 6;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const a = (i + j) % 2 === 0;
+    kit.add(box(w / n + 0.002, 0.02, d / n + 0.002), a ? color : (i % 2 ? '#fff8ee' : shade(color, 0.28)), { x: -w / 2 + (w / n) * (i + 0.5), y: 0.012, z: -d / 2 + (d / n) * (j + 0.5) });
+  }
+  kit.add(cbox(0.6, 0.34, 0.4, 0.06), P.woodLight, { x: -0.55, y: 0.19, z: -0.35 });
+  kit.add(new THREE.TorusGeometry(0.2, 0.03, 4, 10, Math.PI), P.woodDark, { x: -0.55, y: 0.36, z: -0.35 });
+  for (const [x, z] of [[0.4, 0.3], [-0.1, 0.45], [0.55, -0.35]]) {
+    kit.add(cyl(0.16, 0.14, 0.03, 12), '#fff8ee', { x, y: 0.035, z });
+    kit.add(ball(0.06, 0), [P.tomato, P.sunflower, '#c8894a'][Math.abs(Math.round(x * 10)) % 3], { x, y: 0.08, z });
+  }
+  kit.add(cyl(0.09, 0.1, 0.26, 10), '#fff3b0', { x: 0.1, y: 0.15, z: -0.25 }, materials.glossy);
+  const g = kit.build(new THREE.Group());
+  g.name = 'picnicBlanket';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/**
+ * A big furled bundle of bunting hanging from a wall bracket (the fête job tell): a fat roll of cloth
+ * with flags poking out, tied with rope. Origin = the wall point; the bracket sticks out along +Z.
+ * parts: { bundle (pivot at the hook) }
+ */
+export function buntingBundle({ out = 0.55, colors = [P.tomato, P.sunflower, P.teal, P.bubblegum, P.cobalt] } = {}) {
+  const kit = new Kit('bracket');
+  kit.add(cbox(0.12, 0.34, 0.08, 0.03), P.ink, { y: 0, z: 0.04 });
+  kit.add(box(0.06, 0.06, out), P.ink, { y: 0.1, z: out / 2 });
+  kit.add(box(0.05, 0.05, out * 0.8), P.ink, { y: -0.05, z: out * 0.42, rx: 0.5 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'buntingBracket';
+  const bundle = new THREE.Group();
+  bundle.name = 'bundle';
+  bundle.position.set(0, 0.07, out - 0.04);
+  const bk = new Kit('bundle');
+  bk.add(new THREE.TorusGeometry(0.06, 0.018, 4, 10), '#c9a46a', { y: -0.06 });
+  bk.add(cyl(0.012, 0.012, 0.22, 5), '#c9a46a', { y: -0.2 });
+  bk.at({ y: -0.46 }, () => {
+    bk.add(new THREE.CylinderGeometry(0.24, 0.24, 0.72, 12), '#fff1d6', { rz: Math.PI / 2 });
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * TAU;
+      const x = -0.3 + (i % 5) * 0.15;
+      bk.add(new THREE.ConeGeometry(0.1, 0.2, 3), colors[i % colors.length], { x, y: Math.sin(a) * 0.26, z: Math.cos(a) * 0.26, rx: a + Math.PI / 2 });
+    }
+    for (const x of [-0.25, 0.25]) bk.add(new THREE.TorusGeometry(0.25, 0.025, 4, 14), '#c9a46a', { x, ry: Math.PI / 2 });
+    for (const x of [-0.37, 0.37]) bk.add(new THREE.CircleGeometry(0.24, 12), '#e8d2a0', { x, ry: x > 0 ? Math.PI / 2 : -Math.PI / 2 });
+  });
+  bk.build(bundle);
+  g.add(bundle);
+  g.userData.parts = { bundle };
+  g.userData.surface = 'soft';
+  return g;
+}
+
 export { blob };

@@ -6,7 +6,7 @@ import * as K from '../../world/kit/props/index.js';
 import * as N from '../../world/kit/nature/index.js';
 import { P } from '../../gfx/palette.js';
 import { put, facePerch, inPoly, local, segDist, v3 } from './util.js';
-import { SQUARE, ALLOT, FETE, FOUNTAIN, ROT_W } from './layout.js';
+import { SQUARE, ALLOT, FOUNTAIN, ROT_W } from './layout.js';
 import * as C from './custom.js';
 
 export function buildDressing(ctx, S, L) {
@@ -58,19 +58,35 @@ export function buildDressing(ctx, S, L) {
     [K.barrel({ seed: 79 }), 19.9, 2.4, 0], [K.crate({ seed: 80, size: 0.7, contents: 'oranges' }), -21.4, -0.6, 0.5],
   ];
   for (const [o, x, z, ry] of clutter) add(o, x, z, ry, { surface: 'wood' });
+  // fête stalls along the square's south edge (the fête spills into the square)
+  const southStalls = [
+    { goods: 'veg', awning: [P.violet, '#fff8ee'], x: -34.2, z: 8.6, ry: 0.3 },
+    { goods: 'flowers', awning: [P.sunflower, '#fff8ee'], x: -28.3, z: 9.6, ry: 0.22 },
+    { goods: 'cakes', awning: [P.tangerine, '#fff8ee'], x: 19.6, z: 9.7, ry: -0.16 },
+    { goods: 'fruit', awning: [P.cobalt, '#fff8ee'], x: 25.6, z: 9.2, ry: -0.22 },
+  ];
+  D.southStalls = southStalls.map((st, i) => {
+    const o = K.marketStall({ goods: st.goods, awning: st.awning, seed: 80 + i });
+    add(o, st.x, st.z, st.ry, { surface: 'wood' });
+    return st;
+  });
+  for (const [o, x, z, ry] of [
+    [K.crate({ seed: 84, contents: 'apples' }), -31.2, 10.9, 0.4], [K.sack({ seed: 85, color: '#e6d3a8' }), -25.6, 11.2, -0.3],
+    [K.crate({ seed: 86 }), 22.6, 11.1, -0.2], [K.barrel({ seed: 87 }), 28.4, 10.2, 0],
+  ]) add(o, x, z, ry, { surface: 'wood' });
   // a stack of crates on crates for silhouette
   add(K.crate({ seed: 81, size: 0.7 }), 15.15, 3.4, 0.1, { y: 0.9, surface: 'wood' });
 
   // ------------------------------------------------------------ benches, bins, planters in the square
   const benches = [
     [-7.5, -20.5, 0.72], [7.5, -20.5, -0.72], [-24, -12, 1.4], [24, -14, -1.4],
-    [-31, 3.5, 0.9], [27.5, 9.5, -0.6], [-4, -38.5, 0.05], [6, -38.5, -0.05],
+    [-31, 3.5, 0.9], [31.2, 3.2, -0.9], [-4, -38.5, 0.05], [6, -38.5, -0.05],
   ];
   for (const [x, z, ry] of benches) add(K.bench({ seed: x * 3 + z }), x, z, ry, { surface: 'wood' });
   const bins = [[-9.8, -19.6], [9.6, -19.4], [-25.2, -10], [3.6, 12.6], [-32, 6.5], [26, -38.5], [1.8, 40.5]];
   for (const [x, z] of bins) add(K.bin({ seed: x + z * 3, overflow: rng.chance(0.3) }), x, z, facePerch(x, z), { surface: 'metal' });
   const planters = [
-    [-28.5, -30.5, ROT_W, 'flowers'], [-36.8, -12.2, ROT_W, 'topiary'], [-41.8, -0.2, ROT_W, 'flowers'],
+    [-28.5, -30.5, ROT_W, 'flowers'], [-41.8, -0.2, ROT_W, 'flowers'],
     [29.5, -27.5, -0.9, 'flowers'], [-12.5, -41.5, 0, 'shrub'], [12.5, -41.5, 0, 'flowers'],
     [31.2, 1.4, -0.6, 'topiary'],
   ];
@@ -121,7 +137,7 @@ export function buildDressing(ctx, S, L) {
   add(busStop, -24, 41.4, 0, { surface: 'glass' });
   D.busStopAt = { x: -24, z: 45 };
   D.busBench = busStop.userData.parts.bench.getWorldPosition(new THREE.Vector3());
-  for (const [x, z, ry] of [[-6.6, 26, Math.PI / 2], [6.6, 24, -Math.PI / 2], [-6.4, 33, Math.PI / 2]]) add(K.bench({ seed: x + z }), x, z, ry, { surface: 'wood' });
+  for (const [x, z, ry] of [[-3.1, 33.8, Math.PI / 2], [3.1, 21.6, -Math.PI / 2], [-3.1, 20.4, Math.PI / 2]]) add(K.bench({ seed: x + z }), x, z, ry, { surface: 'wood' });
 
   // ------------------------------------------------------------ allotments (SW)
   const G = L.grubb;
@@ -204,39 +220,71 @@ export function buildDressing(ctx, S, L) {
   root.add(fence);
   S.batch.add(fence, 'wood');
 
-  // flower beds: one instanced scatter filtered into many little beds
+  // flower beds: faceted "carpets" of blooms (cheap, reads as a planted bed at any range) with a
+  // sprinkle of instanced flowers standing on top
   const bedsF = [
-    { x: -6, z: 24, r: 3.2 }, { x: 6, z: 28, r: 3.2 }, { x: -6, z: 36, r: 2.4 }, { x: 6, z: 36.5, r: 2.4 },
-    { x: -8.6, z: 40.2, r: 2.2 }, { x: FOUNTAIN[0], z: FOUNTAIN[1] - 7.5, r: 1.6 },
+    { x: 6.6, z: 26.6, r: 3.0 }, { x: -6.2, z: 36.2, r: 2.3 }, { x: 9.8, z: 39.2, r: 1.8 },
+    { x: -8.6, z: 40.3, r: 1.9 }, { x: FOUNTAIN[0], z: FOUNTAIN[1] - 7.5, r: 1.6 },
     { x: 36, z: -48, r: 2.4 }, { x: 28, z: -55, r: 2.2 }, { x: 42, z: -44, r: 2 },
-    { x: -40, z: -38, r: 1.8 }, { x: -44, z: -33, r: 1.6 }, { x: -45, z: 18.4, r: 2.4 }, { x: -52, z: 24, r: 2 },
+    { x: -40, z: -35.2, r: 1.6 }, { x: -45, z: 18.4, r: 2.4 }, { x: -52, z: 24, r: 2 },
     { x: 20, z: 21.6, r: 1.6 }, { x: 13, z: 36, r: 2.2 }, { x: 48, z: 12, r: 1.6 }, { x: 47, z: -4, r: 1.6 },
+    { x: -15.2, z: 16.6, r: 1.3 }, { x: 15.4, z: 16.4, r: 1.3 },
   ];
-  const inBed = (x, z) => bedsF.some((b) => Math.hypot(x - b.x, z - b.z) < b.r);
-  const fl = N.scatterFlowers({ minX: -58, maxX: 52, minZ: -62, maxZ: 44 }, 1500, { seed: 9, filter: inBed, clump: 0.7, scale: 1.15 });
+  const carpets = bedsF.map((b, i) => {
+    const cp = C.flowerCarpet(b.r, { seed: 30 + i });
+    add(cp, b.x, b.z, rng.range(0, 6), { surface: 'leaves' });
+    return { ...b, h: cp.userData.heightAt };
+  });
+  const bedAt = (x, z) => carpets.find((b) => Math.hypot(x - b.x, z - b.z) < b.r - 0.2);
+  const inBed = (x, z) => !!bedAt(x, z);
+  const fl = N.scatterFlowers({ minX: -58, maxX: 52, minZ: -62, maxZ: 44 }, 700, {
+    seed: 9, filter: inBed, clump: 0.7, scale: 1.25, y: (x, z) => { const b = bedAt(x, z); return b ? b.h(x - b.x, z - b.z) - 0.05 : 0; },
+  });
   root.add(fl);
   ctx.surface(fl, 'leaves');
-  // bed mounds under them
-  const moundKit = new B.Kit('mounds');
-  for (const b of bedsF) moundKit.add(new THREE.CylinderGeometry(b.r, b.r + 0.2, 0.18, 18), '#6b4a2a', { x: b.x, y: 0.05, z: b.z });
-  const mounds = moundKit.build(new THREE.Group());
-  root.add(mounds);
-  S.batch.add(mounds, 'dust');
   // meadow flowers + grass tufts on the lawns (kept off paths, plazas and beds)
-  const lawn = (x, z) => !inPoly(x, z, SQUARE) && !inPoly(x, z, ALLOT) && Math.abs(x) > 2.2 && !(z > 40 && z < 54) && !(x > 47 && x < 60) && !inBed(x, z);
-  const meadow = N.scatterFlowers({ minX: -70, maxX: 70, minZ: -75, maxZ: 52 }, 900, { seed: 12, filter: lawn, clump: 0.5 });
+  const lawn = (x, z) => !inPoly(x, z, SQUARE) && !inPoly(x, z, ALLOT) && Math.abs(x) > 2.2 && !(z > 40 && z < 54) && !(x > 47 && x < 60) && !inBed(x, z) && Math.hypot(x + 7, z - 27.5) > 4.2;
+  const meadow = N.scatterFlowers({ minX: -70, maxX: 70, minZ: -75, maxZ: 52 }, 460, { seed: 12, filter: lawn, clump: 0.5 });
   root.add(meadow);
-  const tufts = N.grassTufts({ area: { minX: -70, maxX: 70, minZ: -75, maxZ: 52 }, count: 700, seed: 5, filter: lawn });
+  const tufts = N.grassTufts({ area: { minX: -70, maxX: 70, minZ: -75, maxZ: 52 }, count: 420, seed: 5, filter: lawn });
   root.add(tufts);
   ctx.surface(meadow, 'grass');
   ctx.surface(tufts, 'grass');
   // bushes dotted about (merged via the batcher)
   const bushes = [[-54, -16, null], [-55, 10, '#ff7eb6'], [-26, -46, null], [27, -45, '#fff4e6'], [52, 12, null], [50.5, -24, '#ffb8c2'],
-    [-15, 45.5, null], [15, 45.5, null], [-57, 36, '#ffc93c'], [-14, -45.8, null], [14, -45.6, '#ff7eb6'], [-60, -40, null]];
+    [-57, 36, '#ffc93c'], [-14, -45.8, null], [14, -45.6, '#ff7eb6'], [-60, -40, null]];
   for (const [x, z, f] of bushes) {
     const bu = N.bush({ seed: x * z, size: rng.range(0.9, 1.3), flowers: f });
     add(bu, x, z, rng.range(0, 6), { surface: 'leaves' });
   }
+
+  // ------------------------------------------------------------ the village green: maypole + deckchairs
+  const MP = [-7, 27.5];
+  const pole = C.maypole({ h: 5.6 });
+  add(pole, MP[0], MP[1], 0.3, { surface: 'wood' });
+  D.maypole = { x: MP[0], z: MP[1], top: pole.userData.top };
+  add(C.picnicBlanket({ color: P.cobalt }), 9.4, 31.4, -0.3, { surface: 'soft' });
+  D.deckchairs = [[4.9, 34.2, 0.25, [P.tomato, '#fff8ee']], [7.9, 34.9, -0.2, [P.cobalt, '#fff8ee']]].map(([x, z, ry, colors], i) => {
+    const dc = C.deckchair({ colors, seed: i });
+    add(dc, x, z, ry, { surface: 'soft' });
+    return { x, z, ry, seat: dc.userData.seat };
+  });
+
+  // ------------------------------------------------------------ fête bunting (already up)
+  const bl = (lx, ly, lz, cx, cz, ry) => { const [x, z] = local(cx, cz, ry, lx, lz); return new THREE.Vector3(x, ly, z); };
+  const bRy = facePerch(13.6, 21.2), mRy = facePerch(37.6, 31.5);
+  const feteLines = [
+    [bl(3.6, 4.35, 0, 13.6, 21.2, bRy), bl(0, 4.9, 3.0, 37.6, 31.5, mRy), 1.5],
+    [bl(0, 4.9, 3.0, 37.6, 31.5, mRy), new THREE.Vector3(48, 5.4, 35), 0.9],
+    [bl(-3.6, 4.35, 0, 13.6, 21.2, bRy), new THREE.Vector3(lampSpots.path2[0], 4.25, lampSpots.path2[1]), 0.7],
+  ];
+  D.feteBunting = feteLines.map(([a, b, sag], i) => {
+    const bn = K.bunting({ from: a, to: b, sag, seed: 40 + i, spacing: 0.62, flagSize: 0.44 });
+    root.add(bn);
+    ctx.surface(bn, 'soft');
+    ctx.onUpdate(bn.userData.update);
+    return bn;
+  });
   return D;
 }
 

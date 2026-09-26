@@ -109,6 +109,21 @@ function cobblePlaza(poly, { seed = 3, base = P.cobble, name = 'square' } = {}) 
   return grp;
 }
 
+/** Flat ground pieces (roads, paving, kerbs) cast no visible shadow: skip them in the shadow pass. */
+function noShadow(obj) {
+  obj.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+  return obj;
+}
+
+/**
+ * Kit workaround: the buildings kit's addCollider() meshes are invisible but lack
+ * userData.collider, so Shooting ignores them. Flag them so the enlarged hit areas work.
+ */
+export function flagColliders(obj) {
+  obj.traverse((o) => { if (o.isMesh && o.name === 'collider' && !o.visible) o.userData.collider = true; });
+  return obj;
+}
+
 // ---------------------------------------------------------------- the layout
 export function buildLayout(ctx, S) {
   const root = ctx.root;
@@ -119,17 +134,17 @@ export function buildLayout(ctx, S) {
   // ---- ground, roads, pavements
   root.add(groundMesh(ctx));
   const square = cobblePlaza(SQUARE, { seed: 5 });
-  root.add(square);
+  root.add(noShadow(square));
   ctx.surface(square, 'stone');
   L.square = square;
 
   const road = B.road({ points: ROAD_PTS, width: 7, edgeLines: false, seed: 2 });
-  root.add(road);
+  root.add(noShadow(road));
   ctx.surface(road, 'stone');
   L.roadPath = road.userData.path;
   const lane = B.road({ points: LANE_PTS, width: 6, kerbs: false, dashes: true, seed: 3 });
   lane.position.y = -0.012;
-  root.add(lane);
+  root.add(noShadow(lane));
   ctx.surface(lane, 'stone');
   L.lanePath = lane.userData.path;
   batch.add(road, 'stone');
@@ -137,22 +152,22 @@ export function buildLayout(ctx, S) {
   const paveS = B.pavement({ points: [[-86, 38.2], [-66, 42.2], [-20, 42.8], [20, 42.8], [44, 42.5], [50.4, 42.3]], width: 2.6, kerbSide: 1, seed: 3 });
   const paveE = B.pavement({ points: [[50.9, 40.6], [52.3, 29.5], [52.3, 0], [52.1, -40], [53.4, -72]], width: 2.4, kerbSide: -1, seed: 4 });
   const paveSouth = B.pavement({ points: [[-60, 51.4], [-20, 51.2], [20, 51.2], [58, 50.9], [80, 48.6]], width: 1.8, kerbSide: -1, seed: 6 });
-  for (const p of [paveS, paveE, paveSouth]) { root.add(p); ctx.surface(p, 'stone'); batch.add(p, 'stone'); }
+  for (const p of [paveS, paveE, paveSouth]) { root.add(noShadow(p)); ctx.surface(p, 'stone'); batch.add(p, 'stone'); }
   // paths: square -> road, church door, allotments, fête field
   const paths = [
     B.pavement({ points: [[0, 14], [0.4, 28], [0, 41.8]], width: 3.2, seed: 7 }),
-    B.pavement({ points: [[-31, -38.5], [-35.5, -38.8], [-39.2, -39.4]], width: 2.6, seed: 8 }),
+    B.pavement({ points: [[-29.6, -42.6], [-33.2, -44.2], [-36.3, -44.7]], width: 2.6, seed: 8 }),
     B.pavement({ points: [[-16, 14], [-16.4, 24], [-17.6, 29]], width: 2, seed: 9 }),
     B.pavement({ points: [[12, 14], [12.6, 21]], width: 2.4, seed: 10 }),
     B.pavement({ points: [[26, -41], [29, -44.5], [31, -47]], width: 2, seed: 11 }),
   ];
-  for (const p of paths) { root.add(p); ctx.surface(p, 'stone'); batch.add(p, 'stone'); }
+  for (const p of paths) { root.add(noShadow(p)); ctx.surface(p, 'stone'); batch.add(p, 'stone'); }
   const layby = gravelPad(15, 22);
-  add(layby, 0, 61.5);
+  add(noShadow(layby), 0, 61.5);
   batch.add(layby, 'dust');
 
   // ---- backdrop (hills, fields, windmill, spire, sea)
-  const bd = B.backdrop({ seed: 7, inner: 114, radius: 820, windmillAngle: -0.55, spireAngle: 0.3, seaAngle: 0.75 });
+  const bd = B.backdrop({ seed: 7, inner: 114, radius: 820, windmillAngle: -0.55, spireAngle: 0.3, seaAngle: 0.75, hedgeRange: 300, loneTrees: 40 });
   bd.position.z = -8;
   root.add(bd);
   ctx.surface(bd, 'grass');
@@ -160,15 +175,19 @@ export function buildLayout(ctx, S) {
   L.backdrop = bd;
 
   // ---- fountain (centre of the square)
-  const fountain = B.fountain({ seed: 'puddleby', radius: 3.6, valveSide: 1 });
+  const fountain = flagColliders(B.fountain({ seed: 'puddleby', radius: 3.6, valveSide: 1 }));
   add(fountain, FOUNTAIN[0], FOUNTAIN[1]);
   ctx.surface(fountain, 'stone');
   ctx.onUpdate(fountain.userData.update);
+  // let Game's post-build compile() see the flowing-water shaders (the kit hides them while dry;
+  // its first update hides them again) so the job reaction doesn't hitch on a shader compile
+  fountain.userData.parts.jets.visible = true;
+  fountain.userData.parts.droplets.visible = true;
   L.fountain = fountain;
 
   // ---- church (NW) with the wedding
-  const church = B.church({ seed: 'st-puddle', graves: 8, time: 10 * 3600 + 52 * 60 });
-  const CH = [-47.5, -48.5], CHR = 0.8;
+  const church = flagColliders(B.church({ seed: 'st-puddle', graves: 8, time: 10 * 3600 + 52 * 60 }));
+  const CH = [-40.5, -53.8], CHR = 0.45;
   add(church, CH[0], CH[1], CHR);
   ctx.surface(church, 'stone');
   ctx.onUpdate((dt, t) => church.userData.update(dt, t));
@@ -186,7 +205,7 @@ export function buildLayout(ctx, S) {
   L.anchors.churchDoor = church.userData.parts.door.getWorldPosition(new THREE.Vector3());
 
   // ---- terrace of five (N)
-  const terrace = B.terrace(5, { seed: 'puddle-row', startNumber: 1, numberStep: 2, floors: [2, 3], walls: [P.wallButter, P.wallMint, P.wallRose, P.wallSky, P.wallCream, P.wallLilac] });
+  const terrace = B.terrace(5, { seed: 'puddle-row', startNumber: 1, numberStep: 2, floors: [2, 3], house: { backDetail: false }, walls: [P.wallButter, P.wallMint, P.wallRose, P.wallSky, P.wallCream, P.wallLilac] });
   add(terrace, 0, -47.6);
   ctx.surface(terrace, 'stone');
   L.terrace = terrace;
@@ -195,11 +214,11 @@ export function buildLayout(ctx, S) {
   batch.add(terrace, 'stone');
 
   // NW cottage + NE gnome house
-  const cottageNW = B.house({ seed: 'nw-cottage', floors: 2, roofStyle: 'hip', wall: P.wallPeach, number: 12 });
-  add(cottageNW, -22.5, -49.4, 0.12);
+  const cottageNW = B.house({ backDetail: false, seed: 'nw-cottage', floors: 2, roofStyle: 'hip', wall: P.wallPeach, number: 12 });
+  add(cottageNW, -19.4, -53.2, 0.1);
   L.anchors.cottageNWChimneys = cottageNW.userData.parts.chimneyTops.map((o) => o.getWorldPosition(new THREE.Vector3()));
   batch.add(cottageNW, 'stone');
-  const gnomeHouse = B.house({ seed: 'gnome-house', floors: 2, roofStyle: 'gable', gag: 'gnome', wall: P.wallSky, number: 14, roof: P.roofTerracotta });
+  const gnomeHouse = B.house({ backDetail: false, seed: 'gnome-house', floors: 2, roofStyle: 'gable', gag: 'gnome', wall: P.wallSky, number: 14, roof: P.roofTerracotta });
   add(gnomeHouse, 21.8, -49, -0.12);
   L.gnomeHouse = gnomeHouse;
   L.anchors.gnomeChimneys = gnomeHouse.userData.parts.chimneyTops.map((o) => o.getWorldPosition(new THREE.Vector3()));
@@ -207,11 +226,11 @@ export function buildLayout(ctx, S) {
 
   // ---- west row: house, bakery, post office, hardware, house
   const west = [
-    { mk: () => B.house({ seed: 'w1', floors: 3, wall: P.wallLilac, roofStyle: 'mansard', number: 2 }), w: 6, s: 0 },
+    { mk: () => B.house({ backDetail: false, seed: 'w1', floors: 3, wall: P.wallLilac, roofStyle: 'mansard', number: 2 }), w: 6, s: 0 },
     { mk: () => B.shop({ kind: 'bakery', seed: 31, floors: 2, width: 7, depth: 6, text: 'CRUMB & SONS', sub: 'BAKERS' }), w: 7, s: 7.1 },
     { mk: () => B.shop({ kind: 'post', seed: 32, floors: 2, width: 7.2, depth: 6, roofStyle: 'hip' }), w: 7.2, s: 14.6 },
     { mk: () => B.shop({ kind: 'hardware', seed: 33, floors: 2, width: 6.8, depth: 6, text: 'NUTS & BOLTS' }), w: 6.8, s: 21.9 },
-    { mk: () => B.house({ seed: 'w5', floors: 2, wall: P.wallMint, style: 'tudor', number: 10 }), w: 6, s: 28.7 },
+    { mk: () => B.house({ backDetail: false, seed: 'w5', floors: 2, wall: P.wallMint, style: 'tudor', number: 10 }), w: 6, s: 28.7 },
   ];
   const F0 = [-32.6, -29.4];
   L.west = west.map((b, i) => {
@@ -242,7 +261,7 @@ export function buildLayout(ctx, S) {
     return rec;
   });
 
-  const pub = B.pub({ crooked: true, seed: 'wonky', tables: 2, signSide: -1 });
+  const pub = flagColliders(B.pub({ crooked: true, seed: 'wonky', tables: 2, signSide: -1 }));
   const PUB = [42.5, 0.5], PUBR = -0.62;
   add(pub, PUB[0], PUB[1], PUBR);
   ctx.surface(pub, 'wood');
@@ -255,7 +274,7 @@ export function buildLayout(ctx, S) {
   L.anchors.pubTables = pub.userData.parts.tables.map((o) => o.getWorldPosition(new THREE.Vector3()));
 
   // ---- south-west: Mr Grubb's cottage (the tap is on its front wall)
-  const grubb = B.house({ seed: 'grubb', floors: 1, roofStyle: 'gable', gableFront: false, wall: '#fff1d6', roof: P.roofTeal, style: 'plain', number: 3, porch: 'hood', climber: true, width: 6.4, depth: 5.4 });
+  const grubb = B.house({ backDetail: false, seed: 'grubb', floors: 1, roofStyle: 'gable', gableFront: false, wall: '#fff1d6', roof: P.roofTeal, style: 'plain', number: 3, porch: 'hood', climber: true, pots: false, width: 6.4, depth: 5.4 });
   const GR = [-47.5, 25.5], GRR = facePerch(-47.5, 25.5) - 0.12;
   add(grubb, GR[0], GR[1], GRR);
   ctx.surface(grubb, 'stone');
@@ -265,13 +284,13 @@ export function buildLayout(ctx, S) {
 
   // more houses around the edges so the world never thins out
   const extras = [
-    { o: B.house({ seed: 'e-1', floors: 2, roofStyle: 'hip', wall: P.wallButter }), x: -60, z: -24, ry: 1.2 },
-    { o: B.house({ seed: 'e-2', floors: 1, roofStyle: 'gable', wall: P.wallRose, gag: 'birdhouse' }), x: -61, z: 4, ry: 1.0 },
-    { o: B.house({ seed: 'e-3', floors: 2, wall: P.wallCream, style: 'brick' }), x: 8, z: -62, ry: 0.05 },
-    { o: B.house({ seed: 'e-4', floors: 2, roofStyle: 'mansard', wall: P.wallMint }), x: -10, z: -63, ry: -0.05 },
-    { o: B.house({ seed: 'e-5', floors: 2, wall: P.wallPeach, roofStyle: 'gable', gableFront: true }), x: 66, z: -14, ry: -1.35 },
-    { o: B.house({ seed: 'e-6', floors: 1, wall: P.wallLilac }), x: 67, z: 8, ry: -1.2 },
-    { o: B.house({ seed: 'e-7', floors: 2, wall: P.wallSky, roofStyle: 'hip' }), x: 65, z: -40, ry: -1.4 },
+    { o: B.house({ backDetail: false, seed: 'e-1', floors: 2, roofStyle: 'hip', wall: P.wallButter }), x: -60, z: -24, ry: 1.2 },
+    { o: B.house({ backDetail: false, seed: 'e-2', floors: 1, roofStyle: 'gable', wall: P.wallRose, gag: 'birdhouse' }), x: -61, z: 4, ry: 1.0 },
+    { o: B.house({ backDetail: false, seed: 'e-3', floors: 2, wall: P.wallCream, style: 'brick' }), x: 8, z: -62, ry: 0.05 },
+    { o: B.house({ backDetail: false, seed: 'e-4', floors: 2, roofStyle: 'mansard', wall: P.wallMint }), x: -10, z: -63, ry: -0.05 },
+    { o: B.house({ backDetail: false, seed: 'e-5', floors: 2, wall: P.wallPeach, roofStyle: 'gable', gableFront: true }), x: 66, z: -14, ry: -1.35 },
+    { o: B.house({ backDetail: false, seed: 'e-6', floors: 1, wall: P.wallLilac }), x: 67, z: 8, ry: -1.2 },
+    { o: B.house({ backDetail: false, seed: 'e-7', floors: 2, wall: P.wallSky, roofStyle: 'hip' }), x: 65, z: -40, ry: -1.4 },
   ];
   L.extraChimneys = [];
   for (const e of extras) {
@@ -304,11 +323,11 @@ export function buildLayout(ctx, S) {
     return true;
   };
   // back woods (north), west belt, east belt
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < 56; i++) {
     const a = rng.range(-1.15, 1.15);
     const r = rng.range(70, 104);
     const x = Math.sin(a) * r, z = -8 - Math.cos(a) * r;
-    if (clear(x, z)) treePts.push({ x, z, type: rng.pick(['round', 'round', 'tall', 'conifer', 'fruit']) });
+    if (clear(x, z)) treePts.push({ x, z, type: rng.pick(['round', 'round', 'tall', 'conifer', 'conifer']) });
   }
   for (let i = 0; i < 26; i++) {
     const x = rng.range(-95, -64), z = rng.range(-60, 36);
@@ -316,7 +335,7 @@ export function buildLayout(ctx, S) {
   }
   for (let i = 0; i < 22; i++) {
     const x = rng.range(66, 96), z = rng.range(-70, 36);
-    if (clear(x, z)) treePts.push({ x, z, type: rng.pick(['round', 'tall', 'round', 'fruit']) });
+    if (clear(x, z)) treePts.push({ x, z, type: rng.pick(['round', 'tall', 'round', 'conifer']) });
   }
   // copses hiding the road ends
   for (let i = 0; i < 12; i++) treePts.push({ x: -96 + rng.range(-9, 9), z: 32 + rng.range(-9, 7), type: rng.pick(['round', 'conifer']) });
@@ -324,18 +343,27 @@ export function buildLayout(ctx, S) {
   for (let i = 0; i < 12; i++) treePts.push({ x: 96 + rng.range(-9, 9), z: 40 + rng.range(-8, 6), type: rng.pick(['round', 'conifer', 'tall']) });
   // gaps between buildings + yews in the churchyard + a few in the square's corners
   const accents = [
-    { x: -28, z: -53, type: 'round' }, { x: -15, z: -56, type: 'tall' }, { x: 15.5, z: -56, type: 'round' }, { x: 28, z: -60, type: 'fruit' },
+    { x: -15, z: -58.5, type: 'tall' }, { x: 15.5, z: -56, type: 'round' }, { x: 28, z: -60, type: 'fruit' },
     { x: -56, z: -8, type: 'round' }, { x: -58, z: 14, type: 'fruit' }, { x: -52, z: -34, type: 'tall' },
     { x: cw(-9, -5)[0], z: cw(-9, -5)[1], type: 'conifer', scale: 0.8 }, { x: cw(9.5, -8)[0], z: cw(9.5, -8)[1], type: 'conifer', scale: 0.9 },
     { x: cw(-10, 6)[0], z: cw(-10, 6)[1], type: 'conifer', scale: 0.7 },
     { x: 49, z: -30, type: 'round' }, { x: 50, z: -8, type: 'tall' }, { x: 47.5, z: -55, type: 'blossom' }, { x: 26, z: -62, type: 'blossom' },
-    { x: -9, z: 55, type: 'round' }, { x: 12, z: 57, type: 'round' }, { x: -30, z: 56, type: 'tall' }, { x: 30, z: 56, type: 'round' },
-    { x: -44, z: 56, type: 'round' }, { x: 46, z: 58, type: 'fruit' },
   ];
   for (const a of accents) treePts.push(a);
-  const woods = N.forest(treePts, { types: ['round', 'tall', 'conifer'], seed: 21, scale: [0.9, 1.25], tint: 0.14 });
-  for (const m of woods.children) m.userData.surface = m.name.includes('crown') ? 'leaves' : 'wood';
-  root.add(woods);
+  // far trees that can't be seen from anywhere in the crow's nest (raycast-measured: hidden behind the
+  // terrace, church and pub). Positions come from the seeded scatter above; a miss just keeps the tree.
+  const HIDDEN = [[-55.84, -68.01], [9.43, -108.53], [-76.13, -52.99], [9.29, -105.04], [-5.37, -94.11], [4.01, -82.32],
+    [-4.58, -93.59], [-58.62, -76.49], [5.06, -95.55], [-61.29, -90.04], [3.68, -84.55], [-49.17, -74.63], [-6.42, -108.44],
+    [-49.41, -85.72], [-16.69, -90.92], [-7.27, -87.43], [76.56, -40.6], [87.37, -40.37], [93.2, -41.48], [95.26, -48.05],
+    [85.78, -35.3], [63.92, -80.81], [65.22, -82.18], [66.43, -86.23], [64.53, -89.42]];
+  const unseen = (p) => HIDDEN.some(([x, z]) => Math.abs(p.x - x) < 0.02 && Math.abs(p.z - z) < 0.02);
+  const nearT = treePts.filter((p) => Math.hypot(p.x, p.z + 8) < 74);
+  const farT = treePts.filter((p) => Math.hypot(p.x, p.z + 8) >= 74 && !unseen(p));
+  for (const [pts, cast, seed] of [[nearT, true, 21], [farT, false, 22]]) {
+    const woods = N.forest(pts, { types: ['round', 'tall', 'conifer'], seed, scale: [0.9, 1.25], tint: 0.14 });
+    for (const m of woods.children) { m.userData.surface = m.name.includes('crown') ? 'leaves' : 'wood'; m.castShadow = cast; }
+    root.add(woods);
+  }
   L.treePts = treePts;
   return L;
 }

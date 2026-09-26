@@ -43,8 +43,19 @@ export class Cast {
     return a;
   }
 
+  /** Fade out any bubble currently above these characters (so reaction lines never pile up). */
+  hush(...ps) {
+    const items = this.ctx.game?.popups?.items;
+    if (!items) return;
+    const roots = new Set(ps.map((p) => p.root || p));
+    for (const it of items) if (it.bubble && roots.has(it.obj)) it.duration = Math.min(it.duration, it.t + 0.25);
+  }
+
+  /** Scripted line: replaces the speaker's current bubble and holds idle chatter back while it plays. */
   say(p, text, duration = 2.6) {
+    this.hush(p);
     this.ctx.say(p.root || p, text, { duration });
+    this.chatT = Math.max(this.chatT, duration + 0.8);
   }
 
   /** Nearby villagers celebrate (hop + heart). */
@@ -93,13 +104,32 @@ export class Cast {
     this.lastTalker = best;
     const lines = typeof best.lines === 'function' ? best.lines() : best.lines;
     if (!lines?.length) return;
-    this.say(best.p, lines[best.i++ % lines.length], 2.8);
+    this.hush(best.p);
+    this.ctx.say(best.p.root, lines[best.i++ % lines.length], { duration: 2.8 });
+  }
+
+  /**
+   * Sun shadows only for characters near the perch (the far ones keep their contact blob). Saves a
+   * shadow-pass draw call + ~3k triangles per distant villager.
+   */
+  shadowLod(dt, near = 58) {
+    this.lodT = (this.lodT ?? 0) - dt;
+    if (this.lodT > 0) return;
+    this.lodT = 0.5;
+    const cam = this.ctx.game.rig.position;
+    for (const c of [...this.people, ...this.animals]) {
+      if (!c.mesh || c.noShadow) continue;
+      c.root.getWorldPosition(_v);
+      c.mesh.castShadow = _v.distanceTo(cam) < near;
+    }
   }
 
   finish() {
+    this.shadowLod(1);
     this.ctx.onUpdate((dt) => {
       this.shadows.update();
       this.update(dt);
+      this.shadowLod(dt);
     });
   }
 }
