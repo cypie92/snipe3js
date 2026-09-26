@@ -314,7 +314,7 @@ export function pub(opts = {}) {
   bk.add(cyl(0.028, 0.028, 0.2, 6), P.metalDark, { y: -0.07 });
   bk.add(torus(0.05, 0.018, 4, 8), P.metalDark, { y: -0.2, rx: Math.PI / 2 });
   bk.build(bolt);
-  addCollider(bolt, 0.32, [0, -0.1, 0]);
+  addCollider(bolt, 0.45, [0, -0.1, 0]);
   bolt.position.copy(a);
   if (mount === 'wall') bolt.rotation.y = -Math.PI / 2;
   kit.anchors.push(bolt);
