@@ -10,6 +10,10 @@ their hat — and you lose your S-rank).
 > and sound here are original and generated procedurally in code — no downloaded models, textures or audio.
 
 ## Play
+**In the browser:** https://cypie92.github.io/snipe3js/ — rebuilt and deployed from `main` by
+`.github/workflows/pages.yml` (GitHub Pages, source "GitHub Actions").
+
+Locally:
 ```bash
 npm install
 npm run dev        # http://127.0.0.1:5173
