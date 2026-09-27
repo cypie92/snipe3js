@@ -354,8 +354,9 @@ export class Particles {
         });
         break;
       case 'muzzle': {
-        // ~1 m from the lens: a tiny quick puff pushed forward; never inside the scope view
-        if (viewState.scope > 0.3) break;
+        // ~1 m from the lens: a tiny quick puff pushed forward; never inside the scope view (the fov test
+        // also catches a shot fired in the very frame the scope snapped in, before scope is published)
+        if (viewState.scope > 0.3 || (viewState.camera?.fov ?? 58) < 40) break;
         _t.copy(pos).addScaledVector(n, 0.35);
         this.sprite(KIND.FLASH, _t, { size: 0.035, life: 0.05, color: '#fff2c8', minPx: 0, near: 0.15, pin: 0.3 });
         for (let i = 0; i < 2; i++) {

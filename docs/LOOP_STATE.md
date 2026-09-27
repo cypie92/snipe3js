@@ -49,10 +49,17 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
 - [x] Review 2 done: 7.2/10 (review/REVIEW-2.md). New blocker (office-path intro) fixed by the lead,
       plus coach marks, bubble layout (max 3, on-screen), hit-stop, bullet-cam blur off, shift-end
       stinger, office-path capture.
-- [ ] Round 3 running (fresh agents, 01:25 UTC Sep 27, after a session-limit cut): level (moving /
-      timing / combo jobs, bare lawn, backdrop, facing, hearts, Sarge), tech-art FX (readable toy FX,
-      near-lens blur, draw calls), props (stall-sign lettering, kit bugs, harbour props), hub (flyers,
-      outside diorama, entry push-in, Pidge reactions). Next: buildings harbour kit + Barnacle Bay.
+- [~] Round 3 partly landed (fresh agents from 01:25 UTC Sep 27; all four were cut by a session limit
+      ~04:00 UTC, their work checkpointed): level skill jobs in `games.js` (coconut shy = combo,
+      Splat the Rat = timing, Catch the six = moving ball over the cricket match), 17 jobs total;
+      tech-art toy FX sprites + crown splashes (`fxSprites.js`, `fxCrown.js`), muzzle puff never in
+      the scope; props stall-sign lettering (`signs.js`) + harbour props; hub outside diorama
+      (`outside.js`), flyer/board polish, hit-box fixes. Still open from round 3: bare lawn / backdrop
+      fields / lavender slab, key characters facing, heart spam, Sarge hair, hub entry push-in and
+      Pidge reactions. Next: buildings harbour kit + Barnacle Bay, then review 3.
+- [x] **Checkpoint for user testing (07:00 UTC Sep 27):** build + full play-through verified headless
+      (title → office dart → intro → briefing → every job by real shots → clock-off → results, 0
+      console errors, ~440 draw calls at play start). Playable build published as a private Artifact.
 - Kit bugs to fix (found by the level designer, worked around in the level): buildings addCollider()
   doesn't flag colliders; church update overwrites weathervane rotation; bunting coil scale reset each
   frame; phone box glass opaque; birdseed spill point at bag origin.

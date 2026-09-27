@@ -12,10 +12,12 @@ export class Popups {
     this.layer.className = 'popups';
     parent.appendChild(this.layer);
     this.items = [];
+    this.enabled = true; // Game turns world popups off outside play (title / office / results backdrops)
   }
 
   /** Floating text at a world position. cls: pop-coins | pop-bad | pop-info | pop-big */
   text(pos, text, { cls = 'pop-info', duration = 1.3 } = {}) {
+    if (!this.enabled) return;
     const el = document.createElement('div');
     el.className = `pop ${cls}`;
     el.textContent = text;
@@ -26,6 +28,7 @@ export class Popups {
 
   /** Speech bubble that follows an object. */
   bubble(obj, text, { duration = 2.6, cls = '', voice, mood } = {}) {
+    if (!this.enabled) return; // no chatter (or babble) behind menus
     // one bubble per speaker; never more than 3 on screen
     for (let i = this.items.length - 1; i >= 0; i--) {
       if (this.items[i].obj === obj) {
@@ -49,6 +52,10 @@ export class Popups {
   }
 
   update(dt) {
+    if (!this.enabled) {
+      if (this.items.length) this.clear();
+      return;
+    }
     const w = innerWidth, h = innerHeight;
     const placed = [];
     for (let i = this.items.length - 1; i >= 0; i--) {

@@ -234,7 +234,9 @@ export class Office {
     // filing cabinet = SETTINGS
     const cab = F.filingCabinet();
     this.add(cab, 4.02, 0, 1.08, -0.9);
-    cab.add(F.hitBox(0.8, 1.9, 0.9, { y: 0.95 }));
+    // body-high only: from the long-lens camera a 1.9 m box hid the trophy shelf behind it
+    // (the cactus on top is still hoverable through its own mesh)
+    cab.add(F.hitBox(0.8, 1.5, 0.9, { y: 0.75 }));
     this.pick(cab);
     this.addTarget('settings', cab, {
       collider: cab.children.at(-1), lift: [0, 0.05, 0], anchor: [0, 1.1, 0.4],
@@ -286,7 +288,7 @@ export class Office {
     this.ticks.push((dt, tt) => this.tickRadio(dt, tt));
     // coat rack with Jack's cap
     const rack = this.add(F.coatRack(), R.x0 + 0.5, 0, -0.35, 0.6);
-    rack.add(F.hitBox(0.7, 2.1, 0.7, { y: 1.05 }));
+    rack.add(F.hitBox(0.6, 2.1, 0.6, { y: 1.05 })); // (0.6: from the long-lens camera a wider box hid Gerald's middle)
     this.pick(rack);
     this.addTarget('cap', rack, {
       collider: rack.children.at(-1), lift: [0, 0, 0], anchor: [0, 1.95, 0], wobAmt: 0.5,
@@ -297,7 +299,7 @@ export class Office {
     // (narrower, and nudged left: from the hub camera the old 1.2 m box covered the left half of Pidge on the sill)
     plant1.add(F.hitBox(1.0, 2.1, 1.0, { x: -0.1, y: 1.0 }));
     this.addTarget('plant', plant1, {
-      collider: plant1.children.at(-1), lift: [0, 0, 0], anchor: [0, 1.2, 0.3], wobAmt: 0.6,
+      collider: plant1.children.at(-1), lift: [0, 0, 0], anchor: [0.2, 1.25, 0.3], wobAmt: 0.6, // right of the coat rack
       tip: () => ({ title: 'Gerald the plant', sub: 'Thrives on neglect.', color: '#5fae44' }),
       shoot: () => null,
     });

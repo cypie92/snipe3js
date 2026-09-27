@@ -748,6 +748,7 @@ export class Game {
     else if (this.rig.override && this.state !== 'intro' && !this.bulletCam.active) this.rig.override = null;
 
     this.rig.update(dt, this.frozen ? 0 : realDt);
+    this.popups.enabled = this.state === 'play' || this.state === 'outro';
     if (dt > 0) {
       this.time += dt;
       this.rifle.update(dt);
