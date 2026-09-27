@@ -80,6 +80,18 @@ function onPosts(obj, a, b) {
   return g;
 }
 
+/** Demo only: a park bench under a prop that sits on its seat (seat top y 0.51, front edge z 0.245). */
+function onBench(obj, z = 0.245 - 0.16) {
+  const g = new THREE.Group();
+  const b = K.bench({ seed: 3, length: 1.6 });
+  b.traverse((m) => { if (m.isMesh) m.userData.scaffold = true; });
+  obj.position.set(0.25, 0.51, z);
+  g.add(b, obj);
+  g.name = obj.name;
+  g.userData = obj.userData;
+  return g;
+}
+
 function forestDemo() {
   const pts = [];
   for (let i = 0; i < 26; i++) {
@@ -146,12 +158,18 @@ export function catalog() {
     for (const [goods, aw] of [['fruit', [P.tomato, P.white]], ['veg', [P.teal, P.white]], ['fish', [P.cobalt, P.white]], ['flowers', [P.bubblegum, P.white]], ['cakes', [P.sunflower, P.bubblegum]]]) {
       add(`marketStall ${goods}`, 'market', () => K.marketStall({ goods, awning: aw, seed: 1 }));
     }
+    add('marketStall own sign', 'market', () => K.marketStall({ goods: 'flowers', awning: [P.violet, P.white], sign: 'Fresh Flowers', seed: 2 }));
   }
   if (has(K.melonStack)) add('melonStack', 'market', () => K.melonStack({ seed: 1 }));
   // festive
   if (has(K.bunting)) {
     add('bunting', 'festive', () => onPosts(K.bunting({ from: [-3, 3, 0], to: [3, 3.2, 0], sag: 0.6 }), [-3, 3, 0], [3, 3.2, 0]));
     add('bunting furled', 'festive', () => onPosts(K.bunting({ from: [-3, 3, 0], to: [3, 3.2, 0], sag: 0.6, furled: true, seed: 2 }), [-3, 3, 0], [3, 3.2, 0]));
+    add('bunting coil x1.4', 'festive', () => {
+      const b = K.bunting({ from: [-3, 3.4, 0], to: [3, 3.6, 0], sag: 0.6, furled: true, seed: 3 });
+      b.userData.parts.coil.scale.setScalar(1.4); // levels may resize the coil (it used to be reset every frame)
+      return onPosts(b, [-3, 3.4, 0], [3, 3.6, 0]);
+    });
   }
   if (has(K.balloonBunch)) add('balloonBunch', 'festive', () => K.balloonBunch({ seed: 1 }));
   if (has(K.washingLine)) add('washingLine', 'festive', () => K.washingLine({ from: [-3, 2, 0], to: [3, 2, 0], seed: 1 }));
@@ -177,7 +195,10 @@ export function catalog() {
   if (has(K.giantMarrow)) add('giantMarrow', 'gags', () => K.giantMarrow({ seed: 1 }));
   if (has(K.alarmClock)) add('alarmClock', 'gags', () => K.alarmClock({ seed: 1 }));
   if (has(K.cameraOnTripod)) add('cameraOnTripod', 'gags', () => K.cameraOnTripod({ seed: 1 }));
-  if (has(K.birdseedBag)) add('birdseedBag', 'gags', () => K.birdseedBag({ seed: 1 }));
+  if (has(K.birdseedBag)) {
+    add('birdseedBag', 'gags', () => K.birdseedBag({ seed: 1 }));
+    add('birdseedBag on bench', 'gags', () => onBench(K.birdseedBag({ seed: 3, drop: 0.51 })));
+  }
   if (has(K.teapot)) add('teapot', 'gags', () => K.teapot({ seed: 1 }));
   if (has(K.fireworkRocket)) add('fireworkRocket', 'gags', () => K.fireworkRocket({ seed: 1 }));
   if (has(K.trophy)) add('trophy', 'gags', () => K.trophy({ seed: 1 }));
@@ -196,6 +217,9 @@ export function catalog() {
     add('dockCrane', 'dockside', () => K.dockCrane({ seed: 1 }));
     add('foghorn', 'dockside', () => K.foghorn({ seed: 1 }));
     add('bellBuoy', 'dockside', () => onWater(K.bellBuoy({ seed: 1 })));
+    if (has(K.buoy)) {
+      for (const kind of ['mooring', 'can', 'cone', 'pot']) add(`buoy ${kind}`, 'dockside', () => onWater(K.buoy({ seed: 2, kind }), 0.8));
+    }
     add('lobsterPot', 'dockside', () => K.lobsterPot({ seed: 1 }));
     add('fishBox', 'dockside', () => K.fishBox({ seed: 1 }));
     add('netPile', 'dockside', () => K.netPile({ seed: 1 }));
@@ -216,6 +240,9 @@ export function catalog() {
     add('bucketSpade', 'beach', () => K.bucketSpade({ seed: 1 }));
     add('surfboard', 'beach', () => K.surfboard({ seed: 1 }));
     add('crab', 'beach', () => K.crab({ seed: 1 }));
+    if (has(K.beachTowel)) add('beachTowel', 'beach', () => K.beachTowel({ seed: 1 }));
+    if (has(K.beachParasol)) add('beachParasol', 'beach', () => K.beachParasol({ seed: 2 }));
+    add('surfboard paddle (floating)', 'beach', () => onWater(K.surfboard({ seed: 3, stand: false, bob: 1 }), 0.8));
   }
   return list;
 }

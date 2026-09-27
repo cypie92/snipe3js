@@ -1,8 +1,8 @@
 // Shared boat helpers: a parametric toy hull (waterline at y = 0, bow = +Z), a bobbing rig for
-// anything that floats, and chunky 7-segment numerals for hull numbers.
+// anything that floats, chunky 7-segment numerals for hull numbers and painted hull names.
 import * as THREE from 'three';
 import { part, merge } from '../../geo.js';
-import { paintFaces, inside } from './lib.js';
+import { paintFaces, inside, wordSign } from './lib.js';
 
 const smooth = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
 
@@ -146,6 +146,7 @@ export function hull({
 /**
  * Bobbing for floating props. Wraps the group's current children in a 'float' node that heaves,
  * rolls and pitches; amplitude = g.userData.bob (live: set 0 to settle, 1 = default, 2 = choppy).
+ * node.userData.kick = { heave, roll, pitch } is added on top (animate it for hits / toots / wobble).
  * Returns the float node; the tick is registered on the group.
  */
 export function floatRig(g, { bob = 1, seed = 1, heave = 0.05, roll = 0.035, pitch = 0.018, speed = 1 } = {}) {
@@ -154,16 +155,16 @@ export function floatRig(g, { bob = 1, seed = 1, heave = 0.05, roll = 0.035, pit
   for (const c of [...g.children]) node.add(c);
   g.add(node);
   g.userData.bob = bob;
+  const kick = (node.userData.kick = { heave: 0, roll: 0, pitch: 0 });
   const ph = (seed * 2.399) % (Math.PI * 2);
   let amp = bob;
   g.userData.addTick((dt, t) => {
     const a = Number(g.userData.bob) || 0;
     amp += (a - amp) * Math.min(1, dt * 1.5);
-    if (Math.abs(amp) < 1e-4 && node.position.y === 0) return;
     const w = t * speed;
-    node.position.y = (Math.sin(w * 1.3 + ph) * 0.7 + Math.sin(w * 2.1 + ph * 1.7) * 0.3) * heave * amp;
-    node.rotation.z = Math.sin(w * 0.9 + ph * 1.3) * roll * amp;
-    node.rotation.x = Math.sin(w * 0.75 + ph * 2.1) * pitch * amp;
+    node.position.y = (Math.sin(w * 1.3 + ph) * 0.7 + Math.sin(w * 2.1 + ph * 1.7) * 0.3) * heave * amp + kick.heave;
+    node.rotation.z = Math.sin(w * 0.9 + ph * 1.3) * roll * amp + kick.roll;
+    node.rotation.x = Math.sin(w * 0.75 + ph * 2.1) * pitch * amp + kick.pitch;
   });
   return node;
 }
@@ -186,4 +187,44 @@ export function digits(str, h, color, depth = 0.02) {
     }
   });
   return merge(list);
+}
+
+/**
+ * A painted boat name: letters (`ink`) on the hull colour (`paper`), on strips bent to the hull's plan
+ * shape on both sides between z0..z1 (`at: 'sides'`, reads bow -> stern... i.e. correctly from each side)
+ * or flat on the transom (`at: 'transom'`). Glossy sign-atlas material; all strips merged: 1 draw call.
+ * y = strip centre height above the waterline, height = strip height (keep it between boot top and gunwale).
+ */
+export function hullName(h, text, { at = 'sides', z0, z1, y = 0.6, height = 0.36, paper = '#e0643c', ink = '#fff8ee', px = 420 } = {}) {
+  const paint = { paper, ink, keyline: 0, bounce: 0.5, twoLines: false, pad: 0.06, shadow: 'rgba(43,43,58,0.35)' };
+  const geos = [];
+  let mat = null;
+  const add = (m) => { mat = m.material; geos.push(m.geometry); };
+  if (at === 'transom') {
+    const t0 = h.zAt(0);
+    const w = h.widthAt(0) * 2 * 0.8;
+    const m = wordSign(text, w, height, { ...paint, px, round: 0, glossy: true });
+    m.geometry.rotateY(Math.PI).translate(0, y, t0 - 0.012);
+    add(m);
+  } else {
+    const len = z1 - z0, zc = (z0 + z1) / 2;
+    const span = h.zAt(1) - h.zAt(0);
+    for (const side of [1, -1]) {
+      const m = wordSign(text, len, height, {
+        ...paint, px, round: 0, glossy: true, segs: 10,
+        bend: (v) => {
+          const z = zc - side * v.x;
+          const t = Math.min(1, Math.max(0, (z - h.zAt(0)) / span));
+          v.set(side * (h.widthAt(t) + 0.012), y + v.y, z);
+        },
+      });
+      add(m);
+    }
+  }
+  const geo = merge(geos);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'name';
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  return mesh;
 }

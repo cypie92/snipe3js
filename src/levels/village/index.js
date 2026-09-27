@@ -2,6 +2,7 @@
 //   layout.js   terrain, roads, the 55 x 40 m square, buildings, trees, backdrop
 //   dressing.js market rows, street furniture, the fête green under the van, allotments, flanks
 //   jobs.js     12 contracts (incl. the first-laugh dunk tank) + 2 secret jobs + 3 Golden Spanners (tells, reactions, nags, decoys)
+//   games.js    3 skill jobs: coconut-shy combo, Splat the Rat (timing), catch the cricket six (moving target)
 //   life.js     ambient villagers, animals, vehicles, chimney smoke
 //   custom.js   bespoke set pieces (kiosk, marquee, bouncy castle, allotment beds...)
 import * as THREE from 'three';
@@ -18,7 +19,7 @@ export default {
   location: 'Village Square',
   day: 'Tuesday morning',
   order: 1,
-  parTime: 240,
+  parTime: 300, // 15 main jobs (three of them need timing or a combo)
   preset: 'morning',
   ambience: 'village',
   icon: '🏘️',
@@ -30,6 +31,8 @@ export default {
     const J = buildJobs(ctx, S, L, D);
     const life = buildLife(ctx, S, L, D, J);
     S.batch.build(ctx.root);
+    // vehicle wheels sit inside their body's own shadow: keep them out of the shadow pass
+    ctx.root.traverse((o) => { if (o.isInstancedMesh && o.name === 'wheels') o.castShadow = false; });
     S.cast.finish();
     ctx.root.userData.village = { S, L, D, J, life };
     return {

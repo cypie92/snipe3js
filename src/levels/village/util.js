@@ -112,10 +112,26 @@ function surfaceOf(o) {
 }
 
 /**
- * Collects static meshes from kit props/buildings and merges them per (material, shadow, surface,
- * cell) into a few big meshes. Gameplay sub-objects stay untouched: `add(obj)` takes a whole static
- * group; `addMeshes(group)` takes only the group's direct mesh children (the kit's merged static
- * body) and leaves hinged/animated/hittable sub-objects in place.
+ * Raycast for a batch that merged several impact surfaces: hits are re-pointed at a per-surface
+ * proxy child (same transform, userData.surface set), so shots still puff wood chips off a bench
+ * and sparks off a lamp post although both now share one mesh and one draw call.
+ */
+function surfaceRaycast(raycaster, intersects) {
+  const n0 = intersects.length;
+  THREE.Mesh.prototype.raycast.call(this, raycaster, intersects);
+  const { triSurf, surfProxies } = this.userData;
+  for (let i = n0; i < intersects.length; i++) {
+    const it = intersects[i];
+    if (it.object === this && it.faceIndex != null) it.object = surfProxies[triSurf[it.faceIndex]] || this;
+  }
+}
+
+/**
+ * Collects static meshes from kit props/buildings and merges them per (material, shadow, cell) into
+ * a few big meshes (impact surfaces ride along per triangle, see surfaceRaycast). Gameplay
+ * sub-objects stay untouched: `add(obj)` takes a whole static group; `addMeshes(group)` takes only
+ * the group's direct mesh children (the kit's merged static body) and leaves hinged/animated/hittable
+ * sub-objects in place.
  */
 export class StaticBatcher {
   constructor({ cell = 45 } = {}) {
@@ -162,13 +178,14 @@ export class StaticBatcher {
       g.computeBoundingSphere();
       c.copy(g.boundingSphere.center);
       const cx = Math.floor(c.x / this.cell), cz = Math.floor(c.z / this.cell);
-      const key = `${mat.uuid}|${o.castShadow ? 1 : 0}|${surf}|${cx},${cz}`;
+      const key = `${mat.uuid}|${o.castShadow ? 1 : 0}|${cx},${cz}`;
       let b = buckets.get(key);
-      if (!b) buckets.set(key, (b = { mat, cast: o.castShadow, surf, geos: [], attrs: Object.keys(g.attributes).sort().join() }));
+      if (!b) buckets.set(key, (b = { mat, cast: o.castShadow, geos: [], surfs: [], attrs: Object.keys(g.attributes).sort().join() }));
       if (Object.keys(g.attributes).sort().join() !== b.attrs) return false;
-      b.geos.push(g);
-      this.stats.meshes++;
       const tris = g.attributes.position.count / 3;
+      b.geos.push(g);
+      b.surfs.push([surf, tris]);
+      this.stats.meshes++;
       this.stats.tris += tris;
       const item = top.name || top.type;
       this.stats.items[item] = (this.stats.items[item] || 0) + tris;
@@ -202,8 +219,26 @@ export class StaticBatcher {
       const mesh = new THREE.Mesh(g, b.mat);
       mesh.castShadow = b.cast;
       mesh.receiveShadow = true;
-      mesh.userData.surface = b.surf;
-      mesh.name = `batch:${b.mat.name || 'mat'}:${b.surf}`;
+      // per-triangle surface ids; the most common surface is the mesh's own fallback
+      const names = [...new Set(b.surfs.map(([s]) => s))];
+      const weight = names.map((s) => b.surfs.reduce((a, [x, n]) => a + (x === s ? n : 0), 0));
+      const main = names[weight.indexOf(Math.max(...weight))];
+      mesh.userData.surface = main;
+      mesh.name = `batch:${b.mat.name || 'mat'}:${names.length > 1 ? 'mixed' : main}`;
+      if (names.length > 1) {
+        const triSurf = new Uint8Array(g.attributes.position.count / 3);
+        let o = 0;
+        for (const [s, n] of b.surfs) { triSurf.fill(names.indexOf(s), o, o + n); o += n; }
+        const surfProxies = names.map((s) => {
+          const px = new THREE.Object3D();
+          px.name = `surface:${s}`;
+          px.userData.surface = s;
+          mesh.add(px);
+          return px;
+        });
+        Object.assign(mesh.userData, { triSurf, surfProxies });
+        mesh.raycast = surfaceRaycast;
+      }
       out.add(mesh);
       for (const x of b.geos) if (x !== g) x.dispose();
     }

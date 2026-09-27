@@ -1,14 +1,15 @@
 // Puddleby Green: ambient life — market traders and their queues, kids round the fountain, the
 // jogger, a dog walking its owner, the painter, a man stuck in a bin, a runaway hat, a one-man
-// band, fête-goers, pub regulars, animals, the bus / car / cyclist on the ring road and chimney smoke.
+// band, fête-goers, pub regulars, animals, the bus / car / cyclist on the ring road and chimney smoke
+// (the cricket match lives in games.js with the 'catch the six' job).
 import * as THREE from 'three';
 import * as K from '../../world/kit/props/index.js';
 import { Person, Walker, Dog, Cat, Gull, Chicken, Duck, Sheep } from '../../world/characters/index.js';
 import { P } from '../../gfx/palette.js';
-import { put, local, yawTo, facePerch, worldPos, circlePath, sunHat, Leash, v3, every, routine } from './util.js';
-import { FOUNTAIN, ROAD_PTS, CRICKET } from './layout.js';
-import { cricketSet, scoreboard, cricketBat, deckchair, picnicBlanket } from './custom.js';
+import { put, local, yawTo, facePerch, worldPos, circlePath, sunHat, Leash, v3, every, routine, part } from './util.js';
 import { materials } from '../../gfx/materials.js';
+import { FOUNTAIN, ROAD_PTS } from './layout.js';
+import { deckchair, picnicBlanket } from './custom.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -283,6 +284,63 @@ export function buildLife(ctx, S, L, D, J) {
   const stroller = cast.person({ seed: 3401, accessory: 'icecream', hat: { type: 'sunhat', color: '#fff1d6', band: P.teal } }, 0, 0, 0, 'walk', {}, { name: 'fête-goer', lines: ['Lovely day for a fête.', 'Have you tried the tombola?'] });
   new Walker(stroller, strollPath, { pingPong: true, speed: 1.0, start: 0.3, startFraction: true, pauseAt: [{ index: 2, duration: 3, action: 'eat' }] });
 
+  // ------------------------------------------------------------ the near lawn + the square's corners
+  // dad asleep on the picnic blanket under the van, and a dog nobody has claimed by the lost property
+  {
+    const pc = D.picnic;
+    const [x, z] = local(pc.x, pc.z, pc.ry, -0.2, 0.1);
+    cast.person({ seed: 3281, accessory: null, top: { type: 'tee', color: P.cobalt, sleeves: 'short' }, bottom: { type: 'shorts', color: '#c8b27a' }, hat: { type: 'sunhat', color: '#f2d27a', band: P.tomato } },
+      x, z, pc.ry + Math.PI / 2, 'lie', { pose: 'back', hatOverFace: true }, { name: 'picnicker', lines: ['Zzz... is it three o\'clock yet?', 'Mmm... tug of war... zzz'] });
+    const lp = D.lostProperty;
+    const stray = new Dog({ seed: 12, scale: 1.1, variant: { coat: '#c8894a', light: '#f3dcb5', patch: '#7a4a26', ear: '#7a4a26' } });
+    cast.animal(stray, lp.x + 1.4, lp.z + 0.9, facePerch(lp.x, lp.z) - 0.8, { name: 'dog' });
+    stray.setAction('sleep');
+  }
+  // a mum with a pram, a juggler (and his biggest fan) by the fête gate, a queue at the cake stall
+  {
+    const pr = D.pram;
+    const [x, z] = local(pr.x, pr.z, pr.ry, 0, -1.05);
+    const mum = cast.person({ seed: 3291, accessory: 'handbag', top: { type: 'dress', color: P.bubblegum, sleeves: 'short' }, hair: { style: 'bob', color: P.hair[1] } }, x, z, pr.ry, 'idle', {}, { name: 'mum', lines: ['Shh, he\'s just gone off.', 'Is that the Sarge in a tank?'] });
+    routineLife(mum, [['idle', 4], ['checkWatch', 2.2], ['wave', 1.4], ['idle', 3]]);
+  }
+  {
+    const JX = 6.4, JZ = 9.8, JR = facePerch(JX, JZ) - 0.25;
+    const juggler = cast.person({ seed: 3301, hat: { type: 'party', color: P.sunflower, pom: P.tomato }, top: { type: 'stripes', color: P.violet, color2: P.sunflower, sleeves: 'long' }, bottom: { type: 'trousers', color: P.teal }, facial: null, accessory: null },
+      JX, JZ, JR, 'pose', { channels: { aFL: 0.5, aFR: 0.5, eBL: 1.25, eBR: 1.25, aOL: 0.12, aOR: 0.12 } }, { name: 'juggler', lines: ['Three balls! No hands! ...Two hands.', 'Tah-daaa!', 'Coins in the hat, please!'] });
+    const live = new K.LiveMesh(materials.toy);
+    live.name = 'jugglingBalls';
+    live.castShadow = false;
+    const jg = new THREE.Group();
+    jg.name = 'juggling';
+    put(root, jg, JX, JZ, JR);
+    jg.add(live);
+    const balls = [P.tomato, P.sunflower, P.cobalt].map((c, i) => {
+      const b = new THREE.Object3D();
+      jg.add(b);
+      live.addPiece(b, part(new THREE.IcosahedronGeometry(0.075, 1), c));
+      return b;
+    });
+    live.build();
+    ctx.onUpdate((dt, t) => {
+      if (juggler.busy) return;
+      balls.forEach((b, i) => { // a three-ball cascade in front of his chest
+        const p = ((t * 0.9 + i / 3) % 1 + 1) % 1, a = p * Math.PI * 2;
+        b.position.set(Math.cos(a) * 0.3, 1.25 + Math.max(0, Math.sin(a)) * 0.75 - Math.max(0, -Math.sin(a)) * 0.08, 0.32);
+      });
+      live.sync(t);
+    });
+    const fan = cast.person({ age: 'kid', seed: 3302, accessory: 'balloon' }, JX - 1.7, JZ + 1.4, 0, 'clap', {}, { name: 'kid', lines: ['Do the one with the fire!', 'Again! Again!'] });
+    fan.faceTowards(v3(JX, 0, JZ));
+  }
+  {
+    const cakes = D.stalls[3];
+    [[0.45, 3.0, 'impatient'], [-0.25, 3.9, 'idle']].forEach(([lx, lz, act], i) => {
+      const [x, z] = local(cakes.x, cakes.z, cakes.ry, lx, lz);
+      const q = cast.person({ seed: 3311 + i, age: i ? 'elder' : 'adult', accessory: i ? 'shopping' : 'handbag' }, x, z, 0, act, {}, { name: 'shopper', lines: ['Is there any Victoria sponge left?', 'This queue is SLOW.'] });
+      q.faceTowards(v3(cakes.x, 0, cakes.z));
+    });
+  }
+
   // ------------------------------------------------------------ pub regulars at the picnic tables
   const tables = L.anchors.pubTables;
   const PR = L.pubAt.ry;
@@ -340,12 +398,18 @@ export function buildLife(ctx, S, L, D, J) {
   every(ctx, () => rng.range(10, 18), () => ctx.sfx('baa', { position: new THREE.Vector3((pk.x0 + pk.x1) / 2, 1, (pk.z0 + pk.z1) / 2), volume: 0.7 }));
   // ducks on the pond
   const pond = D.pond;
-  for (let i = 0; i < 2; i++) {
+  D.pondDucks = [0, 1, 2].map((i) => {
     const d = new Duck({ seed: 520 + i });
-    cast.animal(d, pond.x, pond.z, 0, { y: 0.11, blob: false, name: 'duck' });
+    cast.animal(d, pond.x, pond.z, 0, { y: pond.waterY, blob: false, name: 'duck' });
     d.setAction('swim');
-    new Walker(d, circlePath(pond.x, pond.z, 1.6 + i * 0.9, 12), { loop: true, speed: 0.4 + i * 0.1, action: 'swim', variety: 0, groundY: () => 0.11 });
-  }
+    // ellipses inside the (0.8-squashed, rotated) pond
+    const r = pond.r * (0.3 + i * 0.2), pts = circlePath(0, 0, r, 12, i).map(([x, z]) => {
+      const zx = x, zz = z * 0.72, c = Math.cos(pond.ry), sn = Math.sin(pond.ry);
+      return [pond.x + zx * c + zz * sn, pond.z - zx * sn + zz * c];
+    });
+    new Walker(d, pts, { loop: true, speed: 0.35 + i * 0.08, action: 'swim', variety: 0, reverse: i === 1, groundY: () => pond.waterY });
+    return d;
+  });
   // gulls wheeling over the square (the sea's not far)
   [[0, -6, 22, 19, false], [8, 2, 28, 23, true], [-12, -14, 18, 17, false]].forEach(([x, z, r, h, cwise], i) => {
     const g = new Gull({ seed: 60 + i });
@@ -448,7 +512,7 @@ export function buildLife(ctx, S, L, D, J) {
   // parked on the flanks: a milk float by the east road, the tractor by the allotments
   const parked = [
     [K.car({ style: 'van', color: '#f4f7fb', seed: 12 }), 49.2, -6, Math.PI + 0.05],
-    [K.car({ style: 'pickup', color: P.tomato, seed: 13 }), 48.8, 8.5, Math.PI - 0.08],
+    [K.car({ style: 'pickup', color: P.tomato, seed: 13 }), 49.4, -1.2, Math.PI - 0.08],
     [K.tractor({ seed: 14, color: '#4f9a3c' }), -50.2, 38.2, 0.5],
   ];
   for (const [o, x, z, ry] of parked) {
@@ -459,146 +523,8 @@ export function buildLife(ctx, S, L, D, J) {
   }
   for (const o of D.parkedCars || []) ctx.prop(o, { surface: 'metal', onHit: () => { o.userData.bump?.(1); ctx.sfx('honk', { position: worldPos(o), pitch: 1.1 }); } });
 
-  // ------------------------------------------------------------ village cricket on the east meadow (over the ring road)
-  // Puddleby v Brambley: the bowler runs in every ~12 s; blocks, fours, the odd SIX into the duck
-  // pond and a HOWZAT! with flying bails. Fills the east flank at the yaw limit with life.
-  const cricket = (() => {
-    const [CX, CZ] = CRICKET;
-    const HALF = 8;
-    const set = cricketSet({ half: HALF });
-    put(root, set, CX, CZ, 0);
-    ctx.surface(set, 'dust');
-    S.batch.add(set, 'dust');
-    const sb = scoreboard();
-    put(root, sb, 60.2, -8.6, facePerch(60.2, -8.6) - 0.35);
-    ctx.surface(sb, 'wood');
-    S.batch.add(sb, 'wood');
-    // the striker's stumps (dynamic: the bails fly on a HOWZAT)
-    const stumpMat = materials.solid('#e8d7b0', { roughness: 0.7 });
-    const stumps = new THREE.Group();
-    stumps.name = 'stumps';
-    for (const x of [-0.12, 0, 0.12]) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.8, 6), stumpMat); m.position.set(x, 0.4, 0); m.castShadow = true; stumps.add(m); }
-    const bails = [-0.06, 0.06].map((x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.03), stumpMat); m.position.set(x, 0.815, 0); stumps.add(m); return m; });
-    put(root, stumps, CX, CZ + HALF, 0);
-    ctx.surface(stumps, 'wood');
-    const toBowler = v3(CX, 0, CZ - HALF), toStriker = v3(CX, 0, CZ + HALF);
-    const whites = (seed, extra = {}) => ({ seed, top: { type: 'shirt', color: '#fbf7f0', sleeves: 'long' }, bottom: { type: 'trousers', color: '#fbf7f0' }, hat: { type: 'cap', color: '#2f7d62', color2: '#fbf7f0' }, accessory: null, ...extra });
-    const lines = ['Owzat!', 'Well bowled!', 'Tea in ten minutes, chaps.', 'Catch it! CATCH IT!', 'Leg before, surely?'];
-    const striker = cast.person(whites(4801, { hat: { type: 'cap', color: '#3d4a6b' } }), CX + 0.35, CZ + HALF - 1.1, 0, 'idle', {}, { name: 'batsman', lines: ['Middle stump, please, umpire.', 'Just a quick single!'] });
-    striker.faceTowards(toBowler);
-    const bat = cricketBat();
-    striker.bones.handR.add(bat);
-    const other = cast.person(whites(4802, { hat: { type: 'cap', color: '#3d4a6b' } }), CX - 1.2, CZ - HALF + 1.0, 0, 'idle', {}, { name: 'batsman', lines: ['Yes! No! Wait! Sorry!'] });
-    other.faceTowards(toStriker);
-    other.bones.handR.add(cricketBat());
-    const keeper = cast.person(whites(4803), CX, CZ + HALF + 2.3, 0, 'idle', {}, { name: 'wicketkeeper', lines });
-    keeper.faceTowards(toBowler);
-    const umpire = cast.person({ seed: 4804, top: { type: 'smock', color: '#fbf7f0', sleeves: 'long' }, bottom: { type: 'trousers', color: '#3d4a6b' }, hat: { type: 'bucket', color: '#fbf7f0' }, accessory: null, age: 'elder' },
-      CX + 0.95, CZ - HALF - 1.3, 0, 'idle', {}, { name: 'umpire', lines: ['Not out.', 'Over!', 'Play!'] });
-    umpire.faceTowards(toStriker);
-    const fielders = [[-1.9, 10.6, 'idle'], [-5.2, 5, 'idle'], [4.4, -1.5, 'idle'], [-4.6, -3.2, 'idle'], [3.2, 14.5, 'idle']].map(([dx, dz, act], i) => {
-      const f = cast.person(whites(4811 + i), CX + dx, CZ + dz, 0, act, {}, { name: 'fielder', lines });
-      f.faceTowards(toStriker);
-      return f;
-    });
-    const fans = [[58.7, 20.4], [59.5, 23.3]].map(([x, z], i) => {
-      const dc = deckchair({ colors: [[P.teal, '#fff8ee'], [P.sunflower, '#fff8ee']][i], seed: 7 + i });
-      const ry = yawTo(v3(x, 0, z), v3(CX, 0, CZ + 3));
-      put(root, dc, x, z, ry);
-      ctx.surface(dc, 'soft');
-      S.batch.add(dc, 'soft');
-      const [px, pz] = local(x, z, ry, 0, 0.22);
-      return cast.person({ seed: 4821 + i, age: i ? 'elder' : 'adult', hat: i ? { type: 'boater', color: '#f2d27a' } : { type: 'sunhat', color: '#fff1d6', band: P.teal }, accessory: null }, px, pz, ry, 'lie', { pose: 'deckchair', height: dc.userData.seat, awake: true },
-        { name: 'spectator', lines: ['Good shot, sir!', 'Jolly good.', 'Is it tea yet?'] });
-    });
-    // the bowler: mark -> run in -> bowl -> walk back
-    const mark = v3(CX - 0.4, 0, CZ - HALF - 7), crease = v3(CX - 0.25, 0, CZ - HALF - 0.3);
-    const bowler = cast.person(whites(4805), mark.x, mark.z, 0, 'idle', {}, { name: 'bowler', lines: ['Here comes the googly!', 'Owzat!'] });
-    bowler.faceTowards(toStriker);
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), materials.solid('#c8102e', { roughness: 0.4 }));
-    ball.scale.setScalar(1.4);
-    ball.visible = false;
-    ball.castShadow = false;
-    ball.raycast = () => {};
-    root.add(ball);
-    const pond = D.pond;
-    const arc = (from, to, h, secs, onDone) => ctx.tweens.run(secs, (k) => {
-      ball.position.lerpVectors(from, to, k);
-      ball.position.y += Math.sin(Math.PI * k) * h;
-    }, { onComplete: onDone });
-    const hide = (s) => ctx.delay(s, () => { ball.visible = false; });
-    const clap = (who) => who.forEach((p, i) => ctx.delay(0.2 * i, () => p.perform('clap', 2)));
-    const outcome = () => {
-      const r = rng.random();
-      const hitAt = ball.position.clone();
-      if (r < 0.4) { // a dead bat
-        striker.perform('wave', 0.5);
-        ctx.sfx('hitWood', { position: hitAt, volume: 0.5, pitch: 1.3 });
-        arc(hitAt, hitAt.clone().add(v3(rng.range(-0.8, 0.8), -hitAt.y + 0.1, -1.6)), 0.2, 0.5, () => hide(0.8));
-      } else if (r < 0.68) { // FOUR along the ground
-        striker.perform('wave', 0.6);
-        ctx.sfx('hitWood', { position: hitAt, volume: 0.8 });
-        const side = rng.chance(0.5) ? -1 : 1;
-        const to = v3(CX + side * rng.range(6.5, 8), 0.12, CZ + rng.range(-8, 12));
-        arc(hitAt, to, 0.3, 1.5, () => {
-          hide(1.2);
-          ctx.popText(to.clone().setY(2.2), 'FOUR!', { cls: 'pop-info', duration: 1.4 });
-          clap([...fans, other]);
-          fielders.find((f) => f.root.position.distanceTo(to) < 9)?.perform('shrug', 1.6);
-        });
-      } else if (r < 0.88) { // SIX... into the duck pond
-        striker.perform('wave', 0.8);
-        ctx.sfx('hitWood', { position: hitAt, volume: 1, pitch: 0.85 });
-        ctx.popText(hitAt.clone().setY(3), 'SIX!', { cls: 'pop-big', duration: 1.6 });
-        const to = v3(pond.x + rng.range(-1.5, 1.5), 0.15, pond.z + rng.range(-1.5, 1.5));
-        fielders.forEach((f, i) => ctx.delay(0.3 + i * 0.1, () => f.perform('lookUp', 2.4)));
-        arc(hitAt, to, 16, 2.6, () => {
-          ball.visible = false;
-          ctx.fx.burst('water', to, UP, { scale: 1.1 });
-          ctx.sfx('splash', { position: to, pitch: 1.3 });
-          ctx.delay(0.3, () => ctx.sfx('quack', { position: to, pitch: 1.2 }));
-          clap(fans);
-        });
-      } else { // bowled him! bails fly
-        ctx.sfx('hitWood', { position: hitAt, volume: 0.7, pitch: 1.5 });
-        bails.forEach((b, i) => {
-          const x0 = b.position.x, v = (i ? 1 : -1) * rng.range(0.4, 0.9);
-          ctx.tweens.run(0.8, (k) => { b.position.set(x0 + v * k, 0.815 + Math.sin(Math.PI * k) * 0.9 - k * 0.8, -k * 0.6); b.rotation.z = k * 9; });
-        });
-        hide(0.3);
-        ctx.delay(0.3, () => { ctx.popText(worldPos(stumps).setY(2.4), 'HOWZAT!', { cls: 'pop-big', duration: 1.5 }); bowler.perform('alarm', 1.6); keeper.perform('cheer', 1.6); ctx.sfx('gasp', { position: worldPos(stumps), volume: 0.6 }); });
-        ctx.delay(1.2, () => { umpire.perform('point', 2.4); umpire.pointAt(worldPos(umpire.root).add(v3(0, 9, 1))); cast.say(umpire, 'OUT!', 1.8); });
-        ctx.delay(1.6, () => striker.perform('shrug', 2.2));
-        ctx.delay(4.5, () => { umpire.pointAt(null); bails.forEach((b, i) => { b.position.set(i ? 0.06 : -0.06, 0.815, 0); b.rotation.set(0, 0, 0); }); });
-      }
-    };
-    const deliver = () => {
-      const from = worldPos(bowler.bones.handR);
-      const to = worldPos(striker.root).add(v3(-0.25, 0.55, -0.55));
-      const pitchAt = from.clone().lerp(to, 0.74).setY(0.05);
-      ball.visible = true;
-      ball.position.copy(from);
-      ctx.tweens.run(0.52, (k) => {
-        if (k < 0.74) ball.position.lerpVectors(from, pitchAt, k / 0.74);
-        else ball.position.lerpVectors(pitchAt, to, (k - 0.74) / 0.26);
-      }, { onComplete: outcome });
-    };
-    let phase = 'wait', pt = rng.range(2, 5);
-    ctx.onUpdate((dt) => {
-      pt -= dt;
-      if (phase === 'wait' && pt <= 0) { phase = 'run'; pt = 2.2; bowler.speed = mark.distanceTo(crease) / 2.2; bowler.setAction('run'); }
-      else if (phase === 'run') {
-        bowler.root.position.lerpVectors(mark, crease, 1 - Math.max(0, pt) / 2.2);
-        if (pt <= 0) { phase = 'bowl'; pt = 0.3; bowler.speed = 0; bowler.setAction('idle', {}, 0.1); bowler.perform('wave', 0.9); }
-      } else if (phase === 'bowl' && pt <= 0) { deliver(); phase = 'follow'; pt = 1.8; }
-      else if (phase === 'follow' && pt <= 0) { phase = 'back'; pt = 5.2; bowler.faceTowards(mark); bowler.speed = mark.distanceTo(crease) / 5.2; bowler.setAction('walk'); }
-      else if (phase === 'back') {
-        bowler.root.position.lerpVectors(crease, mark, 1 - Math.max(0, pt) / 5.2);
-        if (pt <= 0) { phase = 'wait'; pt = rng.range(2.5, 5.5); bowler.speed = 0; bowler.setAction('idle'); bowler.faceTowards(toStriker); }
-      }
-    });
-    return { striker, bowler, keeper, umpire, fielders, fans, other };
-  })();
+  // (the village cricket match now lives in games.js with the 'catch the six' job)
+  const cricket = J.games?.cricket;
 
   // ------------------------------------------------------------ a family picnic on the east lawn by the pond
   {

@@ -73,18 +73,32 @@ export class Cast {
     this.chatT = Math.max(this.chatT, duration + 0.8);
   }
 
-  /** Nearby villagers celebrate (hop + heart). */
-  cheerNear(point, radius = 12, { except = [], say = null } = {}) {
-    let n = 0;
+  /** The happy double hop without its heart sticker (hearts are kept for the few who really care). */
+  hop(p) {
+    if (!p.celebrate()) return;
+    const ic = p.icon;
+    if (ic) { ic.active = false; if (ic.sprite) ic.sprite.visible = false; }
+  }
+
+  /**
+   * Nearby villagers celebrate: the `hearts` nearest get hop + heart, everyone else just hops (a
+   * crowd of hearts read as spam from the perch).
+   */
+  cheerNear(point, radius = 12, { except = [], say = null, hearts = 2 } = {}) {
+    const near = [];
     for (const p of this.people) {
       if (except.includes(p) || !p.root.visible) continue;
       p.root.getWorldPosition(_v);
-      if (_v.distanceTo(point) > radius) continue;
-      p.celebrate();
-      if (say && n === 0) this.say(p, say, 2.2);
-      n++;
+      const d = _v.distanceTo(point);
+      if (d <= radius) near.push([d, p]);
     }
-    return n;
+    near.sort((a, b) => a[0] - b[0]);
+    near.forEach(([, p], i) => {
+      if (i < hearts) p.celebrate();
+      else this.ctx.delay(0.05 * (i % 7), () => this.hop(p));
+    });
+    if (say && near.length) this.say(near[0][1], say, 2.2);
+    return near.length;
   }
 
   /** Nearby villagers jump (after a bad hit, a crash...). */

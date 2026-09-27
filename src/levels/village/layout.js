@@ -152,6 +152,40 @@ const rectShape = (cx, cz, w, d, ry = 0) => {
   return s;
 };
 
+/**
+ * Backdrop terrain colour pass: per-triangle colours become per-vertex averages of the triangles that
+ * share each corner (soft field edges, calmer speckle), lavender fields turn sage, the brightest
+ * yellows lose a little saturation, and `band(x, y, z, colour)` (backdrop-local position) may blend
+ * the level's own patchwork in per vertex.
+ */
+function calmTerrain(geo, band) {
+  const pos = geo.attributes.position, col = geo.attributes.color;
+  const n = pos.count;
+  const tri = new Float32Array(n); // per-vertex slot, filled per triangle (rgb of triangle i at i*3)
+  const c = new THREE.Color(), hsl = { h: 0, s: 0, l: 0 };
+  for (let i = 0; i + 2 < n; i += 3) {
+    c.setRGB(col.getX(i), col.getY(i), col.getZ(i)).getHSL(hsl);
+    if (hsl.h > 0.66 && hsl.h < 0.9 && hsl.s > 0.2) c.setHSL(0.235, 0.36, Math.min(0.68, Math.max(0.56, hsl.l)));
+    else if (hsl.h > 0.095 && hsl.h < 0.17 && hsl.s > 0.5) c.setHSL(hsl.h, hsl.s * 0.8, hsl.l * 0.98);
+    tri[i] = c.r; tri[i + 1] = c.g; tri[i + 2] = c.b;
+  }
+  const key = (i) => `${Math.round(pos.getX(i) * 50)},${Math.round(pos.getY(i) * 50)},${Math.round(pos.getZ(i) * 50)}`;
+  const acc = new Map();
+  for (let i = 0; i < n; i++) {
+    const k = key(i), t = i - (i % 3);
+    let a = acc.get(k);
+    if (!a) acc.set(k, (a = [0, 0, 0, 0]));
+    a[0] += tri[t]; a[1] += tri[t + 1]; a[2] += tri[t + 2]; a[3]++;
+  }
+  for (let i = 0; i < n; i++) {
+    const a = acc.get(key(i));
+    c.setRGB(a[0] / a[3], a[1] / a[3], a[2] / a[3]);
+    band?.(pos.getX(i), pos.getY(i), pos.getZ(i), c);
+    col.setXYZ(i, c.r, c.g, c.b);
+  }
+  col.needsUpdate = true;
+}
+
 /** Flat ground pieces (roads, paving, kerbs) cast no visible shadow: skip them in the shadow pass. */
 function noShadow(obj) {
   obj.traverse((o) => { if (o.isMesh) o.castShadow = false; });
@@ -361,7 +395,7 @@ export function buildLayout(ctx, S) {
     { o: B.house({ backDetail: false, seed: 'e-3', floors: 2, wall: P.wallCream, style: 'brick' }), x: 9, z: -46, ry: 0.05 },
     { o: B.house({ backDetail: false, seed: 'e-4', floors: 2, roofStyle: 'mansard', wall: P.wallMint }), x: -8.5, z: -46.5, ry: -0.05 },
     { o: B.house({ backDetail: false, seed: 'e-5', floors: 2, wall: P.wallPeach, roofStyle: 'gable', gableFront: true }), x: 45.5, z: -17.5, ry: -1.3 },
-    { o: B.house({ backDetail: false, seed: 'e-6', floors: 1, wall: P.wallLilac }), x: 62, z: 0, ry: -1.45 },
+    { o: B.house({ backDetail: false, seed: 'e-6', floors: 1, wall: P.wallLilac }), x: 70.5, z: -7.5, ry: -1.3 }, // behind the wicketkeeper
     { o: B.house({ backDetail: false, seed: 'e-7', floors: 2, wall: P.wallSky, roofStyle: 'hip' }), x: 61, z: -24, ry: -1.35 },
     { o: B.house({ backDetail: false, seed: 'e-8', floors: 1, wall: P.wallButter, roofStyle: 'gable', gag: 'gnome' }), x: -62.5, z: -2, ry: 1.45 },
   ];
@@ -400,14 +434,15 @@ export function buildLayout(ctx, S) {
   const rim = (x, z) => Math.hypot(x - WORLD_C[0], z - WORLD_C[1]);
   const FX0 = -99, FZ0 = -103.5, FW = 18, FD = 22.5;
   const isField = (x, z, pad = 0) => !inLoop(x, z) && !onRoad(x, z, 6.2 + pad) && rim(x, z) < 86 - pad && !inCricket(x, z, 2 + pad) && !inPaddock(x, z) && !inFoot(x, z, 2 + pad);
-  // [colour, furrow colour (stripes), weight]: pasture, wheat, rapeseed, ploughed, hay, clover
-  const CROPS = [['#86c95a', null, 2.6], ['#e2c060', '#d0aa4a', 1.6], ['#f0d83c', null, 1.1], ['#a8794b', '#8d623b', 1.4], ['#c6dc84', '#b1c86e', 1.7], ['#6fb84a', null, 1.4]];
+  // [colour, furrow colour (subtle rows on the flat ground), weight]: pasture, wheat, rapeseed,
+  // ploughed, hay, clover. Golds stay calm and furrows soft (loud ones read as noise at 100 m).
+  const CROPS = [['#86c95a', null, 2.6], ['#e0c46e', '#d6b862', 1.6], ['#e8d466', null, 1.1], ['#b08a5e', '#a37f55', 1.4], ['#c6dc84', '#bcd379', 1.7], ['#6fb84a', null, 1.4]];
   const cropW = CROPS.reduce((a, k) => a + k[2], 0);
   const cropAt = (ix, iz) => { let h = hash3(ix * 1.3, 9.1, iz * 0.7) * cropW; for (const k of CROPS) if ((h -= k[2]) <= 0) return k; return CROPS[0]; };
-  const fieldColor = (x, z, c) => {
+  const fieldColor = (x, z, c, rows = true) => {
     const ix = Math.floor((x - FX0) / FW), iz = Math.floor((z - FZ0) / FD);
     const [a, b] = cropAt(ix, iz);
-    c.set(b && Math.floor((x - FX0) / 4.5) % 2 ? b : a).offsetHSL(0, 0, (hash3(ix, 2.3, iz) - 0.5) * 0.05);
+    c.set(rows && b && Math.floor((x - FX0) / 4.5) % 2 ? b : a).offsetHSL(0, 0, (hash3(ix, 2.3, iz) - 0.5) * 0.04);
   };
   const treePts = [];
   const clear = (x, z) => {
@@ -439,7 +474,7 @@ export function buildLayout(ctx, S) {
     { x: -37, z: -12.5, type: 'round' }, { x: -38.5, z: 2.5, type: 'fruit' }, { x: -52, z: 6, type: 'fruit' }, { x: -55, z: -12, type: 'tall' },
     { x: cw(-8.5, -6)[0], z: cw(-8.5, -6)[1], type: 'conifer', scale: 0.8 }, { x: cw(9, -7.5)[0], z: cw(9, -7.5)[1], type: 'conifer', scale: 0.9 },
     { x: cw(-8.5, 7.5)[0], z: cw(-8.5, 7.5)[1], type: 'conifer', scale: 0.7 },
-    { x: 45, z: -4.5, type: 'round' }, { x: 44.5, z: -30, type: 'tall' }, { x: 47, z: 8.5, type: 'blossom' }, { x: 19.5, z: -45.5, type: 'blossom' },
+    { x: 45, z: -4.5, type: 'round' }, { x: 44.5, z: -30, type: 'tall' }, { x: 46.2, z: 4.4, type: 'blossom' }, { x: 19.5, z: -45.5, type: 'blossom' },
     { x: 58.5, z: 14, type: 'fruit' }, { x: 47, z: 32.5, type: 'round' },
   ];
   for (const a of accents) if (!inFoot(a.x, a.z, 1) && !inCricket(a.x, a.z, 2)) treePts.push(a);
@@ -504,27 +539,23 @@ export function buildLayout(ctx, S) {
   ctx.surface(hedgeGroup, 'leaves');
   batch.add(hedgeGroup, 'leaves');
   // ...and carry the patchwork out over the hills' plain inner band (the backdrop kit fades its own
-  // fields to lawn there), so the flanks read as farmland all the way to the horizon: recolour this
-  // level's backdrop terrain triangles and continue the hedges up the slopes at terrain height
+  // fields to lawn there), so the flanks read as farmland all the way to the horizon. The backdrop
+  // terrain is recoloured per VERTEX (shared corners average their triangles), so field
+  // edges are soft instead of sawtooth, the per-triangle speckle calms down, the lavender slab that
+  // dominated the title/intro aerials becomes a sage meadow and the loudest golds soften. Then the
+  // hedges carry on up the slopes at terrain height.
   {
     const terrain = bd.getObjectByName('backdropTerrain');
     const heightAt = bd.userData.heightAt;
     const [ox, oz] = WORLD_C;
     if (terrain?.geometry?.attributes?.color) {
-      const pos = terrain.geometry.attributes.position, col = terrain.geometry.attributes.color;
-      const c = new THREE.Color(), f = new THREE.Color();
-      for (let i = 0; i + 2 < pos.count; i += 3) {
-        const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3 + ox;
-        const cy = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
-        const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3 + oz;
-        const r = rim(cx, cz);
-        if (r > 124 || cy < 0.4 || (!isField(cx, cz) && r < 86)) continue;
-        const w = 0.85 * Math.min(1, Math.max(0, (124 - r) / 22));
-        fieldColor(cx, cz, f);
-        c.setRGB(col.getX(i), col.getY(i), col.getZ(i)).lerp(f, w);
-        for (let k = 0; k < 3; k++) col.setXYZ(i + k, c.r, c.g, c.b);
-      }
-      col.needsUpdate = true;
+      const f = new THREE.Color();
+      calmTerrain(terrain.geometry, (x, y, z, c) => {
+        const wx = x + ox, wz = z + oz, r = rim(wx, wz);
+        if (r > 124 || y < 0.4 || (!isField(wx, wz) && r < 86)) return;
+        fieldColor(wx, wz, f, false);
+        c.lerp(f, 0.85 * Math.min(1, Math.max(0, (124 - r) / 22)));
+      });
     }
     if (heightAt) {
       const hillOk = (x, z) => { const r = rim(x, z); return r > 78 && r < 104 && !inLoop(x, z) && !onRoad(x, z, 7) && heightAt(x - ox, z - oz) > 0.5; };

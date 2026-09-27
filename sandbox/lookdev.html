@@ -28,6 +28,7 @@
 //   at=<x,y,z> (scope/close target, default the fountain)   fov=<deg>
 //   ao=0 bloom=0 outline=0 grade=0 lens=0 dof=0 tilt=1 (A/B toggles; tilt = unscoped miniature DOF)
 //   vm=1 (first-person rifle)   fx=1 (particle bursts)   mask=0 (hide the scope mask when cam=scope)
+//   cull=0 (disable view-dependent shadow caster culling, A/B)   fxt=<s> (advance the fx demo by s seconds)
 //   debug=1 (stats panel)   steps=<n> (frames of fixed 1/60 s before __ready, default 8)
 // Live API (window.__lookdev): set({ cam, yaw, pitch, zoom, at, off, preset, quality, ao, bloom, outline,
 //   grade: { contrast, ao: { radius }, ... }, env: { sunAzim, sunElev, ... } }), fx(), burst(kind, x, y, z,
@@ -218,6 +219,15 @@ function fxDemo() {
   burstAt('smoke', 30, 9, -52, 0, 1, 0, 1.4);
   burstAt('stone', 0, 2.5, -9, 0, 0, 1, 1.5);
   burstAt('glass', 11, 3, -40, 0, 0, 1, 1.5);
+  burstAt('pop', 3, 5.5, 4, 0, 1, 0, 1);
+  burstAt('leaves', 28, 6, 12, 0, 0, 1, 1.4);
+  // a soft hit on a villager: the poof blooms behind the head, stars pop around it
+  const who = crowd.people?.[0]?.root || crowd.root.children[0];
+  if (who) {
+    const hp = who.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 1.35, 0));
+    fx.burst('soft', hp, new THREE.Vector3(0, 0, 1));
+    fx.burst('stars', hp.clone().add(new THREE.Vector3(0, 0.3, 0)), new THREE.Vector3(0, 1, 0), { scale: 0.4 });
+  }
   tracers.spawn(new THREE.Vector3(0.3, 11.6, 61), new THREE.Vector3(-8, 3, -2), 0.12);
 }
 
@@ -305,6 +315,7 @@ function applyToggles(o = {}) {
   if ('ao' in o && r.ao) r.ao.enabled = !!o.ao;
   if ('bloom' in o && r.bloom) r.bloom.blendMode.opacity.value = o.bloom ? 1 : 0;
 }
+if (params.get('cull') === '0') renderer.shadowCull = false;
 const initial = {};
 for (const k of ['ao', 'bloom', 'outline', 'grade', 'lens', 'tilt', 'dof']) if (params.has(k)) initial[k] = flag(k, true);
 
@@ -342,7 +353,11 @@ function frame() {
   renderer.renderer.info.reset();
   renderer.render(dt);
   frames++;
-  if (!fxDone && flag('fx', false) && frames === 2) { fxDemo(); fxDone = true; }
+  if (!fxDone && flag('fx', false) && frames === 2) {
+    fxDemo();
+    fxDone = true;
+    for (let i = 0, n = Math.round(num('fxt', 0) * 60); i < n; i++) fx.update(1 / 60);
+  }
   if (frames === steps) window.__ready = true;
   if (info.style.display === 'block' && frames % 10 === 0) {
     const i = renderer.renderer.info;

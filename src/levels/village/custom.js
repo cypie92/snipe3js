@@ -3,10 +3,11 @@
 // Everything is vertex-coloured and merged (1-3 draw calls each) so the static batcher can absorb it.
 import * as THREE from 'three';
 import * as B from '../../world/kit/buildings/index.js';
+import { LiveMesh } from '../../world/kit/props/index.js';
 import { materials } from '../../gfx/materials.js';
 import { P } from '../../gfx/palette.js';
 import { Rng } from '../../core/rng.js';
-import { TAU } from './util.js';
+import { TAU, part, merge } from './util.js';
 
 const { Kit, cbox, prism, lathe, shade } = B;
 const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
@@ -290,30 +291,48 @@ export function bouncyCastle({ seed = 1 } = {}) {
   return g;
 }
 
-/** Coconut shy: striped booth with five coconuts on posts. */
-export function coconutShy({ seed = 2 } = {}) {
+/** One chunky hairy coconut (vertex-coloured geometry, centre at the origin). */
+export function coconutGeo(seed = 1) {
+  return merge([
+    part(blob(0.17, seed, 1, 0.18), '#7a4a26'),
+    part(blob(0.07, seed + 3, 0, 0.3), '#a8784a', { y: 0.13, z: 0.03 }),
+    part(ball(0.025, 0), '#3d2614', { x: -0.05, y: 0.02, z: 0.155 }),
+    part(ball(0.025, 0), '#3d2614', { x: 0.05, y: 0.02, z: 0.155 }),
+  ]);
+}
+
+/**
+ * Coconut shy: striped booth with five coconuts on posts. `loose: true` leaves the coconuts out and
+ * lists their seats in userData.cups ([x, y, z] local) so a level can make them knock-off-able.
+ */
+export function coconutShy({ seed = 2, loose = false } = {}) {
   const rng = new Rng(`shy-${seed}`);
   const kit = new Kit('shy');
   const w = 3.6;
-  for (const sx of [-1, 1]) kit.add(cbox(0.14, 2.6, 0.14, 0.04), P.woodDark, { x: sx * w / 2, y: 1.3, z: -0.7 });
-  for (const sx of [-1, 1]) kit.add(cbox(0.14, 2.3, 0.14, 0.04), P.woodDark, { x: sx * w / 2, y: 1.15, z: 0.7 });
-  for (let i = 0; i < 6; i++) kit.add(box(w / 6 + 0.01, 0.08, 1.7), i % 2 ? CREAM : P.cobalt, { x: -w / 2 + (w / 6) * (i + 0.5), y: 2.5, z: 0, rx: -0.14 });
-  for (let i = 0; i < 6; i++) kit.add(new THREE.CylinderGeometry(0.28, 0.28, 0.05, 10, 1, false, 0, Math.PI), i % 2 ? CREAM : P.cobalt, { x: -w / 2 + (w / 6) * (i + 0.5), y: 2.38, z: 0.85, rx: Math.PI / 2 });
+  const cups = [];
+  // the awning sits high (roof at 3.1 m) so a shot from the perch clears the valance to the coconuts
+  const R = 0.6;
+  for (const sx of [-1, 1]) kit.add(cbox(0.14, 2.6 + R, 0.14, 0.04), P.woodDark, { x: sx * w / 2, y: 1.3 + R / 2, z: -0.7 });
+  for (const sx of [-1, 1]) kit.add(cbox(0.14, 2.3 + R, 0.14, 0.04), P.woodDark, { x: sx * w / 2, y: 1.15 + R / 2, z: 0.7 });
+  for (let i = 0; i < 6; i++) kit.add(box(w / 6 + 0.01, 0.08, 1.7), i % 2 ? CREAM : P.cobalt, { x: -w / 2 + (w / 6) * (i + 0.5), y: 2.5 + R, z: 0, rx: -0.14 });
+  for (let i = 0; i < 6; i++) kit.add(new THREE.CylinderGeometry(0.28, 0.28, 0.05, 10, 1, false, 0, Math.PI), i % 2 ? CREAM : P.cobalt, { x: -w / 2 + (w / 6) * (i + 0.5), y: 2.38 + R, z: 0.85, rx: Math.PI / 2 });
   kit.add(box(w, 0.9, 0.08), P.tomato, { y: 0.45, z: 0.75 });
   kit.add(box(w, 0.08, 0.3), CREAM, { y: 0.92, z: 0.75 });
   for (let i = 0; i < 5; i++) {
     const x = -1.3 + i * 0.65;
     kit.add(cyl(0.035, 0.035, 1.2, 6), P.woodLight, { x, y: 0.6, z: -0.45 });
     kit.add(cyl(0.1, 0.06, 0.1, 8), P.sunflower, { x, y: 1.24, z: -0.45 });
-    kit.add(blob(0.16, i + seed, 1, 0.18), '#7a4a26', { x, y: 1.4, z: -0.45 });
+    if (loose) cups.push([x, 1.43, -0.45]);
+    else kit.add(blob(0.16, i + seed, 1, 0.18), '#7a4a26', { x, y: 1.4, z: -0.45 });
   }
   kit.add(cyl(0.22, 0.18, 0.3, 10), P.teal, { x: 1.4, y: 1.1, z: 0.78 });
   for (let i = 0; i < 4; i++) kit.add(ball(0.07, 0), rng.pick([P.tomato, CREAM, P.sunflower]), { x: 1.35 + (i % 2) * 0.1, y: 1.26 + i * 0.02, z: 0.72 + (i > 1 ? 0.1 : 0) });
-  kit.add(box(2.4, 0.5, 0.06), P.ink, { y: 2.8, z: 0.86, rx: -0.14 });
-  kit.raw(new THREE.PlaneGeometry(2.3, 0.42), boardMaterial('COCONUT SHY', { bg: P.sunflower, fg: P.tomato, w: 1024, h: 190 }), { y: 2.8, z: 0.9, rx: -0.14 });
+  kit.add(box(2.4, 0.5, 0.06), P.ink, { y: 2.8 + R, z: 0.86, rx: -0.14 });
+  kit.raw(new THREE.PlaneGeometry(2.3, 0.42), boardMaterial('COCONUT SHY', { bg: P.sunflower, fg: P.tomato, w: 1024, h: 190 }), { y: 2.8 + R, z: 0.9, rx: -0.14 });
   const g = kit.build(new THREE.Group());
   g.name = 'coconutShy';
   g.userData.surface = 'wood';
+  g.userData.cups = cups;
   return g;
 }
 
@@ -1090,20 +1109,28 @@ export function duckPool({ r = 1.1, n = 7, seed = 4 } = {}) {
   water.position.y = 0.13;
   water.receiveShadow = true;
   g.add(water);
+  // the rubber ducks are pivots drawn by one LiveMesh (1 draw call, too small to need shadows)
   const ducks = [];
+  const duckGeo = merge([
+    part(ball(0.09, 1), P.sunflower, { sy: 0.8 }),
+    part(ball(0.06, 1), P.sunflower, { y: 0.09, z: 0.05 }),
+    part(new THREE.ConeGeometry(0.03, 0.06, 5), P.tangerine, { y: 0.09, z: 0.12, rx: Math.PI / 2 }),
+  ]);
+  const live = new LiveMesh(materials.toy);
+  live.name = 'rubberDucks';
+  live.castShadow = false;
   const dk = (x, z) => {
-    const d = new THREE.Group();
-    const k = new Kit('rubberDuck');
-    k.add(ball(0.09, 1), P.sunflower, { sy: 0.8 });
-    k.add(ball(0.06, 1), P.sunflower, { y: 0.09, z: 0.05 });
-    k.add(new THREE.ConeGeometry(0.03, 0.06, 5), P.tangerine, { y: 0.09, z: 0.12, rx: Math.PI / 2 });
-    k.build(d);
+    const d = new THREE.Object3D();
+    d.name = 'rubberDuck';
     d.position.set(x, 0.29, z);
     d.userData.phase = rng.range(0, TAU);
     g.add(d);
+    live.addPiece(d, duckGeo);
     ducks.push(d);
   };
   for (let i = 0; i < n; i++) { const a = rng.range(0, TAU), rr = rng.range(0.2, r - 0.25); dk(Math.cos(a) * rr, Math.sin(a) * rr); }
+  g.add(live);
+  live.build();
   g.userData.update = (dt, t) => {
     for (const d of ducks) {
       const p = d.userData.phase + t * 0.35;
@@ -1112,6 +1139,7 @@ export function duckPool({ r = 1.1, n = 7, seed = 4 } = {}) {
       d.rotation.y = -p;
       d.position.y = 0.29 + Math.sin(t * 2.3 + d.userData.phase) * 0.015;
     }
+    live.sync(t);
   };
   g.name = 'duckPool';
   g.userData.parts = { ducks };
@@ -1226,5 +1254,371 @@ export function cricketBat() {
   kit.add(cbox(0.11, 0.56, 0.045, 0.015), [shade('#f0d9a8', -0.06), '#f0d9a8'], { y: -0.58 });
   const g = kit.build(new THREE.Group());
   g.name = 'bat';
+  return g;
+}
+
+// ------------------------------------------------------------------ fête skill games (games.js)
+/**
+ * "Splat the Rat" stall (front = +Z): a tall drainpipe down a painted board ends in a spout over a
+ * felt-topped trestle; a sock rat dropped in at the top shoots out onto the felt for a moment.
+ * parts: { mouth (spout exit), matEnd (where the rat skids to), top (funnel), bell }.
+ */
+export function splatRatStall({ text = 'SPLAT THE RAT', sub = '3 goes 20p' } = {}) {
+  const kit = new Kit('splatRat');
+  const PIPE = P.tomato, BAND = CREAM;
+  // trestle + felt the rat lands on
+  kit.add(cbox(1.3, 0.34, 1.6, 0.05), P.woodDark, { y: 0.17, z: 0.4 });
+  kit.add(box(1.18, 0.03, 1.48), '#3f8a4e', { y: 0.355, z: 0.4 });
+  kit.add(box(1.2, 0.02, 0.06), CREAM, { y: 0.37, z: 1.02 }); // chalk "splat line"
+  // painted backboard with a red border, and posts carrying the header sign
+  kit.add(cbox(1.34, 2.9, 0.12, 0.04), P.tomato, { y: 1.45, z: -0.46 });
+  kit.add(box(1.14, 2.66, 0.04), P.sunflower, { y: 1.45, z: -0.39 });
+  for (const sx of [-1, 1]) kit.add(cbox(0.12, 3.9, 0.12, 0.03), P.woodDark, { x: sx * 0.72, y: 1.95, z: -0.46 });
+  kit.add(box(1.9, 0.62, 0.08), P.ink, { y: 3.55, z: -0.44 });
+  kit.raw(new THREE.PlaneGeometry(1.8, 0.52), boardMaterial(text, { bg: P.teal, fg: CREAM, sub, w: 1024, h: 296, font: 0.62 }), { y: 3.55, z: -0.395 });
+  // the drainpipe: stripy toy pipe, funnel on top, elbow + flared spout at the bottom
+  const top = 3.05, bot = 0.8, pz = -0.24;
+  kit.add(new THREE.CylinderGeometry(0.13, 0.13, top - bot, 14), (x, y, z, c) => c.set(Math.floor((y + 5) / 0.36) % 2 ? PIPE : BAND), { y: (top + bot) / 2, z: pz });
+  kit.add(new THREE.CylinderGeometry(0.3, 0.14, 0.34, 14, 1, true), PIPE, { y: top + 0.14, z: pz });
+  kit.add(new THREE.TorusGeometry(0.3, 0.03, 5, 16), BAND, { y: top + 0.31, z: pz, rx: Math.PI / 2 });
+  kit.add(new THREE.SphereGeometry(0.135, 12, 8), PIPE, { y: bot, z: pz });
+  kit.add(new THREE.CylinderGeometry(0.13, 0.13, 0.42, 14), PIPE, { y: bot - 0.1, z: pz + 0.18, rx: 1.05 });
+  kit.add(new THREE.CylinderGeometry(0.17, 0.14, 0.12, 14, 1, true), BAND, { y: 0.56, z: 0.16, rx: 1.05 });
+  for (const y of [1.4, 2.3]) kit.add(box(0.36, 0.05, 0.12), P.ink, { y, z: -0.32 }); // pipe clips
+  // the brass bell that rings for a winner, on a bracket
+  kit.add(box(0.34, 0.05, 0.05), P.ink, { x: 0.78, y: 2.75, z: -0.3 });
+  kit.add(new THREE.SphereGeometry(0.13, 12, 8, 0, TAU, 0, Math.PI / 2).rotateX(Math.PI), P.gold, { x: 0.92, y: 2.73, z: -0.3 }, materials.glossy);
+  const g = kit.build(new THREE.Group());
+  const mk = (name, x, y, z) => { const o = new THREE.Object3D(); o.name = name; o.position.set(x, y, z); g.add(o); return o; };
+  const parts = {
+    mouth: mk('mouth', 0, 0.44, 0.24),
+    matEnd: mk('matEnd', 0, 0.37, 0.92),
+    top: mk('funnel', 0, top + 0.32, pz),
+    bell: mk('bell', 0.92, 2.66, -0.3),
+  };
+  g.name = 'splatRatStall';
+  g.userData.parts = parts;
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** A chunky grey sock rat with a pink tail (nose toward +Z, belly on y = 0). ~0.7 m nose to tail tip. */
+export function toyRat({ fur = '#8f96a6', belly = '#d3d7df', pink = '#ff9eb5' } = {}) {
+  const kit = new Kit('rat');
+  kit.add(new THREE.CapsuleGeometry(0.12, 0.24, 4, 12), [belly, fur, fur], { y: 0.12, rx: Math.PI / 2, sx: 1.05, sy: 1, sz: 0.9 });
+  kit.add(new THREE.SphereGeometry(0.105, 12, 9), fur, { y: 0.15, z: 0.23, sz: 1.4 });
+  kit.add(ball(0.035, 1), pink, { y: 0.15, z: 0.37 });
+  for (const sx of [-1, 1]) {
+    kit.add(cyl(0.06, 0.06, 0.025, 12), fur, { x: sx * 0.075, y: 0.25, z: 0.18, rx: Math.PI / 2 - 0.3, rz: sx * 0.25 });
+    kit.add(cyl(0.04, 0.04, 0.03, 12), pink, { x: sx * 0.075, y: 0.25, z: 0.186, rx: Math.PI / 2 - 0.3, rz: sx * 0.25 });
+    kit.add(ball(0.024, 1), P.ink, { x: sx * 0.052, y: 0.19, z: 0.31 });
+    kit.add(box(0.12, 0.006, 0.006), CREAM, { x: sx * 0.07, y: 0.14, z: 0.35, ry: sx * 0.35 });
+    for (const fz of [-0.12, 0.13]) kit.add(ball(0.035, 0), pink, { x: sx * 0.08, y: 0.025, z: fz, sy: 0.6 });
+  }
+  const tail = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0.08, -0.22), new THREE.Vector3(0.06, 0.04, -0.36), new THREE.Vector3(-0.05, 0.03, -0.5), new THREE.Vector3(0.04, 0.07, -0.64),
+  ]);
+  kit.add(new THREE.TubeGeometry(tail, 14, 0.022, 5), pink);
+  const g = kit.build(new THREE.Group());
+  g.name = 'toyRat';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/**
+ * A stopwatch sticker (billboard) for a timed combo: a draining pie with dots for the hits so far.
+ * set(fraction left, hits, needed) redraws only when something visible changes.
+ */
+export class ComboDial {
+  constructor(parent, { size = 1.35, y = 3.8, z = 0 } = {}) {
+    this.size = size;
+    this.key = '';
+    this.ok = typeof document !== 'undefined';
+    this.canvas = this.ok ? document.createElement('canvas') : null;
+    if (this.canvas) this.canvas.width = this.canvas.height = 128;
+    this.tex = this.canvas ? new THREE.CanvasTexture(this.canvas) : null;
+    if (this.tex) { this.tex.colorSpace = THREE.SRGBColorSpace; this.tex.anisotropy = 4; }
+    this.mat = new THREE.SpriteMaterial({ map: this.tex, transparent: true, depthWrite: false, fog: false });
+    this.mat.name = 'comboDial';
+    this.sprite = new THREE.Sprite(this.mat);
+    this.sprite.name = 'comboDial';
+    this.sprite.raycast = () => {};
+    this.sprite.renderOrder = 10;
+    this.sprite.visible = false;
+    this.sprite.position.set(0, y, z);
+    parent.add(this.sprite);
+    this.t = 0;
+    this.state = 'off'; // off | on | out
+    this.tint = null;
+  }
+
+  show() { this.state = 'on'; this.t = 0; this.sprite.visible = true; this.tint = null; }
+  /** Pop away (optionally flashing a colour first: 'bad' red, 'good' gold). */
+  hide(tint = null) { if (this.state === 'off') return; this.state = 'out'; this.t = 0; this.tint = tint; this.key = ''; }
+
+  set(frac, hits, needed) {
+    frac = Math.max(0, Math.min(1, frac));
+    const key = `${Math.ceil(frac * 60)}|${hits}|${needed}|${this.tint}`;
+    if (!this.ok || key === this.key) return;
+    this.key = key;
+    this.draw(frac, hits, needed);
+  }
+
+  draw(frac, hits, needed) {
+    const c = this.canvas.getContext('2d');
+    const cx = 64, cy = 70, R = 50;
+    c.clearRect(0, 0, 128, 128);
+    c.lineJoin = 'round';
+    c.fillStyle = P.ink; // winder + ears
+    c.fillRect(56, 6, 16, 12);
+    c.save(); c.translate(cx, cy);
+    for (const s of [-1, 1]) { c.save(); c.rotate(s * 0.8); c.fillRect(-6, -R - 11, 12, 10); c.restore(); }
+    c.restore();
+    c.beginPath(); c.arc(cx, cy, R + 5, 0, TAU); c.fill();
+    c.fillStyle = this.tint === 'bad' ? '#ffd6d2' : this.tint === 'good' ? '#fff3b0' : CREAM;
+    c.beginPath(); c.arc(cx, cy, R, 0, TAU); c.fill();
+    if (frac > 0) {
+      c.fillStyle = this.tint === 'bad' ? P.tomato : frac < 0.34 ? P.tomato : frac < 0.67 ? P.sunflower : P.teal;
+      c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R - 6, -Math.PI / 2, -Math.PI / 2 + frac * TAU); c.closePath(); c.fill();
+    }
+    // hit dots in the middle
+    c.fillStyle = CREAM;
+    c.beginPath(); c.arc(cx, cy, 22, 0, TAU); c.fill();
+    c.lineWidth = 4; c.strokeStyle = P.ink; c.stroke();
+    for (let i = 0; i < needed; i++) {
+      const x = cx + (i - (needed - 1) / 2) * 13;
+      c.beginPath(); c.arc(x, cy, 5, 0, TAU);
+      c.fillStyle = i < hits ? '#7a4a26' : '#e8dcc4';
+      c.fill();
+      c.lineWidth = 2; c.stroke();
+    }
+    this.tex.needsUpdate = true;
+  }
+
+  update(dt, t) {
+    if (this.state === 'off') return;
+    this.t += dt;
+    let k;
+    if (this.state === 'on') k = this.t < 0.3 ? Math.sin((this.t / 0.3) * Math.PI * 0.75) / Math.sin(Math.PI * 0.75) : 1;
+    else {
+      k = Math.max(0, 1 - Math.max(0, this.t - 0.45) / 0.25);
+      if (k <= 0) { this.state = 'off'; this.sprite.visible = false; return; }
+    }
+    const s = this.size * Math.max(0.01, k) * (1 + Math.sin(t * 9) * 0.03);
+    this.sprite.scale.set(s, s, 1);
+    this.mat.rotation = this.state === 'out' && this.tint === 'bad' ? Math.sin(this.t * 40) * 0.12 : 0;
+  }
+}
+
+// ------------------------------------------------------------------ dressing for the near lawn + the square's corners
+/** Tug-of-war rope laid out on the grass (along local X) with a red rag, chalk lines and knotted ends. */
+export function tugRope({ len = 7, seed = 1 } = {}) {
+  const rng = new Rng(`tug-${seed}`);
+  const kit = new Kit('tugRope');
+  const pts = [];
+  for (let i = 0; i <= 10; i++) {
+    const x = -len / 2 + (i / 10) * len;
+    pts.push(new THREE.Vector3(x, 0.06, Math.sin(i * 0.9 + seed) * 0.12 + (i === 0 || i === 10 ? rng.range(-0.3, 0.3) : 0)));
+  }
+  kit.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.055, 6), '#d9b77a');
+  for (const p of [pts[0], pts[10]]) kit.add(ball(0.11, 1), '#c9a15f', { x: p.x, y: 0.08, z: p.z });
+  kit.add(box(0.12, 0.1, 0.3), P.tomato, { y: 0.1, z: pts[5].z, rx: 0.3 });
+  kit.add(box(0.07, 0.1, 0.34), P.tomato, { x: 0.06, y: 0.06, z: pts[5].z + 0.25, ry: 0.5 });
+  for (const x of [-1.2, 0, 1.2]) kit.add(box(0.1, 0.012, 2.2), '#f7f3ea', { x, y: 0.008 });
+  const g = kit.build(new THREE.Group(), { shadows: true });
+  g.name = 'tugRope';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** A chalkboard A-board (front = +Z) with painted words. */
+export function aBoard(text, { sub = null, bg = '#2f5446', fg = CREAM } = {}) {
+  const kit = new Kit('aBoard');
+  for (const s of [-1, 1]) {
+    kit.at({ z: s * 0.2, rx: s * 0.2 }, () => {
+      kit.add(cbox(0.72, 0.95, 0.05, 0.02), P.woodDark, { y: 0.5 });
+      if (s > 0) kit.raw(new THREE.PlaneGeometry(0.62, 0.8), boardMaterial(text, { bg, fg, border: bg, sub, w: 256, h: 330, font: 0.3 }), { y: 0.52, z: 0.03 });
+    });
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = 'aBoard';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** Lost-property trestle: an umbrella, a teddy, one welly, a sunhat and a trumpet, under a painted sign. */
+export function lostProperty() {
+  const kit = new Kit('lostProperty');
+  kit.add(box(1.7, 0.05, 0.7), CREAM, { y: 0.74 });
+  kit.add(box(1.72, 0.4, 0.02), '#9fdcf7', { y: 0.55, z: 0.36 });
+  for (const sx of [-1, 1]) kit.add(box(0.05, 0.74, 0.6), P.woodDark, { x: sx * 0.75, y: 0.37 });
+  // umbrella (closed, leaning), teddy, welly, hat, trumpet
+  kit.add(new THREE.ConeGeometry(0.08, 0.7, 8), P.cobalt, { x: -0.62, y: 1.08, z: -0.1, rz: 0.35 });
+  kit.add(new THREE.TorusGeometry(0.06, 0.015, 4, 10, Math.PI), P.ink, { x: -0.49, y: 1.45, z: -0.1, rz: 0.35 });
+  kit.add(ball(0.13, 1), '#c8894a', { x: -0.22, y: 0.9, z: 0.05 });
+  kit.add(ball(0.1, 1), '#c8894a', { x: -0.22, y: 1.08, z: 0.07 });
+  for (const s of [-1, 1]) kit.add(ball(0.04, 0), '#a86a36', { x: -0.22 + s * 0.08, y: 1.16, z: 0.07 });
+  kit.add(ball(0.035, 0), P.ink, { x: -0.22, y: 1.07, z: 0.16 });
+  kit.add(cyl(0.07, 0.07, 0.3, 10), '#3f8a4e', { x: 0.16, y: 0.92, z: -0.05 });
+  kit.add(cbox(0.14, 0.1, 0.26, 0.03), '#3f8a4e', { x: 0.16, y: 0.82, z: 0.02 });
+  kit.add(cyl(0.2, 0.2, 0.02, 14), '#f2d27a', { x: 0.5, y: 0.78, z: 0.12 });
+  kit.add(new THREE.SphereGeometry(0.1, 12, 6, 0, TAU, 0, Math.PI / 2), '#f2d27a', { x: 0.5, y: 0.78, z: 0.12 });
+  kit.add(new THREE.ConeGeometry(0.09, 0.2, 10, 1, true), P.gold, { x: 0.3, y: 0.82, z: -0.2, rz: Math.PI / 2 }, materials.glossy);
+  kit.add(cyl(0.02, 0.02, 0.3, 6), P.gold, { x: 0.52, y: 0.82, z: -0.2, rz: Math.PI / 2 }, materials.glossy);
+  // sign on two sticks behind the table
+  for (const sx of [-0.55, 0.55]) kit.add(cyl(0.025, 0.025, 1.9, 6), P.woodDark, { x: sx, y: 0.95, z: -0.33 });
+  kit.add(box(1.3, 0.36, 0.04), P.ink, { y: 1.72, z: -0.33 });
+  kit.raw(new THREE.PlaneGeometry(1.22, 0.3), boardMaterial('LOST PROPERTY', { bg: P.bubblegum, fg: CREAM, w: 512, h: 128 }), { y: 1.72, z: -0.305 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'lostProperty';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/** Chalk hopscotch on the cobbles (along local Z), with a pink throwing stone. */
+export function hopscotch({ seed = 1 } = {}) {
+  const kit = new Kit('hopscotch');
+  const C = '#f7f3ea', s = 0.62, t = 0.05, y = 0.112;
+  const sq = (x, z) => {
+    kit.add(box(s, 0.004, t), C, { x, y, z: z - s / 2 });
+    kit.add(box(s, 0.004, t), C, { x, y, z: z + s / 2 });
+    kit.add(box(t, 0.004, s), C, { x: x - s / 2, y, z });
+    kit.add(box(t, 0.004, s), C, { x: x + s / 2, y, z });
+  };
+  const rows = [[0], [-0.5, 0.5], [0], [-0.5, 0.5], [0], [0]];
+  rows.forEach((xs, i) => xs.forEach((x) => sq(x * s, -i * s)));
+  kit.add(new THREE.RingGeometry(0.22, 0.27, 14).rotateX(-Math.PI / 2), C, { y, z: -6 * s - 0.05 });
+  kit.add(ball(0.07, 1), '#ff9eb5', { x: 0.1 * seed, y: y + 0.03, z: -2 * s, sy: 0.5 });
+  const g = kit.build(new THREE.Group(), { shadows: false });
+  g.name = 'hopscotch';
+  g.userData.surface = 'stone';
+  return g;
+}
+
+/** A little scatter of fête litter: paper cups, a dropped ice cream, a programme, a lost balloon. */
+export function feteLitter({ seed = 1, r = 1.6 } = {}) {
+  const rng = new Rng(`litter-${seed}`);
+  const kit = new Kit('litter');
+  for (let i = 0; i < 3; i++) {
+    const a = rng.range(0, TAU), d = rng.range(0.2, r);
+    kit.add(cyl(0.05, 0.04, 0.11, 8), CREAM, { x: Math.cos(a) * d, y: 0.05, z: Math.sin(a) * d, rx: rng.chance(0.5) ? Math.PI / 2 : 0, ry: rng.range(0, 3) });
+  }
+  const a = rng.range(0, TAU);
+  kit.add(new THREE.ConeGeometry(0.05, 0.16, 8), '#e8b060', { x: Math.cos(a) * r * 0.7, y: 0.04, z: Math.sin(a) * r * 0.7, rz: Math.PI / 2 });
+  kit.add(ball(0.08, 1), rng.pick(['#ff9eb5', '#fff1d6', '#c8894a']), { x: Math.cos(a) * r * 0.7 + 0.1, y: 0.03, z: Math.sin(a) * r * 0.7, sy: 0.35, sx: 1.4 });
+  kit.add(box(0.24, 0.01, 0.34), rng.pick([P.sunflower, '#9fdcf7', P.bubblegum]), { x: rng.range(-r, r) * 0.6, y: 0.006, z: rng.range(-r, r) * 0.6, ry: rng.range(0, 3) });
+  const g = kit.build(new THREE.Group(), { shadows: false });
+  g.name = 'litter';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** A big-wheeled vintage pram (front = +Z, handle at the back). */
+export function pram({ color = '#3d4a6b', hood = '#fff1d6' } = {}) {
+  const kit = new Kit('pram');
+  kit.add(cbox(0.5, 0.36, 0.8, 0.12), color, { y: 0.62 });
+  kit.add(new THREE.CylinderGeometry(0.27, 0.27, 0.5, 14, 1, false, 0, Math.PI), hood, { y: 0.8, z: -0.18, rz: Math.PI / 2, ry: Math.PI / 2 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.add(new THREE.TorusGeometry(0.17, 0.035, 6, 14), P.ink, { x: sx * 0.3, y: 0.2, z: sz * 0.3, ry: Math.PI / 2 });
+  for (const sx of [-1, 1]) kit.add(cyl(0.02, 0.02, 0.6, 5), '#c9d2de', { x: sx * 0.2, y: 0.95, z: -0.55, rx: -0.6 });
+  kit.add(cyl(0.03, 0.03, 0.46, 6), CREAM, { y: 1.19, z: -0.72, rz: Math.PI / 2 });
+  kit.add(box(0.42, 0.06, 0.2), CREAM, { y: 0.81, z: 0.22 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'pram';
+  g.userData.surface = 'soft';
+  return g;
+}
+
+/** A florist's barrow heaped with buckets of blooms. */
+export function flowerBarrow({ seed = 1 } = {}) {
+  const rng = new Rng(`barrow-${seed}`);
+  const kit = new Kit('flowerBarrow');
+  kit.add(cbox(1.5, 0.5, 0.8, 0.05), '#2f7d62', { y: 0.75 });
+  for (const sx of [-1, 1]) kit.add(new THREE.TorusGeometry(0.32, 0.06, 6, 16), P.woodDark, { x: sx * 0.62, y: 0.35, ry: Math.PI / 2 });
+  kit.add(cyl(0.035, 0.035, 0.7, 6), P.woodDark, { x: 0.95, y: 0.8, rz: Math.PI / 2 + 0.2 });
+  for (let i = 0; i < 6; i++) {
+    const x = -0.5 + (i % 3) * 0.5, z = i < 3 ? -0.18 : 0.18;
+    kit.add(cyl(0.14, 0.11, 0.24, 10), '#a9b4c2', { x, y: 1.12, z }, materials.metal);
+    const c = rng.pick([P.bubblegum, P.sunflower, P.tomato, '#fff4e6', P.violet, P.tangerine]);
+    for (let k = 0; k < 4; k++) kit.add(ball(0.08, 0), c, { x: x + rng.range(-0.08, 0.08), y: 1.32 + rng.range(0, 0.1), z: z + rng.range(-0.08, 0.08) });
+    kit.add(ball(0.1, 0), '#5fae44', { x, y: 1.25, z }, materials.foliage);
+  }
+  const g = kit.build(new THREE.Group());
+  g.name = 'flowerBarrow';
+  g.userData.surface = 'wood';
+  return g;
+}
+
+/**
+ * Punch & Judy booth (front = +Z): a striped canvas box with a proscenium, tied-back curtains and a
+ * painted header. Two glove puppets (Mr Punch and the crocodile) pop up on one LiveMesh;
+ * userData.update(dt, t) bobs them about. ~2.9 m tall, 2 draw calls + the puppets' one.
+ */
+export function punchAndJudy() {
+  const kit = new Kit('punch');
+  const W = 1.5, D = 1.0, low = 1.75, H = 2.75;
+  const stripes = (w, h, z, rot) => {
+    const n = Math.max(3, Math.round(w / 0.25));
+    for (let i = 0; i < n; i++) kit.add(box(w / n + 0.004, h, 0.05), i % 2 ? CREAM : P.tomato, { x: -w / 2 + (w / n) * (i + 0.5), y: h / 2, z, ...rot });
+  };
+  stripes(W, low, D / 2, {});
+  stripes(W, H, -D / 2, {});
+  for (const sx of [-1, 1]) kit.at({ x: sx * W / 2, ry: Math.PI / 2 }, () => stripes(D, H, 0, {}));
+  // proscenium frame round the opening + a scalloped pelmet
+  for (const sx of [-1, 1]) kit.add(cbox(0.14, H - low + 0.1, 0.1, 0.03), P.sunflower, { x: sx * (W / 2 - 0.05), y: (H + low) / 2, z: D / 2 + 0.02 });
+  kit.add(cbox(W + 0.1, 0.12, 0.12, 0.03), P.sunflower, { y: low + 0.02, z: D / 2 + 0.04 });
+  kit.add(cbox(W + 0.16, 0.16, 0.14, 0.03), P.sunflower, { y: H, z: D / 2 + 0.03 });
+  for (let i = 0; i < 6; i++) kit.add(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 10, 1, false, 0, Math.PI), i % 2 ? P.cobalt : P.sunflower, { x: -W / 2 + 0.13 + i * 0.25, y: H - 0.08, z: D / 2 + 0.1, rx: Math.PI / 2 });
+  // tied-back blue curtains and the dark stage behind the opening
+  for (const sx of [-1, 1]) kit.add(new THREE.ConeGeometry(0.2, H - low - 0.2, 8, 1, true), P.cobalt, { x: sx * (W / 2 - 0.22), y: (H + low) / 2 - 0.05, z: D / 2 - 0.02, sz: 0.35 });
+  kit.add(box(W - 0.2, H - low, 0.03), '#2b2b3a', { y: (H + low) / 2, z: -D / 2 + 0.1 });
+  // pointed roof with a pennant
+  kit.add(prism([[-W / 2 - 0.1, 0], [W / 2 + 0.1, 0], [0, 0.45]], D + 0.1), P.tomato, { y: H + 0.07 });
+  kit.add(cyl(0.02, 0.02, 0.6, 5), P.woodDark, { y: H + 0.8 });
+  kit.add(prism([[0, 0], [0.4, -0.1], [0, -0.22]], 0.02), P.sunflower, { y: H + 1.08 });
+  // header board
+  kit.add(box(1.3, 0.34, 0.05), P.ink, { y: low - 0.32, z: D / 2 + 0.04 });
+  kit.raw(new THREE.PlaneGeometry(1.22, 0.27), boardMaterial('PUNCH & JUDY', { bg: P.sunflower, fg: P.tomato, w: 512, h: 112 }), { y: low - 0.32, z: D / 2 + 0.068 });
+  const g = kit.build(new THREE.Group());
+  g.name = 'punchAndJudy';
+  // the glove puppets (hand-sized toys at 1.4x so they read from the van)
+  const live = new LiveMesh(materials.toy);
+  live.name = 'puppets';
+  live.castShadow = false;
+  const punch = new THREE.Object3D(), croc = new THREE.Object3D();
+  const skin = '#ffd9bd';
+  live.addPiece(punch, merge([
+    part(new THREE.CylinderGeometry(0.1, 0.15, 0.34, 10), P.tomato, { y: 0.17 }),
+    part(ball(0.12, 1), skin, { y: 0.44 }),
+    part(new THREE.SphereGeometry(0.06, 8, 6), '#ff8a80', { y: 0.42, z: 0.12, sy: 1.2 }), // the famous nose
+    part(ball(0.022, 0), P.ink, { x: -0.05, y: 0.5, z: 0.09 }),
+    part(ball(0.022, 0), P.ink, { x: 0.05, y: 0.5, z: 0.09 }),
+    part(new THREE.ConeGeometry(0.1, 0.3, 8), P.sunflower, { y: 0.66, rz: -0.5, x: 0.07 }),
+    part(ball(0.04, 0), P.tomato, { x: 0.2, y: 0.76 }),
+    part(new THREE.TorusGeometry(0.1, 0.03, 5, 12), CREAM, { y: 0.34, rx: Math.PI / 2 }),
+    part(cyl(0.02, 0.02, 0.4, 5), P.woodLight, { x: 0.18, y: 0.35, rz: -0.9 }),
+  ]));
+  live.addPiece(croc, merge([
+    part(new THREE.CylinderGeometry(0.1, 0.14, 0.3, 10), '#4fa83c', { y: 0.15 }),
+    part(new THREE.BoxGeometry(0.16, 0.1, 0.42), '#5fbf4a', { y: 0.36, z: 0.14 }),
+    part(new THREE.BoxGeometry(0.15, 0.05, 0.38), '#4fa83c', { y: 0.29, z: 0.14 }),
+    part(ball(0.035, 0), CREAM, { x: -0.05, y: 0.44, z: 0.02 }),
+    part(ball(0.035, 0), CREAM, { x: 0.05, y: 0.44, z: 0.02 }),
+    part(ball(0.018, 0), P.ink, { x: -0.05, y: 0.45, z: 0.05 }),
+    part(ball(0.018, 0), P.ink, { x: 0.05, y: 0.45, z: 0.05 }),
+    part(new THREE.BoxGeometry(0.14, 0.02, 0.3), CREAM, { y: 0.325, z: 0.16 }), // teeth
+  ]));
+  for (const p of [punch, croc]) { p.scale.setScalar(1.4); g.add(p); }
+  g.add(live);
+  live.build();
+  const y0 = low + 0.02;
+  g.userData.update = (dt, t) => {
+    const k = (t * 0.55) % 1; // they take turns popping up; the croc chases Punch across the stage
+    punch.position.set(-0.35 + Math.sin(t * 1.3) * 0.18, y0 - 0.28 + Math.min(1, k * 8) * 0.28 + Math.abs(Math.sin(t * 7)) * 0.05, D / 2 - 0.05);
+    punch.rotation.set(0, Math.sin(t * 2.1) * 0.6, Math.sin(t * 5.3) * 0.18);
+    croc.position.set(0.32 + Math.sin(t * 1.3 + 0.8) * 0.2, y0 - 0.3 + Math.max(0, Math.sin(t * 1.9)) * 0.3, D / 2 - 0.08);
+    croc.rotation.set(0, -0.6 + Math.sin(t * 2.4) * 0.4, 0);
+    live.sync(t);
+  };
+  g.userData.surface = 'soft';
   return g;
 }

@@ -1,5 +1,6 @@
-// Dockside props for Barnacle Bay: dock crane, foghorn, bell buoy, lobster pot, fish box, net pile,
-// snagged net, mooring bollard, rope coil, lifebuoy, anchor. Origin = quay ground (buoy: waterline).
+// Dockside props for Barnacle Bay: dock crane, foghorn, bell buoy, marker/mooring buoys, lobster pot,
+// fish box, net pile, snagged net, mooring bollard, rope coil, lifebuoy, anchor.
+// Origin = quay ground (buoys: waterline).
 import * as THREE from 'three';
 import { part, merge, xform, rbox, tube } from '../../geo.js';
 import { materials } from '../../../gfx/materials.js';
@@ -7,7 +8,7 @@ import { P } from '../../../gfx/palette.js';
 import { Rng } from '../../../core/rng.js';
 import {
   bev, lathe, puck, ball, blob, rod, arc, slab, latheBands, lettering, mesh, pivot, finish, paintFaces, inside,
-  LiveMesh, Anims, ease, shade, boxCollider, ballCollider, collider, noise3,
+  LiveMesh, Anims, ease, shade, boxCollider, ballCollider, collider, noise3, wordSign,
 } from './lib.js';
 import { floatRig } from './boatlib.js';
 
@@ -219,10 +220,10 @@ export function dockCrane({ seed = 1, color, jibAngle = 0.56, cable = 5.5 } = {}
 // ---------------------------------------------------------------- foghorn
 
 /**
- * foghorn({ seed, color }) — big brass horn on a riveted compressor box, pull cord with a T handle.
- * Horn points +Z. parts: { horn (pivot), cord (pivot at the lever, collider), mouth (Object3D at the
- * bell) }. userData: blast(duration = 1.6) -> Promise (cord yanks, horn shudders, sound rings
- * burst from the mouth; onBlast(worldPos) fires). 2 draw calls.
+ * foghorn({ seed, color }) — big brass horn on a riveted compressor box, pull cord with a red T handle,
+ * a painted PULL! plate (a hint). Horn points +Z. parts: { horn (pivot), cord (pivot at the lever,
+ * collider), mouth (Object3D at the bell), plate }. userData: blast(duration = 1.6) -> Promise (cord
+ * yanks, horn shudders, sound rings burst from the mouth; onBlast(worldPos) fires). 3 draw calls.
  */
 export function foghorn({ seed = 1, color } = {}) {
   const rng = new Rng(`foghorn-${seed}`);
@@ -235,8 +236,7 @@ export function foghorn({ seed = 1, color } = {}) {
     part(puck(0.16, 0.08, 0.02, 10), BRASS, { y: 1.74, z: -0.1 }),
   ];
   for (let i = 0; i < 8; i++) S.push(part(ball(0.025, 0), shade(c, -0.3), { x: -0.42 + (i % 4) * 0.28, y: i < 4 ? 0.74 : 0.16, z: 0.36 }));
-  S.push(part(bev(0.34, 0.2, 0.03, 0.01), '#fff8ee', { y: 0.45, z: 0.36 }));
-  S.push(part(lettering(0.26, 0.08, 1, INK, {}, rng, 0.012), INK, { y: 0.45, z: 0.38 }));
+  S.push(part(bev(0.56, 0.3, 0.03, 0.01), '#fff8ee', { y: 0.45, z: 0.36 }));
   S.push(part(bev(0.3, 0.06, 0.06, 0.02), '#6b7280', { x: 0.2, y: 1.52, z: -0.1 }));
   const g = new THREE.Group();
   g.add(mesh(S, materials.toy, 'box'));
@@ -247,9 +247,9 @@ export function foghorn({ seed = 1, color } = {}) {
   const mouth = pivot('mouth', 0, 0, 0.8);
   horn.add(mouth);
   const cord = pivot('cord', 0.35, 1.52, -0.1);
-  live.addPiece(cord, merge([
-    part(new THREE.CylinderGeometry(0.018, 0.018, 0.62, 4).translate(0, -0.31, 0), ROPE),
-    part(new THREE.CapsuleGeometry(0.04, 0.2, 2, 6), P.woodLight, { y: -0.66, rz: Math.PI / 2 }),
+  live.addPiece(cord, merge([ // bright red T-handle on a chunky cord: reads at 50 m
+    part(new THREE.CylinderGeometry(0.026, 0.026, 0.62, 5).translate(0, -0.31, 0), ROPE),
+    part(new THREE.CapsuleGeometry(0.06, 0.26, 2, 8), P.tomato, { y: -0.67, rz: Math.PI / 2 }),
   ]));
   cord.add(boxCollider(0.45, 0.95, 0.4, { y: -0.4 }));
   const rings = [];
@@ -260,10 +260,12 @@ export function foghorn({ seed = 1, color } = {}) {
     live.addPiece(r, part(new THREE.TorusGeometry(0.5, 0.05, 5, 16), '#fff8ee'));
     rings.push(r);
   }
-  g.add(horn, cord, live);
+  const plate = wordSign('PULL!', 0.52, 0.26, { paper: '#fff8ee', ink: P.tomato, keyline: 0.8, bounce: 0.7, px: 256, round: 0.03 });
+  plate.position.set(0, 0.45, 0.379);
+  g.add(horn, cord, live, plate);
   live.build();
   const anims = new Anims();
-  finish(g, { name: 'foghorn', parts: { horn, cord, mouth }, surface: 'metal', anims });
+  finish(g, { name: 'foghorn', parts: { horn, cord, mouth, plate }, surface: 'metal', anims });
   g.userData.addTick((dt, t) => live.sync(t));
   g.userData.blast = (duration = 1.6) => {
     anims.play(0.45, (k) => { cord.position.y = 1.52 - Math.sin(k * Math.PI) * 0.25; }, { key: 'cord' });
@@ -343,6 +345,46 @@ export function bellBuoy({ seed = 1, color, bob = 1 } = {}) {
   return g;
 }
 
+/**
+ * buoy({ seed, kind: 'mooring'|'can'|'cone'|'pot', color, bob = 1 }) — floating basin dressing
+ * (waterline y 0): 'mooring' = fat round mooring float with a pick-up ring, 'can' / 'cone' = red can /
+ * green cone channel markers with a white band and a top mark, 'pot' = little lobster-pot marker float
+ * on a flag stick. Bobs (userData.bob). parts: { float }. 1 draw call.
+ */
+export function buoy({ seed = 1, kind = 'mooring', color, bob = 1 } = {}) {
+  const rng = new Rng(`buoy2-${seed}`);
+  const L = [];
+  let heave = 0.07, roll = 0.08;
+  if (kind === 'can' || kind === 'cone') {
+    const c = color || (kind === 'can' ? P.tomato : '#3fa34d');
+    L.push(latheBands([[0, -0.35], [0.36, -0.3], [0.4, 0], [0.4, 0.62], [0.36, 0.66], [0, 0.67]], 12,
+      (y, i) => (y < 0 ? shade(c, -0.35) : i === 2 ? c : c)));
+    L.push(part(new THREE.CylinderGeometry(0.405, 0.405, 0.12, 12, 1, true), '#fff8ee', { y: 0.36 }));
+    L.push(part(rod([0, 0.66, 0], [0, 1.3, 0], 0.04, 5), shade(c, -0.2)));
+    if (kind === 'can') L.push(part(new THREE.CylinderGeometry(0.16, 0.16, 0.3, 10), c, { y: 1.42 }));
+    else L.push(part(new THREE.ConeGeometry(0.2, 0.36, 10), c, { y: 1.44 }));
+    L.push(part(new THREE.TorusGeometry(0.42, 0.045, 4, 14), shade(c, -0.25), { y: 0.02, rx: Math.PI / 2 }));
+  } else if (kind === 'pot') {
+    const c = color || rng.pick([P.tangerine, P.sunflower, P.tomato, P.bubblegum]);
+    L.push(part(ball(0.2, 1), c, { y: 0.05, sy: 0.8 }));
+    L.push(part(new THREE.CylinderGeometry(0.205, 0.205, 0.06, 10, 1, true), '#fff8ee', { y: 0.06 }));
+    L.push(part(rod([0, 0.1, 0], [0, 1.05, 0], 0.018, 4), P.woodDark));
+    L.push(part(new THREE.ConeGeometry(0.12, 0.3, 3), rng.pick([P.cobalt, P.tomato, P.teal]), { x: 0.15, y: 0.94, rz: -Math.PI / 2, sz: 0.2 }));
+    heave = 0.05; roll = 0.2;
+  } else {
+    const c = color || rng.pick([P.tangerine, P.tomato, P.sunflower, P.cobalt]);
+    L.push(part(ball(0.45, 1), '#fff', { y: 0.12 }));
+    paintFaces(L[0], (x, y, z, nx, ny, nz, cc) => cc.set(y < 0.02 ? shade(c, -0.3) : Math.abs(y - 0.12) < 0.1 ? '#fff8ee' : c));
+    L.push(part(new THREE.TorusGeometry(0.14, 0.04, 5, 10), '#6b7280', { y: 0.66 }));
+    L.push(part(rod([0, 0.52, 0], [0, 0.56, 0], 0.05, 6), '#6b7280'));
+  }
+  const g = new THREE.Group();
+  g.add(mesh(L, materials.glossy, 'buoy'));
+  finish(g, { name: `buoy-${kind}`, parts: {}, surface: 'soft' });
+  g.userData.parts.float = floatRig(g, { bob, seed, heave, roll, pitch: roll * 0.7, speed: 1.1 });
+  return g;
+}
+
 // ---------------------------------------------------------------- lobster pot
 
 /**
@@ -405,8 +447,12 @@ export function fishBox({ seed = 1, propped = true } = {}) {
   const sdir = tipLocal.clone().sub(stick.position);
   const slen = sdir.length() - 0.02;
   stick.quaternion.setFromUnitVectors(UP, sdir.normalize());
-  live.addPiece(stick, part(new THREE.CylinderGeometry(0.022, 0.026, slen, 5).translate(0, slen / 2, 0), P.woodDark));
-  stick.add(collider(new THREE.CylinderGeometry(0.16, 0.16, slen, 6).translate(0, slen / 2, 0)));
+  // a fat yellow-painted stick: the job target has to read at 50 m
+  live.addPiece(stick, merge([
+    part(new THREE.CylinderGeometry(0.04, 0.045, slen, 6).translate(0, slen / 2, 0), P.sunflower),
+    part(new THREE.CylinderGeometry(0.047, 0.047, 0.06, 6), P.tomato, { y: slen * 0.5 }),
+  ]));
+  stick.add(collider(new THREE.CylinderGeometry(0.2, 0.2, slen, 6).translate(0, slen / 2, 0)));
   g.add(lid, stick, live);
   const anims = new Anims();
   finish(g, { name: 'fishBox', parts: { lid, stick }, surface: 'wood', anims });
@@ -616,18 +662,20 @@ export function ropeCoil({ seed = 1, color = ROPE } = {}) {
 
 /**
  * lifebuoy({ seed, mount: 'post'|'wall'|'none' }) — red/white ring buoy with grab line on a post,
- * a wall board (back at z 0) or lying flat. parts: { ring (pivot + collider) }. 1-2 draw calls.
+ * a wall board with a painted LIFEBUOY label (back at z 0) or lying flat. parts: { ring (pivot +
+ * collider) }. 1-3 draw calls.
  */
 export function lifebuoy({ seed = 1, mount = 'post' } = {}) {
   const S = [];
-  let ry = 1.25, rz = 0.1;
+  let ry = 1.25, rz = 0.1, label = null;
   if (mount === 'post') {
     S.push(part(bev(0.13, 1.7, 0.13, 0.03), P.woodLight, { y: 0.85, z: -0.1 }));
     S.push(part(bev(0.9, 0.12, 0.26, 0.03), P.tomato, { y: 1.72, z: -0.02 }));
     S.push(part(bev(0.3, 0.12, 0.2, 0.04), P.woodDark, { y: 0.06, z: -0.1 }));
   } else if (mount === 'wall') {
     S.push(part(bev(0.9, 1.0, 0.06, 0.03), '#fff8ee', { y: 1.25, z: 0.03 }));
-    S.push(part(lettering(0.6, 0.1, 1, P.tomato, {}, null, 0.012), P.tomato, { y: 1.66, z: 0.065 }));
+    label = wordSign('LIFEBUOY', 0.8, 0.2, { paper: '#fff8ee', ink: P.tomato, keyline: 0, bounce: 0.5, px: 320, round: 0.02 });
+    label.position.set(0, 1.64, 0.064);
     rz = 0.2;
   } else {
     ry = 0.1;
@@ -644,6 +692,7 @@ export function lifebuoy({ seed = 1, mount = 'post' } = {}) {
   ring.add(ballCollider(0.55, {}));
   const g = new THREE.Group();
   if (S.length) g.add(mesh(S, materials.toy, 'mount'));
+  if (label) g.add(label);
   g.add(ring);
   return finish(g, { name: 'lifebuoy', parts: { ring }, surface: 'soft', bodyForWobble: ring });
 }

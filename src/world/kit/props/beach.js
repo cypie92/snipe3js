@@ -1,13 +1,14 @@
 // Beach props for Barnacle Bay: deckchair, windbreak, sandcastle, beach ball, lifeguard chair,
-// bucket & spade, surfboard, decor crab. Origin = sand contact point, front = +Z.
+// bucket & spade, surfboard, decor crab, beach towel, beach parasol. Origin = sand contact point,
+// front = +Z (floating ones: waterline y 0).
 import * as THREE from 'three';
 import { part, merge, xform } from '../../geo.js';
 import { materials } from '../../../gfx/materials.js';
 import { P } from '../../../gfx/palette.js';
 import { Rng } from '../../../core/rng.js';
 import {
-  bev, lathe, puck, ball, blob, rod, arc, slab, latheBands, lettering, mesh, pivot, finish, paintFaces, inside,
-  LiveMesh, Anims, ease, shade, boxCollider, ballCollider, noise3,
+  bev, lathe, puck, ball, blob, rod, arc, slab, latheBands, mesh, pivot, finish, paintFaces, inside,
+  LiveMesh, Anims, ease, shade, boxCollider, ballCollider, noise3, wordSign,
 } from './lib.js';
 import { floatRig } from './boatlib.js';
 
@@ -42,7 +43,14 @@ function clothPatch(nu, nv, at, colorAt, thick = 0.012) {
 
 // ---------------------------------------------------------------- deckchair
 
-/** deckchair({ seed, colors: [c1, c2] }) — striped canvas deckchair on a wooden frame. 1 draw call. */
+/**
+ * deckchair({ seed, colors: [c1, c2] }) — striped canvas deckchair on a wooden frame.
+ * parts: { chair (pivot at the chair's middle), seat (Object3D in the canvas sling, facing +Z: sit a
+ * sunbather there; `userData.seat` = its height for the characters' deckchair pose) }.
+ * userData: collapse() -> Promise (tips onto its back and folds flat with a clatter - the classic
+ * deckchair gag; fun hit), reset(), tumbling (true = cartwheels end over end with little hops: move
+ * the group along its +/-Z for the runaway deckchair). 1 draw call.
+ */
 export function deckchair({ seed = 1, colors } = {}) {
   const rng = new Rng(`deckchair-${seed}`);
   const [c1, c2] = colors || rng.pick(STRIPES);
@@ -63,10 +71,51 @@ export function deckchair({ seed = 1, colors } = {}) {
     return [x, y, z];
   }, (i) => (i % 2 ? c2 : c1));
   L.push(canvas);
+  const CY = 0.45; // chair pivot height (spins about its middle)
   const g = new THREE.Group();
-  g.add(mesh(L, materials.toy, 'deckchair'));
-  g.add(boxCollider(0.8, 1.1, 1.3, { y: 0.55 }));
-  return finish(g, { name: 'deckchair', parts: {}, surface: 'soft' });
+  const chair = pivot('chair', 0, CY, 0);
+  const m = mesh(L, materials.toy, 'deckchair');
+  m.position.y = -CY;
+  chair.add(m); // hit through its canvas + frame: no box collider, so a sunbather in it stays shootable
+  const seat = pivot('seat', 0, 0.34 - CY, 0.02);
+  chair.add(seat);
+  g.add(chair);
+  const anims = new Anims();
+  finish(g, { name: 'deckchair', parts: { chair, seat }, surface: 'soft', anims, bodyForWobble: chair });
+  g.userData.seat = 0.34;
+  g.userData.tumbling = false;
+  let roll = 0, hop = 0;
+  g.userData.addTick((dt) => {
+    if (!g.userData.tumbling && roll === 0) return;
+    if (g.userData.tumbling) roll += dt * 7.5;
+    else { // finish the current flip, then settle upright
+      const next = Math.ceil(roll / (Math.PI * 2) - 1e-3) * Math.PI * 2;
+      roll = Math.min(next, roll + dt * 7.5);
+      if (roll >= next) roll = 0;
+    }
+    hop = Math.abs(Math.sin(roll * 0.5)) * 0.35;
+    chair.rotation.x = roll;
+    chair.position.y = CY + hop;
+  });
+  g.userData.collapse = () => {
+    if (g.userData.collapsed) return Promise.resolve(false);
+    g.userData.collapsed = true;
+    return anims.play(0.7, (k) => {
+      chair.rotation.x = -1.32 * k;
+      chair.position.set(0, CY - 0.28 * k, -0.18 * k);
+      chair.scale.set(1, 1, 1 - 0.55 * k); // the frame folds flat as it lands
+    }, { ease: ease.outBounce, key: 'collapse' });
+  };
+  g.userData.reset = () => {
+    anims.cancel('collapse');
+    g.userData.collapsed = false;
+    g.userData.tumbling = false;
+    roll = 0;
+    chair.rotation.set(0, 0, 0);
+    chair.position.set(0, CY, 0);
+    chair.scale.set(1, 1, 1);
+  };
+  return g;
 }
 
 // ---------------------------------------------------------------- windbreak
@@ -99,6 +148,7 @@ export function windbreak({ seed = 1, colors, panels = 4 } = {}) {
     piv.rotation.y = Math.atan2(-dz, dx);
     const geo = clothPatch(6, 3, (u, v) => [u * len, v * 1.15, 0], (k) => (Math.floor(k / 2) % 2 ? c2 : c1));
     // clothPatch builds in XZ-ish by y offset; rotate so the panel stands up (v -> y), facing +Z
+    piv.add(boxCollider(len, 1.2, 0.16, { x: len / 2, y: 0.58, z: 0.08 })); // thin, per panel: sunbathers in the shelter stay shootable
     g.add(piv);
     const ph = i * 1.3;
     live.addPiece(piv, geo, (v, t) => {
@@ -109,7 +159,6 @@ export function windbreak({ seed = 1, colors, panels = 4 } = {}) {
   }
   g.add(live);
   live.build();
-  g.add(boxCollider(panels * 1.1, 1.5, 1.2, { y: 0.75, z: -0.3 }));
   finish(g, { name: 'windbreak', parts: { panels: flap }, surface: 'soft', tick: (dt, t) => live.sync(t) });
   return g;
 }
@@ -157,26 +206,49 @@ export function sandcastle({ seed = 1 } = {}) {
     const a = (i / 5) * Math.PI * 2;
     L.push(part(new THREE.ConeGeometry(0.04, 0.14, 4), P.tangerine, { x: 0.85 + Math.cos(a) * 0.06, y: 0.07, z: 0.6 + Math.sin(a) * 0.06, rz: -Math.PI / 2, ry: -a, sy: 1 }));
   }
-  L.push(part(rod([0, 1.3, 0], [0, 1.72, 0], 0.012, 4), P.woodDark));
   const g = new THREE.Group();
   g.add(mesh(L, materials.toy, 'castle'));
   const live = new LiveMesh(materials.toy);
   const flag = pivot('flag', 0.01, 1.7, 0);
   const col = rng.pick([P.tomato, P.cobalt, P.bubblegum, '#5cb83c']);
   const fg = clothPatch(4, 2, (u, v) => [u * 0.28, -v * 0.18, 0], (i, j) => (i === 1 && j === 0 ? CREAM : col), 0.006);
-  // clothPatch offsets along y for thickness; flag hangs in the XY plane
+  // clothPatch offsets along y for thickness; flag hangs in the XY plane. The pole flies off with it.
   live.addPiece(flag, fg, (v, t) => { v.z += Math.sin(t * 6 - v.x * 14) * 0.03 * (v.x / 0.28); });
+  live.addPiece(flag, part(rod([-0.01, -0.4, 0], [-0.01, 0.03, 0], 0.012, 4), P.woodDark));
   g.add(flag, live);
   live.build();
   g.add(boxCollider(1.9, 1.0, 1.9, { y: 0.4 }));
-  return finish(g, { name: 'sandcastle', parts: { flag }, surface: 'dust', tick: (dt, t) => live.sync(t) });
+  const anims = new Anims();
+  const castle = g.children[0];
+  finish(g, { name: 'sandcastle', parts: { flag, castle }, surface: 'dust', anims, tick: (dt, t) => live.sync(t) });
+  const flag0 = flag.position.clone();
+  /** Fun hit: the castle slumps into a heap and the flag pops off, spins and sticks in the sand. */
+  g.userData.crumble = () => {
+    if (g.userData.crumbled) return Promise.resolve(false);
+    g.userData.crumbled = true;
+    anims.play(0.9, (k) => {
+      flag.position.set(flag0.x + k * 0.9, flag0.y + Math.sin(k * Math.PI) * 0.8 - k * (flag0.y - 0.28), flag0.z + k * 0.5);
+      flag.rotation.set(0, k * 9, Math.sin(k * Math.PI) * 1.2 + k * 0.25); // tumbles, then sticks in the sand
+    }, { key: 'flag' });
+    return anims.play(0.8, (k) => { castle.scale.set(1 + 0.18 * k, 1 - 0.62 * k, 1 + 0.18 * k); }, { ease: ease.outBounce, key: 'crumble' });
+  };
+  g.userData.reset = () => {
+    anims.cancel('flag'); anims.cancel('crumble');
+    g.userData.crumbled = false;
+    castle.scale.set(1, 1, 1);
+    flag.position.copy(flag0);
+    flag.rotation.set(0, 0, 0);
+  };
+  return g;
 }
 
 // ---------------------------------------------------------------- beach ball
 
 /**
  * beachBall({ seed, size = 0.36 (radius), bob = 0 }) — six-gore glossy beach ball. Origin = contact
- * point. userData: bounce(height = 1.6) -> Promise (big squashy bounces), bob (float on water if > 0).
+ * point. parts: { ball (pivot at the ball centre, collider) }. userData: bounce(height = 1.6) -> Promise
+ * (big squashy bounces), toss(to, { height, duration, world }) -> Promise (arcs to a point and bounces:
+ * seals playing catch), bob (floats on water if > 0). 1 draw call.
  */
 export function beachBall({ seed = 1, size = 0.36, bob = 0 } = {}) {
   const rng = new Rng(`ball-${seed}`);
@@ -198,11 +270,33 @@ export function beachBall({ seed = 1, size = 0.36, bob = 0 } = {}) {
   const anims = new Anims();
   finish(g, { name: 'beachBall', parts: { ball: ballP }, surface: 'soft', anims, bodyForWobble: ballP });
   if (bob) floatRig(g, { bob, seed, heave: 0.05, roll: 0.3, pitch: 0.2 });
+  /**
+   * Arc the ball to `to` (group space; world space with { world: true }) - e.g. seals playing catch.
+   * Resolves when it lands (a small bounce follows).
+   */
+  g.userData.toss = (to, { height = 1.8, duration, world = false } = {}) => {
+    const target = to.isVector3 ? to.clone() : new THREE.Vector3(to.x ?? to[0], to.y ?? to[1], to.z ?? to[2]);
+    if (world) g.worldToLocal(target);
+    target.y += size;
+    const from = ballP.position.clone();
+    const peak = Math.max(from.y, target.y) + height;
+    const d = duration ?? 0.7 + from.distanceTo(target) * 0.12;
+    const r0 = ballP.rotation.x;
+    return anims.play(d, (k) => {
+      ballP.position.lerpVectors(from, target, k);
+      const up = peak - from.y, down = peak - target.y; // two half-parabolas through the peak
+      const kp = Math.sqrt(up) / (Math.sqrt(up) + Math.sqrt(down));
+      ballP.position.y = k < kp ? peak - up * (1 - k / kp) ** 2 : peak - down * ((k - kp) / (1 - kp)) ** 2;
+      ballP.rotation.x = r0 + k * 8;
+      ballP.scale.setScalar(1);
+    }, { key: 'bounce' }).then((ok) => (ok ? g.userData.bounce(height * 0.22).then(() => true) : false));
+  };
   g.userData.bounce = (height = 1.6) => {
     const hops = [height, height * 0.45, height * 0.18];
     const times = hops.map((hh) => Math.sqrt((2 * hh) / 9.8) * 2);
     const total = times.reduce((a, b) => a + b, 0);
     const r0 = ballP.rotation.x;
+    const y0 = ballP.position.y; // bounces from wherever it rests (after a toss too)
     return anims.play(total + 0.15, (k, kk) => {
       let tt = kk * (total + 0.15);
       let y = 0, sq = 0;
@@ -216,10 +310,10 @@ export function beachBall({ seed = 1, size = 0.36, bob = 0 } = {}) {
         tt -= times[i];
         if (i === hops.length - 1) { sq = Math.max(0, 0.15 - tt) * 1.2; }
       }
-      ballP.position.y = size + Math.max(0, y);
+      ballP.position.y = y0 + Math.max(0, y);
       ballP.scale.set(1 + sq * 0.6, 1 - sq, 1 + sq * 0.6);
       ballP.rotation.x = r0 + kk * 9;
-    }, { key: 'bounce' }).then((d) => { ballP.scale.set(1, 1, 1); ballP.position.y = size; return d; });
+    }, { key: 'bounce' }).then((d) => { ballP.scale.set(1, 1, 1); ballP.position.y = y0; return d; });
   };
   return g;
 }
@@ -227,10 +321,11 @@ export function beachBall({ seed = 1, size = 0.36, bob = 0 } = {}) {
 // ---------------------------------------------------------------- lifeguard chair
 
 /**
- * lifeguardChair({ seed }) — tall white lifeguard tower with ladder, parasol, red flag, lifebuoy and
- * sign. parts: { seat (Object3D on the seat, facing +Z: sit the lifeguard here) }. 1 draw call.
+ * lifeguardChair({ seed, text = 'LIFEGUARD' }) — tall white lifeguard tower with ladder, parasol, red
+ * flag, lifebuoy and a painted sign (real words, sign atlas). parts: { seat (Object3D on the seat, facing
+ * +Z: sit the lifeguard here), sign }. 2 draw calls.
  */
-export function lifeguardChair({ seed = 1 } = {}) {
+export function lifeguardChair({ seed = 1, text = 'LIFEGUARD' } = {}) {
   const rng = new Rng(`lifeguard-${seed}`);
   const wood = '#f4efe6';
   const red = P.tomato;
@@ -263,17 +358,20 @@ export function lifeguardChair({ seed = 1 } = {}) {
   // flag, lifebuoy, sign
   L.push(part(rod([-0.5, pY, -0.4], [-0.5, pY + 1.4, -0.4], 0.02, 4), wood));
   L.push(part(new THREE.ConeGeometry(0.2, 0.5, 3), red, { x: -0.5 + 0.24, y: pY + 1.25, z: -0.4, rz: -Math.PI / 2, sx: 0.8, sz: 0.12 }));
-  const ring = part(new THREE.TorusGeometry(0.24, 0.07, 6, 14), '#fff', { x: -0.43, y: pY - 0.45, z: 0.42 });
-  paintFaces(ring, (x, y, z, nx, ny, nz, c) => { const a = Math.atan2(y - (pY - 0.45), x + 0.43) + Math.PI; c.set(Math.floor(a / (Math.PI / 4)) % 2 ? CREAM : red); });
+  const RX = -0.56, RY = pY - 0.78; // lifebuoy hangs on the left leg, below the sign
+  const ring = part(new THREE.TorusGeometry(0.24, 0.07, 6, 14), '#fff', { x: RX, y: RY, z: 0.44 });
+  paintFaces(ring, (x, y, z, nx, ny, nz, c) => { const a = Math.atan2(y - RY, x - RX) + Math.PI; c.set(Math.floor(a / (Math.PI / 4)) % 2 ? CREAM : red); });
   L.push(ring);
-  L.push(part(bev(0.8, 0.26, 0.04, 0.02), red, { y: pY - 0.22, z: 0.43 }));
-  L.push(part(lettering(0.62, 0.1, 1, CREAM, {}, rng, 0.012), CREAM, { y: pY - 0.22, z: 0.455 }));
+  L.push(part(bev(0.92, 0.3, 0.04, 0.02), red, { y: pY - 0.22, z: 0.43 }));
   const g = new THREE.Group();
   g.add(mesh(L, materials.toy, 'tower'));
+  const sign = wordSign(text, 0.86, 0.25, { paper: red, ink: CREAM, keyline: 0.8, bounce: 0.6, px: 320, round: 0.03 });
+  sign.position.set(0, pY - 0.22, 0.454);
+  g.add(sign);
   const seat = pivot('seat', 0, pY + 0.5, -0.05);
   g.add(seat);
-  g.add(boxCollider(1.3, pY + 1.0, 1.3, { y: (pY + 1.0) / 2 }));
-  return finish(g, { name: 'lifeguardChair', parts: { seat }, surface: 'wood' });
+  g.add(boxCollider(1.3, pY - 0.1, 1.5, { y: (pY - 0.1) / 2, z: 0.1 })); // legs + ladder only: the lifeguard up top stays shootable
+  return finish(g, { name: 'lifeguardChair', parts: { seat, sign }, surface: 'wood' });
 }
 
 // ---------------------------------------------------------------- bucket & spade
@@ -306,8 +404,12 @@ export function bucketSpade({ seed = 1, color } = {}) {
 
 // ---------------------------------------------------------------- surfboard
 
-/** surfboard({ seed, color, stand = true }) — surfboard stuck upright in the sand (or lying flat). 1 draw call. */
-export function surfboard({ seed = 1, color, stand = true } = {}) {
+/**
+ * surfboard({ seed, color, stand = true, bob = 0 }) — surfboard stuck upright in the sand, or lying flat
+ * (`stand: false`); with `bob` > 0 a flat board floats (waterline y 0) - the dog's paddleboard.
+ * parts: { board, deck (Object3D on top of a flat board: stand a dog / character there) }. 1-2 draw calls.
+ */
+export function surfboard({ seed = 1, color, stand = true, bob = 0 } = {}) {
   const rng = new Rng(`surf-${seed}`);
   const c = color || rng.pick([P.sunflower, P.teal, P.bubblegum, P.tangerine, P.cobalt]);
   const c2 = rng.pick([CREAM, P.tomato, P.cobalt].filter((x) => x !== c));
@@ -332,10 +434,14 @@ export function surfboard({ seed = 1, color, stand = true } = {}) {
     g.add(mesh([part(new THREE.ConeGeometry(0.3, 0.12, 8), WET, { y: 0.03 })], materials.toy, 'sandMound'));
   } else {
     m.rotation.x = -Math.PI / 2;
-    m.position.y = 0.05;
+    m.position.y = bob ? 0.02 : 0.05;
   }
   g.add(m);
-  return finish(g, { name: 'surfboard', parts: { board: m }, surface: 'soft', bodyForWobble: m });
+  const deck = pivot('deck', 0, stand ? Lb - 0.28 : m.position.y + 0.05, 0);
+  g.add(deck);
+  finish(g, { name: 'surfboard', parts: { board: m, deck }, surface: 'soft', bodyForWobble: m });
+  if (!stand && bob) g.userData.parts.float = floatRig(g, { bob, seed, heave: 0.04, roll: 0.05, pitch: 0.03 });
+  return g;
 }
 
 // ---------------------------------------------------------------- crab (decor)
@@ -366,4 +472,67 @@ export function crab({ seed = 1, color } = {}) {
   m.rotation.y = rng.range(-0.3, 0.3);
   g.add(m);
   return finish(g, { name: 'crab', parts: {}, surface: 'soft' });
+}
+
+// ---------------------------------------------------------------- beach towel
+
+/**
+ * beachTowel({ seed, colors: [c1, c2], w = 0.9, l = 1.8 }) — striped towel lying rumpled on the sand
+ * (long side along Z). userData.lie = height for a sunbather lying on it. 1 draw call.
+ */
+export function beachTowel({ seed = 1, colors, w = 0.9, l = 1.8 } = {}) {
+  const rng = new Rng(`towel-${seed}`);
+  const [c1, c2] = colors || rng.pick(STRIPES);
+  const bands = rng.int(5, 8);
+  const geo = clothPatch(4, 9, (u, v) => {
+    const x = (u - 0.5) * w, z = (v - 0.5) * l;
+    const y = 0.012 + noise3(Math.round(u * 4) + seed, Math.round(v * 9), 3) * 0.035 + (v > 0.92 ? 0.03 : 0); // rolled end = pillow
+    return [x, y, z];
+  }, (i, j) => (Math.floor((j / 9) * bands) % 2 ? c2 : c1), 0.01);
+  const g = new THREE.Group();
+  g.add(mesh([geo, part(new THREE.CapsuleGeometry(0.07, w - 0.2, 2, 6), c1, { y: 0.07, z: l / 2 - 0.08, rz: Math.PI / 2 })], materials.toy, 'towel'));
+  finish(g, { name: 'beachTowel', parts: {}, surface: 'soft' });
+  g.userData.lie = 0.03;
+  return g;
+}
+
+// ---------------------------------------------------------------- beach parasol
+
+/**
+ * beachParasol({ seed, colors: [c1, c2], tilt = 0.2 }) — striped beach umbrella planted in the sand,
+ * leaning by `tilt` (rad, toward +Z). parts: { canopy (pivot at the pole top: spins about the pole) }.
+ * userData: spin(impulse = 10) (fun hit: the canopy whirls and slows down). 2 draw calls.
+ */
+export function beachParasol({ seed = 1, colors, tilt = 0.2 } = {}) {
+  const rng = new Rng(`parasol-${seed}`);
+  const [c1, c2] = colors || rng.pick(STRIPES);
+  const H = 2.15, R = 1.15;
+  const lean = new THREE.Group();
+  lean.name = 'lean';
+  lean.rotation.set(tilt, rng.range(-0.3, 0.3), rng.range(-0.05, 0.05));
+  lean.updateMatrix();
+  const upright = lean.matrix.clone().invert(); // the sand mound stays level while the pole leans
+  lean.add(mesh([
+    part(rod([0, -0.25, 0], [0, H, 0], 0.028, 6), '#fff4e6'),
+    part(bev(0.07, 0.12, 0.07, 0.02), shade(c1, -0.2), { y: 1.2 }),
+    part(new THREE.ConeGeometry(0.22, 0.1, 7), WET, { y: 0.03 }).applyMatrix4(upright),
+  ], materials.toy, 'pole'));
+  const canopy = pivot('canopy', 0, H, 0);
+  const cone = part(new THREE.ConeGeometry(R, 0.42, 8, 1, true), '#fff', { y: -0.2 });
+  const panel = (x, z) => { let a = Math.atan2(x, z); if (a < 0) a += Math.PI * 2; return Math.floor(a / (Math.PI / 4)) % 2; };
+  paintFaces(cone, (x, y, z, nx, ny, nz, c) => c.set(panel(x, z) ? c2 : c1));
+  const under = paintFaces(inside(cone.clone()), (x, y, z, nx, ny, nz, c) => c.multiplyScalar(0.72));
+  const rim = paintFaces(part(new THREE.CylinderGeometry(R, R, 0.1, 16, 1, true), '#fff', { y: -0.46 }), (x, y, z, nx, ny, nz, c) => c.set(panel(x, z) ? c1 : c2));
+  canopy.add(mesh([cone, under, rim, inside(rim.clone()), part(ball(0.06, 0), shade(c1, -0.1), { y: 0.04 })], materials.toy, 'canopyMesh'));
+  canopy.add(ballCollider(0.9, { y: -0.25, sy: 0.45 }));
+  lean.add(canopy);
+  const g = new THREE.Group();
+  g.add(lean);
+  let vel = 0;
+  finish(g, {
+    name: 'beachParasol', parts: { canopy }, surface: 'soft',
+    tick: (dt) => { if (!vel) return; canopy.rotation.y += vel * dt; vel *= Math.exp(-dt * 1.2); if (Math.abs(vel) < 0.05) vel = 0; },
+  });
+  g.userData.spin = (impulse = 10) => { vel += impulse; };
+  return g;
 }

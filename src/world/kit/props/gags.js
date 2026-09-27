@@ -298,14 +298,19 @@ export function cameraOnTripod({ seed = 1, color } = {}) {
 // ---------------------------------------------------------------- birdseed bag
 
 /**
- * birdseedBag({ seed }) — paper sack of birdseed with a bird on the label.
- * parts: { bag (pivot at the front-bottom edge, tips forward), spill (spawn point where seed lands), pile }.
- * userData: spill() -> Promise (bag tips over, seed fans out), spilled.
+ * birdseedBag({ seed, drop = 0 }) — paper sack of birdseed with a bird on the label.
+ * `drop`: height of the bag's base above the ground the seed should land on (e.g. 0.51 on a bench
+ * seat; put the bag at the front of the seat). The seed always pours out of the bag MOUTH, in front.
+ * parts: { bag (pivot at the front-bottom edge, tips forward), spill (ground point where the seed
+ * lands - send pigeons here; move it and the seed follows), pile (mound mesh), seeds (InstancedMesh) }.
+ * userData: spill() -> Promise (bag tips over - off the ledge when drop > 0 - and seed pours from the
+ * mouth onto the pile), spilled, reset(). 1 draw call (3 while/after spilling), 634 tris (+~560 spilled).
  */
-export function birdseedBag({ seed = 1 } = {}) {
+export function birdseedBag({ seed = 1, drop = 0 } = {}) {
   const rng = new Rng(`seedbag-${seed}`);
   const kraft = '#d9b27c';
-  const bag = pivot('bag', 0, 0, 0.16);
+  const HZ = 0.16; // hinge (front-bottom edge) z
+  const bag = pivot('bag', 0, 0, HZ);
   const Bg = [
     part(bev(0.42, 0.52, 0.3, 0.06), kraft, { y: 0.26, z: -0.16 }),
     part(bev(0.45, 0.08, 0.33, 0.035), shade(kraft, 0.15), { y: 0.52, z: -0.16 }),
@@ -325,31 +330,108 @@ export function birdseedBag({ seed = 1 } = {}) {
   bag.add(boxCollider(0.5, 0.62, 0.4, { y: 0.3, z: -0.16 }));
   const g = new THREE.Group();
   g.add(bag);
-  const spill = pivot('spill', 0, 0, 0.72);
+  // final pose: lying on its front with the mouth forward (on the ledge, or on the ground after the fall)
+  const TIP = 1.42;
+  const off = drop > 0.05; // topples off its ledge
+  const restP = new THREE.Vector3(0, off ? -drop : 0, HZ + (off ? 0.26 : 0));
+  const mouthLocal = new THREE.Vector3(0, 0.56, -0.16);
+  const mouth = mouthLocal.clone().applyAxisAngle(new THREE.Vector3(1, 0, 0), TIP).add(restP);
+  const spill = pivot('spill', 0, -drop, mouth.z + 0.26);
   g.add(spill);
-  const Pl = [];
-  for (let i = 0; i < 70; i++) {
-    const a = rng.range(-1.2, 1.2), r = Math.sqrt(rng.random()) * 0.55;
-    Pl.push(part(ball(0.022, 0), rng.pick(['#f2cd5c', '#b98a5a', '#fff4d6', '#e8a93c']), { x: Math.sin(a) * r, y: 0.015, z: Math.cos(a) * r * 0.9 + 0.02 }));
-  }
-  Pl.push(part(blob(0.2, 1, 0.1, seed + 3), '#e8c25a', { z: 0.02, sy: 0.25, sx: 1.2 }));
+  // golden-brown heap + dark/orange/cream seeds: reads on pale paving as well as on grass
+  const Pl = [paintFaces(part(blob(0.24, 1, 0.12, seed + 3), '#fff', { y: 0.01, z: 0.02, sy: 0.24, sx: 1.3 }),
+    (x, y, z, nx, ny, nz, c) => c.set(noise3(x * 31, y * 31, z * 31) > 0.72 ? '#7a4a26' : noise3(z * 17, x * 17, 3) > 0.6 ? '#e8902c' : '#d49a36'))];
   const pile = mesh(Pl, materials.toy, 'pile');
   pile.visible = false;
   pile.castShadow = false;
   spill.add(pile);
+  // seeds: poured from the mouth, each lands on its own spot of the pile (spill-local fan)
+  const NS = 64;
+  const seedGeo = part(new THREE.OctahedronGeometry(0.024, 0), '#ffffff');
+  const seeds = new THREE.InstancedMesh(seedGeo, materials.toy, NS);
+  seeds.name = 'seeds';
+  seeds.visible = false;
+  seeds.castShadow = false;
+  seeds.frustumCulled = false;
+  seeds.raycast = () => {};
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  const cols = ['#e8a93c', '#7a4a26', '#fff4d6', '#d4782c', '#b98a5a'].map((c) => new THREE.Color(c));
+  const S = [];
+  for (let i = 0; i < NS; i++) {
+    const a = rng.range(-1.15, 1.15), r = Math.sqrt(rng.random()) * 0.55;
+    S.push({
+      spot: new THREE.Vector3(Math.sin(a) * r, 0.016, Math.cos(a) * r * 0.9 - 0.2), // spill space: fans out from the mouth
+      t0: 0.08 + (i / NS) * 0.75 + rng.range(0, 0.05), dur: rng.range(0.32, 0.46), spin: rng.range(4, 12),
+      from: new THREE.Vector3(), to: new THREE.Vector3(), lift: rng.range(0.05, 0.25),
+    });
+    seeds.setMatrixAt(i, zero);
+    seeds.setColorAt(i, cols[i % cols.length]);
+  }
+  g.add(seeds);
   const anims = new Anims();
   let spilled = false;
-  finish(g, { name: 'birdseedBag', parts: { bag, spill, pile }, surface: 'soft', anims });
+  let pourT = null; // seconds since the pour started (negative = waiting for the bag to land)
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
+  const tickSeeds = (dt) => {
+    if (pourT === null) return;
+    pourT += dt;
+    if (pourT < 0) return;
+    seeds.visible = true;
+    pile.visible = true;
+    const pk = ease.outCubic(Math.min(1, Math.max(0, (pourT - 0.25) / 0.9)));
+    pile.scale.set(Math.max(0.001, pk), 0.4 + 0.6 * pk, Math.max(0.001, pk));
+    let moving = pk < 1;
+    for (let i = 0; i < NS; i++) {
+      const s = S[i];
+      const k = (pourT - s.t0) / s.dur;
+      if (k <= 0) { seeds.setMatrixAt(i, zero); moving = true; continue; }
+      const kk = Math.min(1, k);
+      v.lerpVectors(s.from, s.to, kk);
+      v.y = THREE.MathUtils.lerp(s.from.y, s.to.y, kk * kk) + Math.sin(kk * Math.PI) * s.lift; // pops out, then falls
+      e.set(kk * s.spin, i, kk * s.spin * 0.7);
+      m4.compose(v, q.setFromEuler(e), one);
+      seeds.setMatrixAt(i, m4);
+      if (k < 1) moving = true;
+    }
+    seeds.instanceMatrix.needsUpdate = true;
+    if (!moving) pourT = null;
+  };
+  finish(g, { name: 'birdseedBag', parts: { bag, spill, pile, seeds }, surface: 'soft', anims, tick: tickSeeds });
+  g.userData.drop = drop;
   g.userData.spill = () => {
     if (spilled) return Promise.resolve(false);
     spilled = true;
     g.userData.spilled = true;
-    pile.visible = true;
-    pile.scale.setScalar(0.001);
-    anims.play(0.9, (k) => { pile.scale.set(k, 1, k); }, { delay: 0.35, ease: ease.outCubic, key: 'pile' });
-    return anims.play(0.8, (k) => { bag.rotation.x = k * 1.42; }, { ease: ease.outBounce, key: 'tip' });
+    // seed flight paths: from the resting mouth (group space) to the pile spots (spill pivot, wherever it is now)
+    spill.updateMatrix();
+    for (const s of S) {
+      s.from.copy(mouth).add(v.set(rng.range(-0.08, 0.08), rng.range(-0.04, 0.03), rng.range(-0.02, 0.04)));
+      s.to.copy(s.spot).applyMatrix4(spill.matrix);
+    }
+    pourT = off ? -0.62 : -0.45; // starts pouring once the bag has landed
+    if (!off) return anims.play(0.8, (k) => { bag.rotation.x = k * TIP; }, { ease: ease.outBounce, key: 'tip' });
+    // off a ledge: tip over the edge, drop to the ground, flop with a little bounce
+    const p0 = bag.position.clone();
+    return anims.play(1.0, (k, lin) => {
+      const t = lin * 1.0;
+      const tipK = Math.min(1, t / 0.32);
+      const fallK = Math.min(1, Math.max(0, (t - 0.22) / 0.34));
+      bag.rotation.x = t < 0.56 ? ease.inQuad(tipK) * 0.95 + fallK * (TIP - 0.95) : TIP + Math.sin((t - 0.56) / 0.44 * Math.PI * 2) * 0.12 * (1 - (t - 0.56) / 0.44);
+      bag.position.set(p0.x, p0.y + (restP.y - p0.y) * fallK * fallK, p0.z + (restP.z - p0.z) * ease.outQuad(fallK));
+    }, { key: 'tip' });
   };
-  g.userData.reset = () => { spilled = false; g.userData.spilled = false; bag.rotation.x = 0; pile.visible = false; };
+  g.userData.reset = () => {
+    anims.cancel('tip');
+    spilled = false;
+    g.userData.spilled = false;
+    bag.rotation.x = 0;
+    bag.position.set(0, 0, HZ);
+    pile.visible = false;
+    seeds.visible = false;
+    pourT = null;
+    for (let i = 0; i < NS; i++) seeds.setMatrixAt(i, zero);
+    seeds.instanceMatrix.needsUpdate = true;
+  };
   return g;
 }
 

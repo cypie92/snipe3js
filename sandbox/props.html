@@ -18,10 +18,13 @@
 //   only=<name>,<name>   (substring match)
 //   stats=1 (triangle / draw-call table)   colliders=1 (show hit colliders)
 //   demo=1 (periodically trigger animations: unfurl, pop, launch, ring...)   gap=<m>   row=<max row width m>
+//   atlas=1 (overlay the shared sign atlas page)
+import '@fontsource/fredoka/600.css';
+import '@fontsource/fredoka/700.css';
 import * as THREE from 'three';
 import { createStage } from './stage.js';
 import { catalog } from '../src/world/kit/props/catalog.js';
-import { stats } from '../src/world/kit/props/lib.js';
+import { stats, signPages, whenFontsReady } from '../src/world/kit/props/lib.js';
 
 const params = new URLSearchParams(location.search);
 const stage = await createStage();
@@ -40,7 +43,14 @@ for (const [name, cat, fn] of list) {
     const obj = fn();
     obj.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(obj);
-    built.push({ name, cat, obj, box, s: stats(obj) });
+    // collider audit: every raycast-only mesh must carry userData.collider (Shooting ignores hidden meshes otherwise)
+    let bad = 0, cols = 0;
+    obj.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.userData.collider) cols++;
+      else if (o.name === 'collider' || o.material?.name === 'collider') bad++;
+    });
+    built.push({ name, cat, obj, box, s: stats(obj), cols, bad });
   } catch (e) {
     console.error(`build failed: ${name}`, e);
   }
@@ -84,17 +94,27 @@ if (params.get('colliders') === '1') {
   stage.scene.traverse((o) => { if (o.userData.collider) o.visible = true; });
 }
 
-const table = place.map(({ b }) => ({ i: b.index, name: b.name, cat: b.cat, tris: b.s.tris, calls: b.s.calls }));
+const table = place.map(({ b }) => ({ i: b.index, name: b.name, cat: b.cat, tris: b.s.tris, calls: b.s.calls, colliders: b.cols, unflagged: b.bad }));
 window.__catalog = table;
 console.log('[props] ' + table.map((r) => `${r.i}:${r.name}(${r.tris}t/${r.calls}dc)`).join('  '));
 if (params.get('stats') === '1') {
   const el = document.getElementById('panel');
   el.style.display = 'block';
   el.innerHTML = table.map((r) => {
-    const budget = r.cat === 'vehicles' ? 4000 : r.name.startsWith('tree') ? 1200 : 1500;
-    const over = (r.tris > budget && !/forest|scatter/.test(r.name)) || (r.calls > 3 && !/forest/.test(r.name));
-    return `<span class="${over ? 'over' : ''}"><b>${r.i}</b> ${r.name} ${r.tris}t ${r.calls}dc</span>`;
+    const budget = /wreckedGalleon|dockCrane/.test(r.name) ? 8000 : r.cat === 'vehicles' || r.cat === 'boats' ? 4000 : r.name.startsWith('tree') ? 1200 : 1500;
+    const over = (r.tris > budget && !/forest|scatter/.test(r.name)) || (r.calls > 3 && !/forest/.test(r.name)) || r.unflagged;
+    return `<span class="${over ? 'over' : ''}"><b>${r.i}</b> ${r.name} ${r.tris}t ${r.calls}dc${r.colliders ? ` ${r.colliders}col` : ''}${r.unflagged ? ` ${r.unflagged} UNFLAGGED` : ''}</span>`;
   }).join('<br>');
+}
+
+if (params.get('atlas') === '1') {
+  await whenFontsReady();
+  const pages = signPages();
+  pages.forEach((p, i) => {
+    p.canvas.style.cssText = `position:fixed;right:8px;top:${8 + i * 330}px;width:320px;height:320px;background:#555;border:2px solid #2b2b3a;border-radius:6px`;
+    document.body.appendChild(p.canvas);
+  });
+  console.log(`[props] sign atlas: ${pages.map((p) => `${p.slots} slots`).join(', ')}`);
 }
 
 // Demo mode: poke every interactive asset now and then.
@@ -130,8 +150,15 @@ if (params.get('demo') === '1') {
       if (u.lowerCrate && step === 2) u.lowerCrate();
       if (u.blast && step % 2) u.blast();
       if (u.slamLid && step === 2) u.slamLid();
-      if (u.bounce && step % 2) u.bounce();
+      if (u.toss) { if (step % 2) u.bounce(); else u.toss(new THREE.Vector3(step % 4 ? 0 : 1.4, 0, 0), { height: 1.2 }); }
+      else if (u.bounce && step % 2) u.bounce();
       if (u.toot && step % 3 === 0) u.toot();
+      if (u.crumble) { if (step % 4 === 1) u.crumble(); else if (step % 4 === 3) u.reset(); }
+      if (u.collapse) {
+        if (b.name === 'deckchair b') u.tumbling = step % 4 < 2;
+        else if (step % 4 === 2) u.collapse(); else if (step % 4 === 0) u.reset();
+      }
+      if (u.spin && /parasol/i.test(b.name) && step % 2) u.spin(12);
     }
   });
 }

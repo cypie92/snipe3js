@@ -146,12 +146,14 @@ function hookGeo(color = '#6b7280') {
 const BUNTING = [P.tomato, P.sunflower, P.teal, P.bubblegum, P.cobalt, P.tangerine, '#8ad14f', P.violet];
 
 /**
- * bunting({ from, to, sag = 0.6, colors, spacing = 0.55, flagSize = 0.42, furled = false, seed })
+ * bunting({ from, to, sag = 0.6, colors, spacing = 0.55, flagSize = 0.42, furled = false, seed, coilSize = 1 })
  * from/to: points in the parent's space (leave the group at the origin). 1 draw call.
- * parts: { flags: [pivots], coil (furled bundle on the hook at `from`, has collider), rope }.
+ * parts: { flags: [pivots], coil (pivot on the hook at `from`: the furled rainbow roll ~0.8 x 0.5 m hangs
+ * just along the line from it, collider covers hook + roll; scale / rotate / hide it freely - the kit only
+ * animates its inner nodes; `coilSize` sets its scale), rope, hooks }.
  * userData: setFurled(bool, { instant }) -> Promise (animated unfurl / furl), furled (getter).
  */
-export function bunting({ from, to, sag = 0.6, colors = BUNTING, spacing = 0.55, flagSize = 0.42, furled = false, seed = 1 } = {}) {
+export function bunting({ from, to, sag = 0.6, colors = BUNTING, spacing = 0.55, flagSize = 0.42, furled = false, seed = 1, coilSize = 1 } = {}) {
   const A = vec(from, [-3, 3, 0]);
   const B = vec(to, [3, 3, 0]);
   const rng = new Rng(`bunting-${seed}`);
@@ -199,17 +201,45 @@ export function bunting({ from, to, sag = 0.6, colors = BUNTING, spacing = 0.55,
     });
     flags.push(f);
   }
-  // furled coil hanging on hook A
+  // furled coil: a fat roll of wound bunting hanging on hook A. `coil` is the level-facing pivot
+  // (scale / rotate / hide it freely; it is the job target); the kit animates only its inner nodes.
   const coil = pivot('coil', A.x, A.y - 0.02, A.z);
-  const coilParts = [];
-  for (let k = 0; k < 3; k++) coilParts.push(part(new THREE.TorusGeometry(0.16 - k * 0.012, 0.038, 5, 12), ROPE, { y: -0.2 - k * 0.02, z: k * 0.035 - 0.035, rz: k * 0.5 }));
-  for (let k = 0; k < 5; k++) {
-    const a = k * 1.25;
-    coilParts.push(part(new THREE.ConeGeometry(0.07, 0.14, 3), colors[k % colors.length], { x: Math.cos(a) * 0.15, y: -0.2 + Math.sin(a) * 0.15, z: 0.02, rz: a + Math.PI / 2 }));
+  coil.rotation.y = Math.atan2(-(B.z - A.z), B.x - A.x); // roll axis (local X) along the line
+  coil.scale.setScalar(coilSize);
+  const coilBody = pivot('coilBody');
+  const R0 = 0.25, L0 = 0.78, DX = 0.5; // the roll hangs just along the line from the hook (clear of the wall / post)
+  const drum = pivot('drum', DX, -0.46, 0);
+  coil.add(coilBody);
+  coilBody.add(drum);
+  const knot = [DX, -0.1, 0];
+  live.addPiece(coilBody, merge([ // rope: hook -> knot -> sling round both tie rings
+    part(rod([0, 0.03, 0], knot, 0.026, 5), ROPE),
+    part(ball(0.05, 0), ROPE, { x: DX, y: -0.1 }),
+    part(rod(knot, [DX - L0 * 0.34, -0.46 + R0 + 0.02, 0], 0.022, 4), ROPE),
+    part(rod(knot, [DX + L0 * 0.34, -0.46 + R0 + 0.02, 0], 0.022, 4), ROPE),
+  ]));
+  const roll = [];
+  const nb = 7;
+  for (let k = 0; k < nb; k++) {
+    const r = R0 + (k % 2) * 0.012;
+    roll.push(part(new THREE.CylinderGeometry(r, r, L0 / nb + 0.002, 12, 1, true), colors[k % colors.length], { x: -L0 / 2 + (L0 / nb) * (k + 0.5), rz: Math.PI / 2 }));
   }
-  coilParts.push(part(rod([0, 0.0, 0], [0, -0.06, 0], 0.03, 5), ROPE));
-  live.addPiece(coil, merge(coilParts));
-  coil.add(ballCollider(0.36, { y: -0.2 }));
+  for (const sx of [-1, 1]) {
+    // wound-cloth ends: coloured discs with a darker winding line between them
+    roll.push(part(new THREE.CircleGeometry(R0 - 0.004, 12), shade(colors[1 % colors.length], 0.25), { x: sx * L0 / 2, ry: sx * Math.PI / 2 }));
+    roll.push(part(new THREE.CircleGeometry(R0 * 0.5, 10), shade(colors[2 % colors.length], 0.2), { x: sx * (L0 / 2 + 0.003), ry: sx * Math.PI / 2 }));
+    roll.push(part(new THREE.TorusGeometry(R0 * 0.72, 0.016, 3, 10), shade(colors[0], -0.2), { x: sx * (L0 / 2 + 0.004), ry: Math.PI / 2 }));
+    roll.push(part(new THREE.TorusGeometry(R0 + 0.02, 0.03, 4, 12), ROPE, { x: sx * L0 * 0.34, ry: Math.PI / 2 }));
+  }
+  for (let k = 0; k < 11; k++) { // pennant tips poking out of the roll
+    const a = k * 2.4 + 0.3;
+    const x = -L0 * 0.42 + ((k * 5) % 11) / 10 * L0 * 0.84;
+    roll.push(part(new THREE.ConeGeometry(0.1, 0.24, 3), colors[(k * 3) % colors.length], {
+      x, y: Math.sin(a) * (R0 + 0.08), z: Math.cos(a) * (R0 + 0.08), rx: Math.PI / 2 - a, sz: 0.35,
+    }));
+  }
+  live.addPiece(drum, merge(roll));
+  coilBody.add(ballCollider(0.52, { x: DX * 0.8, y: -0.4, sx: 1.3 })); // covers the hook and the roll
   g.add(coil);
   g.add(live);
   const tan = new THREE.Vector3(), pa = new THREE.Vector3(), pb = new THREE.Vector3();
@@ -234,9 +264,11 @@ export function bunting({ from, to, sag = 0.6, colors = BUNTING, spacing = 0.55,
       f.scale.setScalar(Math.max(0.001, ease.outBack(k)));
     }
     const cs = clamp01(1 - p / 0.3);
-    coil.visible = cs > 0.01;
-    coil.scale.setScalar(Math.max(0.001, ease.outCubic(cs)));
-    coil.rotation.z = Math.sin(t * 1.3) * 0.05 + (1 - cs) * 2;
+    coilBody.visible = cs > 0.01;
+    coilBody.scale.setScalar(Math.max(0.001, ease.outCubic(cs)));
+    coilBody.rotation.x = Math.sin(t * 1.3 + seed) * 0.05;
+    coilBody.rotation.z = Math.sin(t * 0.9) * 0.03;
+    drum.rotation.x = (1 - cs) * 6;
   };
   let lastP = -1;
   finish(g, {

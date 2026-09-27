@@ -163,119 +163,11 @@ export function lettering(w, h, lines, color, t = {}, rng = null, depth = 0.012)
 }
 
 // ---------------------------------------------------------------- painted text (real words on signs)
-
-/** Rounded toy font stack (Fredoka is bundled by the game; the sandboxes import it too). */
-export const SIGN_FONT = 'Fredoka, "Arial Rounded MT Bold", "Varela Round", "Trebuchet MS", sans-serif';
-const HAS_DOM = typeof document !== 'undefined';
-let fontsReady = null;
-/** Resolves once Fredoka is usable in canvas (immediately without a DOM / Font Loading API). */
-export function whenFontsReady() {
-  if (!HAS_DOM || !document.fonts?.load) return Promise.resolve();
-  if (!fontsReady) {
-    fontsReady = Promise.all([document.fonts.load('700 64px Fredoka'), document.fonts.load('600 64px Fredoka')])
-      .then(() => document.fonts.ready).catch(() => {});
-  }
-  return fontsReady;
-}
-
-/** Sets the largest font (<= maxH px tall) whose text fits in maxW px. Returns the size. */
-export function fitFont(ctx, text, maxW, maxH, weight = 700) {
-  let size = Math.floor(maxH);
-  ctx.font = `${weight} ${size}px ${SIGN_FONT}`;
-  const w = ctx.measureText(text).width;
-  if (w > maxW) size = Math.max(6, Math.floor((size * maxW) / w));
-  ctx.font = `${weight} ${size}px ${SIGN_FONT}`;
-  return size;
-}
-
-/** Rounded-rectangle path (canvas). */
-export function roundRect(ctx, x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-const _texCache = new Map();
-/**
- * Cached CanvasTexture painted by draw(ctx, w, h), repainted once the web fonts have loaded (so signs
- * never keep a fallback font). Same `key` -> same texture. Returns null without a DOM (Node stats).
- */
-export function paintedTexture(key, w, h, draw) {
-  if (!HAS_DOM) return null;
-  if (_texCache.has(key)) return _texCache.get(key);
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  const paint = () => {
-    ctx.save();
-    ctx.clearRect(0, 0, w, h);
-    draw(ctx, w, h);
-    ctx.restore();
-    tex.needsUpdate = true;
-  };
-  tex.userData.repaint = paint;
-  paint();
-  whenFontsReady().then(paint);
-  _texCache.set(key, tex);
-  return tex;
-}
-
-const _signMats = new Map();
-/** Shared decal material (matches the toy sheen) for a painted texture; plain `fallback` colour without a DOM. */
-export function decalMaterial(key, tex, fallback = '#fff4e0') {
-  if (_signMats.has(key)) return _signMats.get(key);
-  const m = new THREE.MeshStandardMaterial({
-    map: tex, color: tex ? '#ffffff' : fallback, roughness: 0.62, metalness: 0,
-    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-  });
-  m.name = `decal:${key}`;
-  _signMats.set(key, m);
-  return m;
-}
-
-/**
- * Word(s) fitted into a box: tries one line and (for 2+ words) two balanced lines, keeps whichever
- * gives the bigger letters. Draws with fill + optional offset shadow. Returns the font size used.
- */
-export function fitWords(ctx, text, x, y, maxW, maxH, { fill = '#2b2b3a', shadow = null, weight = 700 } = {}) {
-  const lines = [[text]];
-  const words = text.split(' ');
-  if (words.length > 1) {
-    let best = null;
-    for (let i = 1; i < words.length; i++) {
-      const a = words.slice(0, i).join(' '), b = words.slice(i).join(' ');
-      const m = Math.max(a.length, b.length);
-      if (!best || m < best.m) best = { m, pair: [a, b] };
-    }
-    lines.push(best.pair);
-  }
-  let pick = null;
-  for (const L of lines) {
-    const h = L.length === 1 ? maxH : maxH * 0.5;
-    const size = Math.min(...L.map((t) => fitFont(ctx, t, maxW, h * 0.98, weight)));
-    if (!pick || size > pick.size * 1.12) pick = { L, size };
-  }
-  ctx.font = `${weight} ${pick.size}px ${SIGN_FONT}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const lh = pick.size * 1.02;
-  pick.L.forEach((t, i) => {
-    const yy = y + (i - (pick.L.length - 1) / 2) * lh + pick.size * 0.04;
-    if (shadow) { ctx.fillStyle = shadow; ctx.fillText(t, x, yy + pick.size * 0.07); }
-    ctx.fillStyle = fill;
-    ctx.fillText(t, x, yy);
-  });
-  return pick.size;
-}
+// The sign atlas + Fredoka painting helpers live in signs.js (re-exported here for kit code).
+export {
+  SIGN_FONT, SIGN_INK, SIGN_PAPER, whenFontsReady, fitFont, roundRect, fitWords, paintBoard, signSlot, signDecal,
+  wordSign, panelGeo, paintedTexture, signPages,
+} from './signs.js';
 
 /** Shiny gold (trophies, collectible). Metal with a warm self-glow so it never goes muddy. */
 export const goldMaterial = new THREE.MeshStandardMaterial({
@@ -507,7 +399,8 @@ export function relMatrix(obj, root, out) {
 /**
  * One Mesh drawing many "pieces"; each piece follows its own pivot Object3D (hide the pivot to
  * hide the piece). Optional per-vertex deform(v: Vector3, t, piece) in pivot space for cloth/flags
- * (flat normals are rebuilt for deformed pieces). Raycasts are disabled: give pivots colliders.
+ * (flat normals are rebuilt for deformed pieces). Pieces may carry UVs (e.g. sign-atlas decals with a
+ * textured material; colour is optional then). Raycasts are disabled: give pivots colliders.
  */
 export class LiveMesh extends THREE.Mesh {
   constructor(material = materials.toy) {
@@ -523,7 +416,8 @@ export class LiveMesh extends THREE.Mesh {
     const g = geo.index ? geo.toNonIndexed() : geo;
     const piece = {
       pivot: pivotObj, deform, count: g.attributes.position.count,
-      pos: g.attributes.position.array, nor: g.attributes.normal.array, col: g.attributes.color.array,
+      pos: g.attributes.position.array, nor: g.attributes.normal.array,
+      col: g.attributes.color?.array || null, uv: g.attributes.uv?.array || null, // uv: static (textured decals)
       last: new THREE.Matrix4(), hidden: false, fresh: true, offset: 0,
     };
     this.pieces.push(piece);
@@ -536,10 +430,18 @@ export class LiveMesh extends THREE.Mesh {
     const pos = new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
     const nor = new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
     const col = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
-    for (const p of this.pieces) col.array.set(p.col, p.offset * 3);
+    for (const p of this.pieces) {
+      if (p.col) col.array.set(p.col, p.offset * 3);
+      else col.array.fill(1, p.offset * 3, (p.offset + p.count) * 3);
+    }
     geo.setAttribute('position', pos);
     geo.setAttribute('normal', nor);
     geo.setAttribute('color', col);
+    if (this.pieces.some((p) => p.uv)) {
+      const uv = new THREE.BufferAttribute(new Float32Array(n * 2), 2);
+      for (const p of this.pieces) if (p.uv) uv.array.set(p.uv, p.offset * 2);
+      geo.setAttribute('uv', uv);
+    }
     this.geometry.dispose();
     this.geometry = geo;
     this.sync(0, true);

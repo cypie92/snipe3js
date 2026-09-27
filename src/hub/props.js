@@ -152,25 +152,25 @@ export function mug() {
   const H = part(arc(0.045, 0.014, Math.PI * 1.2, 6, 12), P.teal, { x: 0.075, y: 0.075, rz: -Math.PI * 0.6 });
   const tea = part(puck(0.063, 0.01, 0.003, 16), '#b0703a', { y: 0.12 });
   const g = meshGroup('mug', { glossy: [G, H], toy: [tea] });
-  // soft steam wisps: each puff has its own material so it can fade out as it rises
-  const puffs = [];
-  const geo = new THREE.IcosahedronGeometry(0.032, 1);
-  for (let i = 0; i < 5; i++) {
-    const m = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.3, depthWrite: false, fog: true });
-    const p = new THREE.Mesh(geo, m);
-    p.userData.phase = i / 5;
-    p.raycast = () => {};
-    p.castShadow = false;
-    g.add(p);
-    puffs.push(p);
-  }
+  // soft steam wisps: one instanced mesh (a puff fades by shrinking away as it rises)
+  const steamMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.2, depthWrite: false, fog: true });
+  steamMat.name = 'mug-steam';
+  const steam = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.032, 1), steamMat, 5);
+  steam.name = 'mugSteam';
+  steam.raycast = () => {};
+  steam.frustumCulled = false;
+  g.add(steam);
+  const _sm = new THREE.Matrix4(), _sp = new THREE.Vector3(), _ss = new THREE.Vector3(), _sq = new THREE.Quaternion();
   g.userData.tick = (dt, t) => {
-    for (const p of puffs) {
-      const k = (t * 0.45 + p.userData.phase) % 1;
-      p.position.set(Math.sin(k * 8 + p.userData.phase * 6) * 0.035 * k, 0.15 + k * 0.36, Math.cos(k * 6) * 0.02 * k);
-      p.scale.set(0.6 + k * 2.2, 0.45 + k * 1.2, 0.6 + k * 2.2);
-      p.material.opacity = 0.2 * Math.sin(Math.PI * Math.min(1, k * 1.1));
+    for (let i = 0; i < 5; i++) {
+      const ph = i / 5;
+      const k = (t * 0.45 + ph) % 1;
+      const fade = Math.sin(Math.PI * Math.min(1, k * 1.1));
+      _sp.set(Math.sin(k * 8 + ph * 6) * 0.035 * k, 0.15 + k * 0.36, Math.cos(k * 6) * 0.02 * k);
+      _ss.set((0.6 + k * 2.2) * fade, (0.45 + k * 1.2) * fade, (0.6 + k * 2.2) * fade);
+      steam.setMatrixAt(i, _sm.compose(_sp, _sq, _ss));
     }
+    steam.instanceMatrix.needsUpdate = true;
   };
   return g;
 }
@@ -209,7 +209,7 @@ export function radio() {
   g.add(dial);
   g.userData.dialMat = dial.material;
   g.userData.grille = g.userData.meshes.toy;
-  // floating music notes (pool)
+  // floating music notes: a pool of 5 in one instanced mesh (hidden notes are scaled to zero)
   const noteShape = new THREE.Shape();
   noteShape.absellipse(0, 0, 0.045, 0.034, 0, Math.PI * 2, false, -0.4);
   const ng = new THREE.ExtrudeGeometry(noteShape, { depth: 0.015, bevelEnabled: false, curveSegments: 10 });
@@ -217,17 +217,31 @@ export function radio() {
   const stem = new THREE.BoxGeometry(0.014, 0.13, 0.015).translate(0.038, 0.06, 0.0075);
   const flag = new THREE.BoxGeometry(0.05, 0.016, 0.015).translate(0.06, 0.12, 0.0075).rotateZ(-0.35);
   const noteGeo = merge([part(ng, '#fff'), part(stem, '#fff'), part(flag, '#fff')]);
-  const notes = [];
+  const noteMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
+  noteMat.name = 'radio-notes';
+  const noteMesh = new THREE.InstancedMesh(noteGeo, noteMat, 5);
+  noteMesh.name = 'radioNotes';
+  noteMesh.raycast = () => {};
+  noteMesh.frustumCulled = false;
   const cols = [P.tomato, P.cobalt, P.bubblegum, P.teal, P.tangerine];
+  const _c = new THREE.Color();
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
   for (let i = 0; i < 5; i++) {
-    const m = new THREE.Mesh(noteGeo, new THREE.MeshStandardMaterial({ color: cols[i], roughness: 0.5, transparent: true }));
-    m.raycast = () => {};
-    m.visible = false;
-    m.userData.t = -i * 0.55;
-    g.add(m);
-    notes.push(m);
+    noteMesh.setColorAt(i, _c.set(cols[i]));
+    noteMesh.setMatrixAt(i, zero);
   }
+  g.add(noteMesh);
+  const notes = [];
+  for (let i = 0; i < 5; i++) notes.push({ id: i, t: -i * 0.55 });
+  const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler();
   g.userData.notes = notes;
+  g.userData.noteMesh = noteMesh;
+  /** Place note i (radio-local) or hide it (scale 0). */
+  g.userData.setNote = (i, visible, x = 0, y = 0, z = 0, rz = 0, s = 1) => {
+    if (!visible || s <= 0) noteMesh.setMatrixAt(i, zero);
+    else noteMesh.setMatrixAt(i, _m.compose(_p.set(x, y, z), _q.setFromEuler(_e.set(0, 0, rz)), _s.setScalar(s)));
+    noteMesh.instanceMatrix.needsUpdate = true;
+  };
   return g;
 }
 

@@ -1,16 +1,18 @@
 // Boats for Barnacle Bay: fishing boat, rowboat, sailing dinghy, ferry, cargo boat, wrecked galleon.
 // Waterline = y 0 (place the group at the water surface), bow = +Z. Floating boats bob via
 // userData.bob (amplitude: 0 = still, 1 = default, 2 = choppy). parts.float = the bobbing node.
+// Hulls are hit through their own meshes (no enclosing box collider, so crew and passengers aboard stay
+// shootable); only small job targets (anchor rope, cleat, chest lock) carry enlarged colliders.
 import * as THREE from 'three';
 import { part, merge, xform, rbox, tube } from '../../geo.js';
 import { materials } from '../../../gfx/materials.js';
 import { P } from '../../../gfx/palette.js';
 import { Rng } from '../../../core/rng.js';
 import {
-  bev, lathe, puck, ball, blob, rod, arc, slab, latheBands, lettering, mesh, pivot, finish, paintFaces,
+  bev, lathe, puck, ball, blob, rod, arc, slab, latheBands, mesh, pivot, finish, paintFaces,
   LiveMesh, Anims, ease, shade, boxCollider, ballCollider, collider, noise3, goldMaterial, inside,
 } from './lib.js';
-import { hull, floatRig, digits } from './boatlib.js';
+import { hull, floatRig, digits, hullName } from './boatlib.js';
 
 const GLASS = '#4f8fbf';
 const INK = '#2b2b3a';
@@ -19,6 +21,13 @@ const RUBBER = '#3a3e4c';
 const CREAM = '#fff4e6';
 const UP = new THREE.Vector3(0, 1, 0);
 const lerp = THREE.MathUtils.lerp;
+// default painted names (seeded; pass `name: 'Your Name'`, or `name: false` for none)
+const NAMES = {
+  fishing: ['OLD SALTY', 'REEL LIFE', 'CODFATHER', 'SALTY SUE', 'NAUTI GULL', 'KNOT BAD', 'PLAICE BO'],
+  ferry: ['PUFFIN', 'SEA BISCUIT', 'BARNACLE BELLE', 'DAISY MAY'],
+  cargo: ['BIG BERTHA', 'SLOW BOAT', 'CARGO GO', 'HEAVY HANNA'],
+};
+const boatName = (name, kind, seed) => (name === false ? null : name ?? new Rng(`boatname-${kind}-${seed}`).pick(NAMES[kind]));
 
 /** Pose for a decal flush on the hull side at z (side = +1 starboard, -1 port). */
 function onHull(h, z, side = 1, out = 0.02) {
@@ -66,20 +75,23 @@ function boatFinish(g, { name, parts, surface = 'wood', bob, seed, anims, heave,
   finish(g, { name, parts, surface, anims });
   const node = floatRig(g, { bob, seed, heave, roll, pitch });
   g.userData.parts.float = node;
+  const kick = node.userData.kick;
   g.userData.wobble = (s = 1) => g.userData.anims.play(1.2, (k) => {
-    node.rotation.z = Math.sin(k * Math.PI * 4) * (1 - k) * 0.08 * s;
-  }, { key: 'wobble' });
+    kick.roll = Math.sin(k * Math.PI * 4) * (1 - k) * 0.08 * s;
+  }, { key: 'wobble' }).then((d) => { kick.roll = 0; return d; });
   return g;
 }
 
 // ---------------------------------------------------------------- fishing boat
 
 /**
- * fishingBoat({ seed, color, number, bob = 1 }) — chunky trawler: wheelhouse, mast with signal
- * pennants, net pile with floats, fish boxes, tyre fenders, hull number on both bows. ~7 m.
- * parts: { float, wheelhouse (Object3D, door side), nets, deck (Object3D on the aft deck) }.
+ * fishingBoat({ seed, color, number, name, bob = 1 }) — chunky trawler: wheelhouse, mast with signal
+ * pennants, net pile with floats, fish boxes, tyre fenders, hull number on both bows and a painted name
+ * on both sides aft (seeded pun name, your own `name`, or `name: false`). ~7 m. 2 draw calls (1 unnamed).
+ * parts: { float, wheelhouse (Object3D at the wheelhouse back door), nets (Object3D on the foredeck net
+ * pile: snaggedNet.free({ to }) target), deck (Object3D on the aft deck) }.
  */
-export function fishingBoat({ seed = 1, color, number, bob = 1 } = {}) {
+export function fishingBoat({ seed = 1, color, number, name, bob = 1 } = {}) {
   const rng = new Rng(`fishboat-${seed}`);
   const c = color || rng.pick([P.tomato, P.cobalt, P.teal, '#2f7fd0', P.sunflower]);
   const num = String(number ?? rng.int(2, 98));
@@ -131,18 +143,21 @@ export function fishingBoat({ seed = 1, color, number, bob = 1 } = {}) {
   }
   const g = new THREE.Group();
   g.add(mesh(L, materials.glossy, 'boat'));
+  const nm = boatName(name, 'fishing', seed);
+  if (nm) g.add(hullName(h, nm, { z0: -1.62, z1: -0.08, y: 0.63, height: 0.34, paper: c }));
   const wheelhouse = pivot('wheelhouse', 0, dy, wz - 0.9);
   const deck = pivot('deck', 0, dy, -2.5);
-  g.add(wheelhouse, deck);
-  g.add(boxCollider(2.7, 3.2, 7.2, { y: 1.1 }));
-  return boatFinish(g, { name: 'fishingBoat', parts: { wheelhouse, deck }, surface: 'wood', bob, seed });
+  const nets = pivot('nets', 0, dy + 0.3, 0.55);
+  g.add(wheelhouse, deck, nets);
+  return boatFinish(g, { name: 'fishingBoat', parts: { wheelhouse, deck, nets }, surface: 'wood', bob, seed });
 }
 
 // ---------------------------------------------------------------- rowboat
 
 /**
  * rowboat({ seed, color, bob = 1 }) — clinker-style rowing boat with seats and resting oars.
- * The anchor hangs over the bow on its rope. parts: { float, anchor (pivot), anchorRope (pivot, collider),
+ * A chunky anchor dangles off the bow on a bright orange rope (job: target [anchorRope, anchor]).
+ * parts: { float, anchor (pivot, collider), anchorRope (pivot, collider r 0.24),
  * splash (Object3D where the anchor hits the water), seat (Object3D for a rower/snoozer), oars [L, R]
  * (pivots at the oarlocks) }. userData: dropAnchor() -> Promise (anchor drops, sinks; onSplash(worldPos)
  * fires), anchored, rowing (bool: oars sweep in a rowing stroke).
@@ -174,16 +189,17 @@ export function rowboat({ seed = 1, color, bob = 1 } = {}) {
     L.push(part(arc(0.05, 0.014, Math.PI, 4, 6), '#9aa3b2', { x: lock.x, y: lock.y, z: lock.z, ry: Math.PI / 2 }));
     oarDefs.push({ side, lock });
   }
-  // bow cleat + ring
-  const cleatP = new THREE.Vector3(0, h.gunwaleAt(0.93) + 0.03, h.zAt(0.93));
-  L.push(part(bev(0.16, 0.05, 0.07, 0.02), '#9aa3b2', { x: cleatP.x, y: cleatP.y, z: cleatP.z }));
+  // bow cleat (brass) - the anchor rope is made fast here
+  const cleatP = new THREE.Vector3(0, h.gunwaleAt(0.93) + 0.04, h.zAt(0.93));
+  L.push(part(bev(0.22, 0.07, 0.09, 0.025), '#f0b848', { x: cleatP.x, y: cleatP.y, z: cleatP.z }));
   const g = new THREE.Group();
   g.add(mesh(L, materials.glossy, 'boat'));
   // anchor + rope (LiveMesh pieces so they can move)
   const live = new LiveMesh(materials.toy);
-  const anchor = pivot('anchor', 0, 0.12, h.zAt(1) + 0.16);
+  // a chunky toy anchor (1.3x) dangling just above the water off the bow, on a bright orange rope
+  const anchor = pivot('anchor', 0, 0.52, h.zAt(1) + 0.24);
   anchor.rotation.set(0.1, 0, 0.12);
-  const iron = '#4a5566';
+  const iron = '#3d4a6b';
   const aparts = [
     part(bev(0.05, 0.42, 0.05, 0.015), iron, { y: -0.2 }),
     part(bev(0.3, 0.05, 0.05, 0.015), iron, { y: -0.06 }),
@@ -191,11 +207,11 @@ export function rowboat({ seed = 1, color, bob = 1 } = {}) {
     part(arc(0.17, 0.026, Math.PI, 5, 8), iron, { y: -0.23, rz: Math.PI }),
   ];
   for (const s of [-1, 1]) aparts.push(part(new THREE.ConeGeometry(0.06, 0.12, 3), iron, { x: s * 0.17, y: -0.2, rz: s * 0.4, sz: 0.4 }));
-  live.addPiece(anchor, merge(aparts));
-  anchor.add(ballCollider(0.3, { y: -0.2 }));
+  live.addPiece(anchor, merge(aparts).scale(1.3, 1.3, 1.3));
+  anchor.add(ballCollider(0.36, { y: -0.26 }));
   const rope = pivot('anchorRope', cleatP.x, cleatP.y, cleatP.z);
-  live.addPiece(rope, part(new THREE.CylinderGeometry(0.018, 0.018, 1, 5, 1, true).translate(0, 0.5, 0), ROPE));
-  const ropeCol = collider(new THREE.CylinderGeometry(0.16, 0.16, 1, 6, 1).translate(0, 0.5, 0));
+  live.addPiece(rope, part(new THREE.CylinderGeometry(0.032, 0.032, 1, 6, 1, true).translate(0, 0.5, 0), P.tangerine));
+  const ropeCol = collider(new THREE.CylinderGeometry(0.24, 0.24, 1, 6, 1).translate(0, 0.5, 0));
   rope.add(ropeCol);
   // oars: pivots at the oarlocks, resting with the blades in the water; userData.rowing sweeps them
   const oars = [];
@@ -217,11 +233,10 @@ export function rowboat({ seed = 1, color, bob = 1 } = {}) {
   const splash = pivot('splash', anchor.position.x, 0, anchor.position.z);
   const seat = pivot('seat', 0, gw - 0.1, 0.15);
   g.add(anchor, rope, splash, seat, ...oars, live);
-  g.add(boxCollider(1.5, 0.9, 3.4, { y: 0.2 }));
   const anims = new Anims();
   const ring = new THREE.Vector3();
   const aimRope = () => {
-    ring.set(0, 0.03, 0).applyEuler(anchor.rotation).add(anchor.position);
+    ring.set(0, 0.04, 0).applyEuler(anchor.rotation).add(anchor.position);
     const d = ring.clone().sub(rope.position);
     const len = Math.max(0.01, d.length());
     rope.quaternion.setFromUnitVectors(UP, d.normalize());
@@ -321,12 +336,13 @@ export function dinghy({ seed = 1, color, sailColor = '#fff8ee', bob = 1 } = {})
   L.push(part(bev(0.05, 0.5, 0.36, 0.02), c, { y: -0.12, z: h.zAt(0) - 0.05 }));
   L.push(part(rod([0, 0.35, h.zAt(0) + 0.02], [0, gw + 0.1, h.zAt(0) + 0.7], 0.022, 5), P.woodDark));
   L.push(part(rod([0, mastTop - 0.1, mz], [0, gw + 0.05, h.zAt(1) - 0.1], 0.01, 3), '#9aa3b2'));
-  L.push(part(rod([0.05, 1.0, mz], [0.05, mastTop - 0.05, mz], 0.01, 3), ROPE));
-  // cleat on the mast (the halyard is made fast here: shoot it to hoist)
-  const cleat = pivot('cleat', 0.07, 0.72, mz);
-  L.push(part(bev(0.05, 0.16, 0.05, 0.015), '#9aa3b2', { x: 0.07, y: 0.72, z: mz }));
-  L.push(part(new THREE.TorusGeometry(0.045, 0.018, 4, 8), ROPE, { x: 0.1, y: 0.72, z: mz, ry: Math.PI / 2 }));
-  cleat.add(boxCollider(0.4, 0.45, 0.4, {}));
+  // cleat on the mast: the bright halyard runs down the mast and is wound round it (shoot it to hoist)
+  L.push(part(rod([0.06, 0.8, mz], [0.06, mastTop - 0.05, mz], 0.016, 4), P.tangerine));
+  const cleat = pivot('cleat', 0.09, 0.72, mz);
+  L.push(part(bev(0.07, 0.26, 0.07, 0.02), '#f0b848', { x: 0.08, y: 0.72, z: mz }));
+  L.push(part(new THREE.TorusGeometry(0.075, 0.035, 5, 10), P.tangerine, { x: 0.13, y: 0.7, z: mz, ry: Math.PI / 2 }));
+  L.push(part(new THREE.TorusGeometry(0.06, 0.03, 5, 10), P.tangerine, { x: 0.13, y: 0.77, z: mz, ry: Math.PI / 2 + 0.3 }));
+  cleat.add(boxCollider(0.5, 0.6, 0.5, {}));
   // number on the bow
   for (const side of [-1, 1]) {
     const p = onHull(h, 0.95, side, 0.02);
@@ -358,7 +374,6 @@ export function dinghy({ seed = 1, color, sailColor = '#fff8ee', bob = 1 } = {})
   });
   const seat = pivot('seat', 0, gw - 0.08, 0.1);
   g.add(boom, seat, live);
-  g.add(boxCollider(1.5, 0.8, 3.5, { y: 0.2 }));
   const anims = new Anims();
   live.build();
   boatFinish(g, { name: 'dinghy', parts: { cleat, sail, boom, seat }, surface: 'wood', bob, seed, anims, heave: 0.045, roll: 0.045 });
@@ -448,12 +463,13 @@ function smokePuffs(from, { n = 22, rate = 0.38, color = '#eceef2' } = {}) {
 // ---------------------------------------------------------------- ferry
 
 /**
- * ferry({ seed, color, funnel, smoke = true, bob = 1 }) — little harbour ferry: saloon with a window
- * band, sun deck with rails, bridge, raked striped funnel puffing smoke, lifebuoys, name boards. ~12 m.
- * parts: { float, funnel, smoke (Object3D at the funnel top), gangway (Object3D at the side door) }.
- * userData: setSmoking(bool), toot() (big puffs + funnel shudder).
+ * ferry({ seed, color, funnel, smoke = true, name, bob = 1 }) — little harbour ferry: saloon with a window
+ * band, sun deck with rails, bridge, raked striped funnel puffing smoke, lifebuoys, painted name on both
+ * bows (seeded, `name`, or `name: false`). ~12 m. parts: { float, funnel (Object3D at the funnel base),
+ * smoke (funnel top), gangway (side door) }. userData: setSmoking(bool), toot() (big puffs, the ferry
+ * shudders). 3 draw calls (hull, name, smoke).
  */
-export function ferry({ seed = 1, color, funnel: funnelColor, smoke = true, bob = 1 } = {}) {
+export function ferry({ seed = 1, color, funnel: funnelColor, smoke = true, name, bob = 1 } = {}) {
   const rng = new Rng(`ferry-${seed}`);
   const c = color || rng.pick(['#34466e', P.cobalt, P.teal, '#2f6e5c']);
   const fc = funnelColor || rng.pick([P.sunflower, P.tomato]);
@@ -485,10 +501,8 @@ export function ferry({ seed = 1, color, funnel: funnelColor, smoke = true, bob 
   L.push(part(bev(2.6, 0.1, 1.7, 0.04), c, { y: ry + 1.05, z: bz }));
   L.push(part(rod([0, ry + 1.1, bz - 0.3], [0, ry + 2.3, bz - 0.3], 0.035, 5), '#f4f0e8'));
   L.push(part(new THREE.ConeGeometry(0.14, 0.4, 3), P.tomato, { y: ry + 2.15, z: bz - 0.52, rx: Math.PI / 2, sx: 0.15 }));
-  // name boards + anchor hawses on the bow
+  // anchor hawses on the bow (the painted name goes just aft of them)
   for (const side of [-1, 1]) {
-    const p = onHull(h, 3.9, side, 0.02);
-    L.push(part(lettering(1.6, 0.18, 1, '#fff8ee', {}, rng, 0.02), '#fff8ee', { x: p.x, y: 0.82, z: 3.9, ry: p.ry }));
     const a = onHull(h, 4.9, side, 0.015);
     L.push(part(new THREE.CylinderGeometry(0.12, 0.12, 0.03, 8), RUBBER, { x: a.x, y: 1.1, z: 4.9, rz: Math.PI / 2, ry: a.ry - side * Math.PI / 2 }));
   }
@@ -496,15 +510,16 @@ export function ferry({ seed = 1, color, funnel: funnelColor, smoke = true, bob 
   const fz = sz - 2.4;
   const funnelG = latheBands([[0, 0], [0.5, 0], [0.5, 1.0], [0.53, 1.03], [0.53, 1.33], [0.5, 1.36], [0.5, 1.55], [0.42, 1.6], [0, 1.6]], 12,
     (y, i) => (i === 3 ? '#fff8ee' : i >= 5 ? '#3b3f4f' : fc), { y: ry - 0.05, z: fz, sx: 0.78, rx: -0.12 });
+  L.push(funnelG);
   const g = new THREE.Group();
   g.add(mesh(L, materials.glossy, 'boat'));
+  const nm = boatName(name, 'ferry', seed);
+  if (nm) g.add(hullName(h, nm, { z0: 2.25, z1: 4.55, y: 0.8, height: 0.42, paper: c }));
   const funnel = pivot('funnel', 0, ry - 0.05, fz);
-  funnel.add(mesh([funnelG.applyMatrix4(new THREE.Matrix4().makeTranslation(0, -(ry - 0.05), -fz))], materials.glossy, 'funnelMesh'));
   const smokeP = pivot('smoke', 0, 1.75, -0.2);
   funnel.add(smokeP);
   const gangway = pivot('gangway', 1.7, dy, sz + 3.0);
   g.add(funnel, gangway);
-  g.add(boxCollider(3.9, 4.2, 12, { y: 1.6 }));
   const puffs = smokePuffs(smokeP);
   puffs.on = !!smoke;
   const anims = new Anims();
@@ -514,7 +529,11 @@ export function ferry({ seed = 1, color, funnel: funnelColor, smoke = true, bob 
   g.userData.setSmoking = (on) => { puffs.on = !!on; };
   g.userData.toot = () => {
     puffs.burst(4);
-    return anims.play(0.8, (k) => { const s = 1 + Math.sin(k * Math.PI * 6) * (1 - k) * 0.08; funnel.scale.set(s, 1 + (s - 1) * 1.5, s); }, { key: 'toot' });
+    const kick = g.userData.parts.float.userData.kick;
+    return anims.play(0.9, (k) => { // the whole ferry shudders with the blast
+      kick.pitch = Math.sin(k * Math.PI * 7) * (1 - k) * 0.018;
+      kick.heave = Math.sin(k * Math.PI) * 0.05;
+    }, { key: 'toot' }).then((d) => { kick.pitch = 0; kick.heave = 0; return d; });
   };
   return g;
 }
@@ -522,11 +541,12 @@ export function ferry({ seed = 1, color, funnel: funnelColor, smoke = true, bob 
 // ---------------------------------------------------------------- cargo boat
 
 /**
- * cargoBoat({ seed, color, bob = 1 }) — stubby coaster: stern superstructure with bridge, colourful
- * ribbed containers forward, open hatch aft where cargo is landed. ~14 m.
+ * cargoBoat({ seed, color, name, bob = 1 }) — stubby coaster: stern superstructure with bridge, colourful
+ * ribbed containers forward, open hatch aft where cargo is landed, painted name on both bows (seeded,
+ * `name`, or `name: false`). ~14 m. 2 draw calls (1 unnamed).
  * parts: { float, deck (Object3D: where the crane lands a crate), bridge (Object3D) }.
  */
-export function cargoBoat({ seed = 1, color, bob = 1 } = {}) {
+export function cargoBoat({ seed = 1, color, name, bob = 1 } = {}) {
   const rng = new Rng(`cargo-${seed}`);
   const c = color || rng.pick([P.teal, P.tomato, '#2f7fd0', '#3f9a4e']);
   const h = hull({ L: 14, W: 4.0, H: 1.5, D: 1.1, sheer: 0.45, sternW: 0.9, deck: 'flat', deckDrop: 0.3, rim: 0.12, stations: 16,
@@ -568,17 +588,14 @@ export function cargoBoat({ seed = 1, color, bob = 1 } = {}) {
   }
   L.push(part(bev(2.9, 0.18, 1.8, 0.04), '#6b7280', { y: dy + 0.09, z: -2.2 }));
   L.push(part(rod([0, dy, 5.4], [0, dy + 2.6, 5.4], 0.05, 6), '#f4f0e8'), part(ball(0.08, 0), '#fff4c2', { y: dy + 2.66, z: 5.4 }));
-  for (const side of [-1, 1]) {
-    const p = onHull(h, 4.8, side, 0.02);
-    L.push(part(lettering(1.4, 0.2, 1, '#fff8ee', {}, rng, 0.02), '#fff8ee', { x: p.x, y: 1.0, z: 4.8, ry: p.ry }));
-  }
   fenders(L, h, [-3, 0, 3], 0.7);
   const g = new THREE.Group();
   g.add(mesh(L, materials.glossy, 'boat'));
+  const nm = boatName(name, 'cargo', seed);
+  if (nm) g.add(hullName(h, nm, { z0: 3.35, z1: 6.05, y: 1.08, height: 0.5, paper: c }));
   const deck = pivot('deck', 0, dy + 0.18, -2.2);
   const bridge = pivot('bridge', 0, dy + 2.7, sz + 0.2);
   g.add(deck, bridge);
-  g.add(boxCollider(4.1, 4.5, 14, { y: 1.8 }));
   return boatFinish(g, { name: 'cargoBoat', parts: { deck, bridge }, surface: 'metal', bob, seed, heave: 0.035, roll: 0.02, pitch: 0.012 });
 }
 
@@ -656,9 +673,10 @@ function wreckRock(r, seed, sq = 0.62) {
  * parts: { ship (listing Group), chest (pivot), lid (pivot), lock (pivot, collider), coins (InstancedMesh) }.
  * userData: openChest() -> Promise (lock pops, lid flips, ~44 gold coins spill and settle on the rocks;
  * onOpen(worldPos) fires), opened. Aground, so `bob` is accepted but ignored. Draw calls: 2 (3 with
- * coins out). coinFloor = y (group space) where the coins land.
+ * coins out). Coins land on the rock tops; the ones that miss plop into the sea and sink out of sight
+ * (`coinFloor` = a flat landing height in group space instead, e.g. if the level supplies its own rocks).
  */
-export function wreckedGalleon({ seed = 1, bob = 0, list = 0.24, coinFloor = 0.35 } = {}) {
+export function wreckedGalleon({ seed = 1, bob = 0, list = 0.24, coinFloor = null } = {}) {
   const rng = new Rng(`galleon-${seed}`);
   const plank = ['#8a5530', '#734624'];
   const h = hull({
@@ -758,7 +776,9 @@ export function wreckedGalleon({ seed = 1, bob = 0, list = 0.24, coinFloor = 0.3
   const toShip = ship.matrix.clone().invert();
   // rocks + spilled barrels are authored in group space and baked into the ship mesh (1 draw call)
   const R = [];
-  for (const [x, z, r, sq] of [[1.2, 4.6, 1.7, 0.55], [-1.9, 2.2, 1.5, 0.6], [2.4, -1.8, 1.4, 0.45], [-2.2, -3.2, 1.6, 0.55], [0.6, -5.9, 1.3, 0.6], [3.6, 2.4, 0.9, 0.7], [-3.4, 0.2, 0.8, 0.7]]) {
+  // (the low ledge at (3.0, -0.2) sits right under the hole: the treasure spills onto it)
+  const ROCKS = [[1.2, 4.6, 1.7, 0.55], [-1.9, 2.2, 1.5, 0.6], [2.4, -1.8, 1.4, 0.45], [-2.2, -3.2, 1.6, 0.55], [0.6, -5.9, 1.3, 0.6], [3.6, 2.4, 0.9, 0.7], [-3.4, 0.2, 0.8, 0.7], [3.0, -0.2, 1.15, 0.36]];
+  for (const [x, z, r, sq] of ROCKS) {
     R.push(wreckRock(r, seed + x * 7 + z * 13, sq).applyMatrix4(xform({ x, y: 0.1, z, ry: rng.range(0, 6) })));
   }
   for (const [x, z, rz] of [[3.4, -3.6, 1.3], [4.1, -1.2, 0.2]]) {
@@ -830,19 +850,35 @@ export function wreckedGalleon({ seed = 1, bob = 0, list = 0.24, coinFloor = 0.3
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const one = new THREE.Vector3(1, 1, 1);
+  // where a coin lands: on a rock top (dome approximation), or in the sea (it sinks and vanishes)
+  const floorAt = (x, z) => {
+    if (coinFloor != null) return coinFloor;
+    let y = -1;
+    for (const [rx, rz, r, sq] of ROCKS) {
+      const d = Math.hypot(x - rx, z - rz) / (r * 0.95);
+      if (d < 1) y = Math.max(y, 0.1 + r * sq * 0.82 * Math.sqrt(1 - d * d));
+    }
+    return y;
+  };
+  const gone = new THREE.Matrix4().makeScale(0, 0, 0);
   g.userData.addTick((dt, t) => {
     live.sync(t);
     if (!spilling) return;
     for (let i = 0; i < NC; i++) {
       const c = cs[i];
+      if (c.sunk) continue;
       if (!c.rest) {
         c.v.y -= 9.8 * dt;
         c.p.addScaledVector(c.v, dt);
         c.r.x += c.w.x * dt; c.r.y += c.w.y * dt; c.r.z += c.w.z * dt;
-        if (c.p.y < coinFloor) {
-          c.p.y = coinFloor;
+        const fl = floorAt(c.p.x, c.p.z);
+        if (fl > 0 && c.p.y < fl && c.p.y > fl - 0.35) {
+          c.p.y = fl;
           if (Math.abs(c.v.y) < 1.2) { c.rest = true; c.r.x = Math.PI / 2 * (i % 2 ? 1 : 0.94); c.r.z = 0; }
           c.v.y *= -0.38; c.v.x *= 0.6; c.v.z *= 0.6;
+        } else if (c.p.y < 0) { // plop: sinks with water drag, then disappears
+          c.v.multiplyScalar(Math.exp(-dt * 7));
+          if (c.p.y < -0.35) { c.sunk = true; coins.setMatrixAt(i, gone); continue; }
         }
       } else c.r.y += dt * 0.6;
       m4.compose(c.p, q.setFromEuler(c.r), one);
@@ -869,11 +905,12 @@ export function wreckedGalleon({ seed = 1, bob = 0, list = 0.24, coinFloor = 0.3
     for (let i = 0; i < NC; i++) {
       const c = cs[i];
       c.p.copy(mouth).add(new THREE.Vector3(rng.range(-0.3, 0.3), rng.range(0, 0.1), rng.range(-0.3, 0.3)));
-      const sp = rng.range(1.2, 3.2);
-      c.v.set(out.x * sp + rng.range(-1.2, 1.2), rng.range(3.2, 5.5), out.z * sp + rng.range(-1.2, 1.2));
+      const sp = rng.range(0.5, 1.7); // most land on the rock under the hole, a few plop into the sea
+      c.v.set(out.x * sp + rng.range(-0.7, 0.7), rng.range(2.6, 4.4), out.z * sp + rng.range(-0.7, 0.7));
       c.r.set(rng.range(0, 6), rng.range(0, 6), rng.range(0, 6));
       c.w.set(rng.range(-12, 12), rng.range(-8, 8), rng.range(-12, 12));
       c.rest = false;
+      c.sunk = false;
     }
     coins.visible = true;
     spilling = true;

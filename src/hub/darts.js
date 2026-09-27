@@ -89,11 +89,18 @@ export class Darts {
     this.gun = popGun();
     this.gun.position.set(0.36, -0.245, -0.9);
     this.gun.scale.setScalar(0.44);
+    this.view = { k: 1, ka: 1 }; // gun framing relative to a 31 deg, 16:9 camera (see fitView)
     this.gunAim = new THREE.Quaternion();
     this.recoil = 0;
     this.recoilV = 0;
     this.reload = 0;
     this._rootInv = new THREE.Matrix4();
+  }
+
+  /** Keep the pop-gun the same size and place on screen whatever the camera fov / aspect. */
+  fitView(fov, aspect = 16 / 9) {
+    this.view.k = Math.tan(THREE.MathUtils.degToRad(fov) / 2) / Math.tan(THREE.MathUtils.degToRad(31) / 2);
+    this.view.ka = Math.min(1.2, aspect / (16 / 9));
   }
 
   attachGun(on) {
@@ -177,8 +184,9 @@ export class Darts {
     this.gun.quaternion.slerp(this.gunAim, 1 - Math.exp(-dt * 16));
     this.recoilV += (-120 * this.recoil - 14 * this.recoilV) * dt;
     this.recoil += this.recoilV * dt;
-    this.gun.position.z = -0.9 + this.recoil * 0.05;
-    this.gun.position.y = -0.245 - this.recoil * 0.01;
+    const { k, ka } = this.view;
+    this.gun.scale.setScalar(0.44 * k);
+    this.gun.position.set(0.36 * k * ka, (-0.245 - this.recoil * 0.01) * k, -0.9 + this.recoil * 0.05 * k);
     if (this.reload > 0) {
       this.reload -= dt;
       if (this.reload <= 0) this.gun.userData.loaded.visible = true;

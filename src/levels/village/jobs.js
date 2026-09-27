@@ -1,14 +1,16 @@
 // Puddleby Green: 12 contracts (the dunk tank is the first laugh), 2 secret jobs and 3 Golden Spanners — each with a tell, a reaction
 // and the villagers who care about it. Clues describe the resident's problem (not the target);
 // hints are a spoken nudge. Anyone still waiting after ~45 s starts waving for help ("nag"; staggered).
+// Three more skill jobs (coconut combo, Splat the Rat timing, catch the cricket six) come from games.js.
 import * as THREE from 'three';
 import * as K from '../../world/kit/props/index.js';
 import { Duck, PigeonFlock, Walker } from '../../world/characters/index.js';
 import { P } from '../../gfx/palette.js';
 import { materials } from '../../gfx/materials.js';
-import { put, local, yawTo, facePerch, worldPos, NoteFountain, PropIcon, wateringCan, Leash, v3, circlePath, TAU, routine, every } from './util.js';
+import { put, local, yawTo, facePerch, worldPos, NoteFountain, PropIcon, wateringCan, Leash, v3, circlePath, TAU, routine, every, PERCH } from './util.js';
 import { buntingBundle, dunkTank, openingRibbon, waterButt } from './custom.js';
 import { FOUNTAIN, ROT_W, DIR_W, N_W } from './layout.js';
+import { buildGames } from './games.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const FC = new THREE.Vector3(FOUNTAIN[0], 0, FOUNTAIN[1]);
@@ -45,7 +47,7 @@ export function buildJobs(ctx, S, L, D) {
   // After `after` seconds of play with the job still open (and unlocked), its owner waves for help
   // with a '!' every few seconds and the target does something louder (fn).
   // Staggered so a stuck player hears one new voice every 6 s (nearest problems first), not a chorus.
-  const NAG_ORDER = ['fountain', 'pigeons', 'icecream', 'sign', 'bunting', 'tap', 'kite', 'postman', 'bell'];
+  const NAG_ORDER = ['fountain', 'pigeons', 'icecream', 'sign', 'bunting', 'tap', 'kite', 'postman', 'bell', 'coconuts', 'rat', 'six'];
   const nags = new Map();
   // idle: [sticker, every s] = the owner's calm tell from the start (villagers have no automatic stickers
   // here, see cast.js), replaced by the '!' escalation and cleared when the job is done.
@@ -101,7 +103,8 @@ export function buildJobs(ctx, S, L, D) {
   const dk = (lx, lz) => { const [x, z] = local(DK[0], DK[1], DKR, lx, lz); return new THREE.Vector3(x, 0, z); };
   const target = tank.userData.parts.target;
   ctx.collider(target, new THREE.SphereGeometry(0.78, 10, 8), { y: 0 });
-  const sarge = cast.person({ preset: 'police', seed: 4001 }, 0, 0, DKR, 'sit', { height: 0.5 }, {
+  // short back and sides under the helmet (a long random bob read as floppy dog ears at 8x)
+  const sarge = cast.person({ preset: 'police', seed: 4001, hair: { style: 'short', color: '#4a3526' }, facial: 'handlebar' }, 0, 0, DKR, 'sit', { height: 0.5 }, {
     name: 'Sergeant Bumble', voice: 'man',
     lines: until('dunk', ["Can't hit a barn door, you lot!", 'Missed me! Missed me!', "Is that the best Puddleby's got?"], ['Oi! That was my good helmet.', "I'll have you for this! ...Lovely day for it, mind."]),
   });
@@ -170,8 +173,8 @@ export function buildJobs(ctx, S, L, D) {
         },
       });
       ctx.delay(0.6, () => { ctx.sfx('yay', { position: worldPos(throwers[0].root).setY(1.2), voice: 'kid' }); ctx.sfx('crowdCheer', { position: wp, volume: 0.8 }); });
-      throwers.forEach((k, i) => ctx.delay(0.5 + i * 0.2, () => { k.setAction('cheer'); k.celebrate(); }));
-      ctx.delay(0.9, () => cast.cheerNear(wp, 14, { except: [sarge, ...throwers], say: 'Ha! Got him!' }));
+      throwers.forEach((k, i) => ctx.delay(0.5 + i * 0.2, () => { k.setAction('cheer'); if (i) cast.hop(k); else k.celebrate(); }));
+      ctx.delay(0.9, () => cast.cheerNear(wp, 14, { except: [sarge, ...throwers], say: 'Ha! Got him!', hearts: 1 }));
       ctx.delay(1.2, () => ctx.fx.burst('confetti', wp.clone().add(v3(0, 2.2, 0)), UP, { scale: 1.2 }));
       ctx.delay(2.6, () => cast.say(sarge, "Oi! ...Actually, it's quite refreshing.", 2.8));
       ctx.delay(4.5, () => throwers.forEach((k, i) => k.setAction(i ? 'clap' : 'dance')));
@@ -234,7 +237,7 @@ export function buildJobs(ctx, S, L, D) {
       tapper.pointAt(null);
       tapper.perform('cheer', 2.5);
       ctx.delay(2.6, () => tapper.setAction('dance'));
-      J.fountainKids?.forEach((k) => k.celebrate());
+      J.fountainKids?.forEach((k) => cast.hop(k));
       ctx.delay(2.2, () => {
         bathers.root.visible = true;
         bathers.birds.forEach((b, i) => { b.root.position.y = 8 + i; b.controller.takeOff(b.root.position.clone().add(v3(0.3, -1, 0.2))); });
@@ -265,22 +268,27 @@ export function buildJobs(ctx, S, L, D) {
   const pathDir = new THREE.Vector3(-24.2 - gate[0], 0, -23.2 - gate[1]).normalize();
   const side = new THREE.Vector3(-pathDir.z, 0, pathDir.x);
   const gp = (along, across) => at(gate[0] + pathDir.x * along + side.x * across, gate[1] + pathDir.z * along + side.z * across);
-  bride.root.position.copy(gp(3.2, -0.55));
-  groom.root.position.copy(gp(3.2, 0.55));
-  vicar.root.position.copy(gp(1.4, 1.5));
-  const towerLook = worldPos(bell);
-  for (const p of [bride, groom]) { p.faceTowards(towerLook); p.lookAt(towerLook); }
-  vicar.faceTowards(gp(3.2, 0));
-  const guestSpots = [[5.4, -1.9, 'talk'], [5.6, 1.9, 'clap'], [6.9, -0.6, 'impatient'], [7.1, 1.1, 'talk']];
+  bride.root.position.copy(gp(3.4, -0.6));
+  groom.root.position.copy(gp(3.4, 0.6));
+  vicar.root.position.copy(gp(1.3, 1.7));
+  // the tower is right behind them as seen from the van, so they face the perch (turned a touch toward
+  // each other) and gaze up at the sky; a lookAt the belfry would swing their backs to the perch again
+  const perchYaw = (p) => yawTo(p.root.position, PERCH);
+  bride.root.rotation.y = perchYaw(bride) - 0.3;
+  groom.root.rotation.y = perchYaw(groom) + 0.3;
+  vicar.root.rotation.y = perchYaw(vicar) + 0.45;
+  const guestSpots = [[2.2, -2.3, 'talk'], [1.7, 2.6, 'clap'], [4.7, -2.5, 'impatient'], [5.0, 2.4, 'talk']];
   const guests = guestSpots.map(([along, across, act], i) => {
     const g = cast.person({ seed: 1210 + i, hat: i === 0 ? { type: 'sunhat', color: '#ffb8c2', band: P.violet } : i === 3 ? { type: 'tophat', color: '#3d4a6b' } : undefined, top: i === 1 ? { type: 'dress', color: P.violet } : i === 3 ? { type: 'suit', color: '#5b6b7a' } : undefined, accessory: null, age: 'adult' },
       0, 0, 0, act, {}, { name: 'guest', lines: until('bell', ['What a lovely couple.', 'Is it time for cake yet?', 'Ooh, I do love a wedding.'], ['Throw the bouquet!', 'Is it time for cake yet?', 'I always cry at weddings.']) });
     g.root.position.copy(gp(along, across));
-    g.faceTowards(gp(3.2, 0));
+    const c = gp(3.4, 0), yp = perchYaw(g), yc = yawTo(g.root.position, c);
+    g.root.rotation.y = yp + Math.atan2(Math.sin(yc - yp), Math.cos(yc - yp)) * 0.5; // 3/4: the couple and the perch
     return g;
   });
   const vicarR = routine(ctx, vicar, [['checkWatch', 3.2], ['shrug', 1.8], ['lookUp', 2.6]], 1);
   const brideR = routine(ctx, bride, [['lookUp', 3.4], ['idle', 1.6], ['lookUp', 2.4], ['shrug', 1.6]], 0.5);
+  const groomR = routine(ctx, groom, [['lookUp', 2.8], ['checkWatch', 2], ['lookUp', 2.6], ['shrug', 1.4]], 1.6);
   let dings = 0;
   const ringRound = (n, gap = 1.25, pitch = 1) => {
     for (let i = 0; i < n; i++) ctx.delay(i * gap, () => { church.userData.ringBell(0.8); ctx.sfx('bell', { position: worldPos(bell), pitch: i % 2 ? pitch * 0.84 : pitch }); });
@@ -305,6 +313,7 @@ export function buildJobs(ctx, S, L, D) {
       quiet('bell');
       vicarR.on = false;
       brideR.on = false;
+      groomR.on = false;
       ringRound(6, 1.3, 1);
       const conf = gp(3.2, 0).setY(3.4);
       for (let i = 0; i < 4; i++) ctx.delay(0.3 + i * 0.45, () => ctx.fx.burst('confetti', conf.clone().add(v3(rng.range(-1.5, 1.5), rng.range(0, 1), rng.range(-1, 1))), UP, { scale: 1.1 }));
@@ -314,11 +323,11 @@ export function buildJobs(ctx, S, L, D) {
       bride.faceTowards(groom.root.position);
       groom.faceTowards(bride.root.position);
       bride.setAction('idle'); groom.setAction('idle');
-      bride.celebrate(); groom.celebrate();
+      cast.hop(bride); cast.hop(groom);
       ctx.delay(3.0, () => { bride.celebrate(); groom.celebrate(); cast.say(bride, 'Mwah!', 1.6); ctx.fx.burst('pop', worldPos(bride.root).lerp(worldPos(groom.root), 0.5).add(v3(0, 2, 0)), UP, { scale: 0.9, color: ['#ff6b8a', '#ff9ec4', '#fff8ee'] }); });
       ctx.delay(4.6, () => { bride.setAction('dance'); groom.setAction('dance'); });
       vicar.setAction('cheer');
-      guests.forEach((g, i) => ctx.delay(0.2 * i, () => { g.setAction(i % 2 ? 'clap' : 'cheer'); g.celebrate(); ctx.fx.burst('pop', worldPos(g.root).add(v3(0, 1.8, 0)), UP, { scale: 0.8 }); }));
+      guests.forEach((g, i) => ctx.delay(0.2 * i, () => { g.setAction(i % 2 ? 'clap' : 'cheer'); cast.hop(g); if (i < 2) ctx.fx.burst('pop', worldPos(g.root).add(v3(0, 1.8, 0)), UP, { scale: 0.8 }); }));
       ctx.delay(0.6, () => cast.say(vicar, 'You may now kiss the bride!', 2.3));
     },
   });
@@ -333,10 +342,12 @@ export function buildJobs(ctx, S, L, D) {
   const signPos = worldPos(signPivot);
   const landlord = cast.person({ seed: 1301, top: { type: 'apron', color: '#fbf7f0', color2: '#fbf7f0', apronStripe: '#2f7d62', sleeves: 'short' }, bottom: { type: 'trousers', color: '#34384a' }, hair: { style: 'balding', color: '#5a3a22' }, facial: 'handlebar', hat: null, accessory: null, build: { belly: 1, width: 1.25 } },
     0, 0, 0, 'scratch', {}, { name: 'landlord', lines: until('sign', ['Wonky again! Every blooming week.', "Can't have a wonky sign at the Wonky Pint.", 'Fancy a pint?'], ['Straight as a die!', 'Fancy a pint?', 'Best sign in the county, that.']) });
-  landlord.root.position.copy(pw(2.4, 8.4));
-  landlord.faceTowards(signPos);
-  landlord.lookAt(signPos);
-  const landlordR = routine(ctx, landlord, [['scratch', 2.8], ['point', 2.4, { at: signPos }], ['shrug', 1.8], ['idle', 2.2]], 0.8);
+  // at the north end of his frontage: body three-quarters to the van, head turned up at the sign
+  // (from in front of the sign he only ever showed the perch the back of his head)
+  landlord.root.position.copy(pw(-6.5, 6.4));
+  landlord.root.rotation.y = (() => { const p = landlord.root.position, a = yawTo(p, PERCH), b = yawTo(p, signPos); return a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * 0.3; })();
+  const glare = (p) => { p.lookAt(signPos, 2.6); p.setAction('point', { at: signPos }); }; // head-only turn, no body swing
+  const landlordR = routine(ctx, landlord, [['scratch', 2.8], [glare, 2.6], ['shrug', 1.8], ['idle', 2.2]], 0.8);
   const creak = tellLoop('signCreak', { position: signPivot, swing: 1.5, volume: 0.75 }, () => open('sign'));
   let signKick = 0;
   ctx.onUpdate((dt, t) => { // added after the kit's own swing: a hard wobble while the landlord nags
@@ -603,7 +614,7 @@ export function buildJobs(ctx, S, L, D) {
       vanMan.perform('cheer', 2.2);
       ctx.delay(2.3, () => vanMan.setAction('wave'));
       cast.say(vanMan, 'Peace and quiet at last!', 3);
-      queue.forEach((q) => q.celebrate());
+      queue.forEach((q, i) => (i ? cast.hop(q) : q.celebrate()));
     },
     onFail() {
       quiet('icecream');
@@ -865,6 +876,10 @@ export function buildJobs(ctx, S, L, D) {
   });
   nag('tap', { owner: grubb, r: grubbR, big: 'angry', tell: '!', idle: ['anger', 10], lines: ['Is nobody going to turn that off?', 'By the door! THE DOOR!'], fn: () => { ctx.fx.emit('blob', tp.clone().setY(0.9), 10, { dir: v3(0, -1, 0), speed: 1.5, spread: 0.4, size: 0.06, gravity: 9, life: 0.6, color: ['#bfeeff', '#8fdcf7'] }); } });
   J.grubb = grubb;
+
+  // ================================================================ 12-14. skill jobs (games.js)
+  // a three-coconut combo, Splat the Rat (timing) and catching the cricket six (moving target)
+  J.games = buildGames(ctx, S, L, D, J, { nag, quiet, until, tellLoop, open, done, stateOf });
 
   // ================================================================ secret: the weathervane
   const vane = church.userData.parts.weathervane;

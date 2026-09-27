@@ -12,8 +12,12 @@ import { Effect, EffectAttribute, BlendFunction, Pass } from 'postprocessing';
 
 export const VIEWMODEL_LAYER = 5;
 
-/** Live view state published by the Renderer (e.g. particles skip the muzzle puff while scoped). */
-export const viewState = { scope: 0 };
+/**
+ * Live view state published by the Renderer: scope blend (particles skip the muzzle puff while scoped),
+ * the active camera (particles sort back-to-front and keep soft hits behind targets) and the viewport
+ * height in CSS px (particles clamp their on-screen size).
+ */
+export const viewState = { scope: 0, camera: null, height: 900 };
 
 // NOTE pmndrs EffectPass sorts merged effects by attribute (CONVOLUTION > DEPTH > NONE, stable), so a
 // DEPTH effect always runs before NONE effects such as Bloom/ToneMapping. The depth-based edge darkening is

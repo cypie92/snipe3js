@@ -1,10 +1,12 @@
 // WebGL renderer + post-processing stack (pmndrs postprocessing + N8AO).
 // Pass order (high): Render -> N8AO (half res) -> DOF (half res: scoped = focus on the reticle target,
-//   unscoped = subtle "miniature" backdrop blur) -> Overlay (first-person rifle, drawn after AO) ->
+//   unscoped = subtle "miniature" blur of the far backdrop only) -> Overlay (first-person rifle, drawn after AO) ->
 //   Grade pass [scope lens CA | FXAA, silhouette darkening, bloom, tone map, grade + vignette] -> SMAA.
 // The LAST pass must always stay enabled (pmndrs only routes the last pass to the screen); optional passes
 // (DOF, overlay) sit in the middle. Quality presets only change which passes exist and their resolution.
 // Runtime switches (setScope, setToggles, setGrade) only touch uniforms/enabled flags: no shader recompiles.
+// Shadow casters are culled per frame against the view (see installShadowCulling): only casters whose shadow
+// can land on screen are drawn into the sun's shadow map.
 import * as THREE from 'three';
 import {
   EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect, SMAAPreset, FXAAEffect,
@@ -50,9 +52,10 @@ export const GRADE_DEFAULTS = {
   outlineThreshold: 0.022,
   outlineFade: [150, 330],
   bloom: { intensity: 0.55, threshold: 1.05, smoothing: 0.35, radius: 0.72 },
-  // unscoped "miniature" DOF (toggles.tilt): blur ramps in metres (near: sharp beyond [1], far: blurred
-  // beyond [1]); the whole 25-150 m playfield stays sharp
-  tilt: { near: [4, 14], far: [160, 420], bokeh: 1.6 },
+  // unscoped "miniature" DOF (toggles.tilt): only the far backdrop softens (blur ramps in over [0]..[1] m).
+  // Nothing near the lens is ever blurred (crow's-nest rail, office, bullet-cam and intro close-ups), and
+  // the whole 25-150 m playfield stays sharp.
+  tilt: { far: [160, 420], bokeh: 1.6 },
   ao: { radius: 3.2, falloff: 1.0, intensity: 3.6, color: '#2a2552' },
 };
 
@@ -99,6 +102,11 @@ export class Renderer {
     this.toggles = { ao: true, bloom: true, outline: true, grade: true, dof: true, lens: true, tilt: !!this.q.tilt };
     this.viewmodel = null;
     this.vmSearch = 0;
+    this.shadowCull = true; // view-dependent shadow caster culling (A/B: renderer.shadowCull = false)
+    this.dofNearSkip = true; // miniature DOF skips its near-field passes (A/B: renderer.dofNearSkip = false)
+    this.shadowStats = { casters: 0, culled: 0 };
+    this._clear = new THREE.Color();
+    this.installShadowCulling();
   }
 
   /** Switch quality preset at runtime (pixel ratio, post stack, shadow map resolution). */
@@ -116,12 +124,14 @@ export class Renderer {
   attach(scene, camera) {
     this.scene = scene;
     this.camera = camera;
+    viewState.camera = camera;
     this.applyShadowQuality();
     this.build();
   }
 
   setCamera(camera) {
     this.camera = camera;
+    viewState.camera = camera;
     this.build();
   }
 
@@ -212,6 +222,7 @@ export class Renderer {
           'gl_FragColor.rg=vec2(1.0-smoothstep(uNear.x,uNear.y,distance),smoothstep(uFar.x,uFar.y,distance));');
       this.cocPatched = coc.fragmentShader !== src;
       coc.needsUpdate = true;
+      this.patchFarOnly(this.dof);
       this.dofPass = new EffectPass(camera, this.dof);
       this.dofPass.enabled = false;
       composer.addPass(this.dofPass);
@@ -260,7 +271,7 @@ export class Renderer {
     composer.addPass(gradePass);
     this.passes.push(`grade(${effects.map((e) => e.name.replace('Effect', '')).join('+')})`);
 
-    this.warm = 3; // render the (invisible) DOF chain for a few frames so its shaders compile at load
+    this.warm = 3; // run the whole DOF chain for a few frames so every one of its shaders compiles at load
 
     let last = gradePass;
     if (q.aa === 'smaa') {
@@ -307,6 +318,7 @@ export class Renderer {
 
   setSize(w, h) {
     this.size.set(w, h);
+    viewState.height = h; // CSS px: particles keep minimum / maximum on-screen sizes in these units
     this.renderer.setSize(w, h, false);
     this.composer?.setSize(w, h);
     this.applyGrade();
@@ -351,11 +363,13 @@ export class Renderer {
     if (this.dofPass) {
       const scoped = a > 0.02 && this.toggles.dof;
       const mini = !scoped && this.toggles.tilt && this.cocPatched;
-      const warm = this.warm > 0 && !scoped && !mini;
+      const warm = this.warm > 0;
       if (this.warm > 0) this.warm--;
       this.dofPass.enabled = scoped || mini || warm;
+      // miniature = far-only: the near-field passes are skipped (their output would be zero anyway)
+      this.dofFarOnly = mini && !warm && this.dofNearSkip;
       const coc = this.dof.cocMaterial;
-      if (warm) {
+      if (warm && !scoped && !mini) {
         if (this.cocPatched) {
           coc.uniforms.uNear.value.set(-2, -1);
           coc.uniforms.uFar.value.set(1e6, 2e6);
@@ -377,7 +391,7 @@ export class Renderer {
         this.dof.bokehScale = THREE.MathUtils.smoothstep(a, 0.02, 1) * THREE.MathUtils.clamp(1.0 + zoom * 0.1, 1.2, 1.8);
       } else if (mini) {
         const tl = this.grade.tilt;
-        coc.uniforms.uNear.value.set(tl.near[0], tl.near[1]);
+        coc.uniforms.uNear.value.set(-2, -1); // never blur anything close to the lens
         coc.uniforms.uFar.value.set(tl.far[0], tl.far[1]);
         this.dof.bokehScale = tl.bokeh;
       }
@@ -386,6 +400,123 @@ export class Renderer {
     if (this.gradeFx) this.gradeFx.scope = THREE.MathUtils.smoothstep(a, 0.3, 1);
     this.composer.render(dt);
     this.sanitizeAO();
+  }
+
+  /**
+   * Miniature mode only blurs the far backdrop, so the DOF's near-field work (CoC blur + two near bokeh
+   * passes, 6 draws at half res) would only ever produce zeros: skip it and clear the near CoC buffer once
+   * so a stale scoped frame can never bleed into the composite.
+   */
+  patchFarOnly(dof) {
+    this.dofFarOnly = false;
+    // internals of pmndrs DepthOfFieldEffect (6.x): if they ever change, keep the stock (full) update
+    if (!dof.cocPass || !dof.maskPass || !dof.bokehFarBasePass || !dof.bokehFarFillPass || !dof.renderTargetCoCBlurred) return;
+    let nearClean = false;
+    const full = dof.update.bind(dof);
+    dof.update = (renderer, inputBuffer, deltaTime) => {
+      if (!this.dofFarOnly) {
+        nearClean = false;
+        return full(renderer, inputBuffer, deltaTime);
+      }
+      dof.cocPass.render(renderer, null, dof.renderTargetCoC);
+      dof.maskPass.render(renderer, inputBuffer, dof.renderTargetMasked);
+      dof.bokehFarBasePass.render(renderer, dof.renderTargetMasked, dof.renderTarget);
+      dof.bokehFarFillPass.render(renderer, dof.renderTarget, dof.renderTargetFar);
+      if (!nearClean) {
+        this.clearTarget(dof.renderTargetCoCBlurred);
+        nearClean = true;
+      }
+    };
+  }
+
+  clearTarget(rt) {
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    r.getClearColor(this._clear);
+    const alpha = r.getClearAlpha();
+    r.setRenderTarget(rt);
+    r.setClearColor(0x000000, 0);
+    r.clear(true, false, false);
+    r.setClearColor(this._clear, alpha);
+    r.setRenderTarget(prev);
+  }
+
+  /**
+   * View-dependent shadow caster culling. The sun's shadow frustum spans the whole level, but a caster only
+   * matters this frame if its shadow can land inside the camera view: its bounding sphere is swept along
+   * the light down to the ground and the capsule is tested against the view frustum. Casters that fail are
+   * skipped for this shadow render only (restored right after). Walls, roofs and props between a caster
+   * and the ground all lie on the swept capsule, so a visible shadow is never dropped. Scoped views skip
+   * most of the level; the overview skips what lies beside and behind the camera.
+   */
+  installShadowCulling() {
+    const sm = this.renderer.shadowMap;
+    const orig = sm.render.bind(sm);
+    const frustum = new THREE.Frustum();
+    const m = new THREE.Matrix4();
+    const sph = new THREE.Sphere();
+    const L = new THREE.Vector3();
+    const T = new THREE.Vector3();
+    const end = new THREE.Vector3();
+    const skipped = [];
+    let casters = [];
+    let scanScene = null;
+    let scanKids = -1;
+    let scanIn = 0;
+    const GROUND = -1.5; // lowest receiver (m)
+    const visibleCapsule = (c, e, rad) => {
+      for (const pl of frustum.planes) {
+        if (pl.distanceToPoint(c) < -rad && pl.distanceToPoint(e) < -rad) return false;
+      }
+      return true;
+    };
+    sm.render = (lights, scene, camera) => {
+      if (!this.shadowCull || (!sm.autoUpdate && !sm.needsUpdate) || !sm.enabled || lights.length !== 1 || !lights[0].isDirectionalLight || !camera?.isPerspectiveCamera) {
+        return orig(lights, scene, camera);
+      }
+      const light = lights[0];
+      L.setFromMatrixPosition(light.matrixWorld).sub(T.setFromMatrixPosition(light.target.matrixWorld)).normalize();
+      if (L.y < 0.08) return orig(lights, scene, camera); // grazing sun: shadows too long to bound
+      // re-collect casters when the scene changes (a level or the office was added/removed) and every
+      // 30 frames otherwise; anything not collected yet is simply rendered (never wrongly culled)
+      if (scanScene !== scene || scanKids !== scene.children.length || scanIn-- <= 0) {
+        casters = [];
+        scene.traverse((o) => { if (o.castShadow && o.frustumCulled && (o.isMesh || o.isLine || o.isPoints)) casters.push(o); });
+        scanScene = scene;
+        scanKids = scene.children.length;
+        scanIn = 30;
+      }
+      m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      frustum.setFromProjectionMatrix(m);
+      for (const o of casters) {
+        if (!o.castShadow || !o.visible) continue;
+        if (o.boundingSphere !== undefined) {
+          if (o.boundingSphere === null) o.computeBoundingSphere();
+          sph.copy(o.boundingSphere);
+        } else {
+          const g = o.geometry;
+          if (!g) continue;
+          if (g.boundingSphere === null) g.computeBoundingSphere();
+          sph.copy(g.boundingSphere);
+        }
+        sph.applyMatrix4(o.matrixWorld);
+        const rad = sph.radius * 1.1 + 0.35; // wind sway / animation slack
+        const t = Math.max(0, (sph.center.y - GROUND + rad) / L.y);
+        end.copy(sph.center).addScaledVector(L, -t);
+        if (!visibleCapsule(sph.center, end, rad)) {
+          o.castShadow = false;
+          skipped.push(o);
+        }
+      }
+      this.shadowStats.casters = casters.length;
+      this.shadowStats.culled = skipped.length;
+      try {
+        return orig(lights, scene, camera);
+      } finally {
+        for (const o of skipped) o.castShadow = true;
+        skipped.length = 0;
+      }
+    };
   }
 
   /**
@@ -407,7 +538,10 @@ export class Renderer {
   /** Pass list + buffer sizes (perf notes / look-dev HUD). */
   stats() {
     const s = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    return { quality: this.quality, buffer: `${s.x}x${s.y}`, passes: this.passes.join(' > ') };
+    return {
+      quality: this.quality, buffer: `${s.x}x${s.y}`, passes: this.passes.join(' > '),
+      shadowCasters: this.shadowStats.casters, shadowCulled: this.shadowStats.culled,
+    };
   }
 
   get info() {

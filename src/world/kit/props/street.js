@@ -7,7 +7,7 @@ import { P } from '../../../gfx/palette.js';
 import { Rng } from '../../../core/rng.js';
 import {
   bev, lathe, puck, ball, rod, arc, slab, latheBands, lettering, mesh, pivot, finish,
-  boxCollider, ballCollider, Anims, ease, LiveMesh, shade, lean,
+  boxCollider, ballCollider, Anims, ease, LiveMesh, shade, lean, wordSign, signDecal, fitWords, SIGN_INK,
 } from './lib.js';
 import { mooringBollard } from './harbour.js';
 
@@ -255,10 +255,15 @@ function arrowShape(len = 0.95, h = 0.26) {
   return s;
 }
 
+/** Default fingerpost destinations (seeded): the other locations + a village joke or two. */
+const PLACES = ['BARNACLE BAY', 'WOBBLETON', 'PICKLE PARK', 'THE FETE', 'NOWHERE', 'TEA ROOM', 'DUCK POND', 'SEASIDE'];
+
 /**
- * signpost({ seed, height = 2.7, arrows: [{ yaw (rad), color, len }] })
- * Each arrow board is a separate pivot (parts.arrows[i], rotate .rotation.y) drawn in 1 LiveMesh.
- * userData: spinArrow(i|board, turns = 1), pointArrow(i|board, yaw). 2 draw calls.
+ * signpost({ seed, height = 2.7, arrows: [{ yaw (rad), color, len, text }] })
+ * Each arrow board is a separate pivot (parts.arrows[i], rotate .rotation.y) drawn in 1 LiveMesh; its
+ * words (`text`, default a seeded destination; '' = none) are painted on both faces from the sign atlas
+ * and follow the arrow (1 more LiveMesh). userData: spinArrow(i|board, turns = 1), pointArrow(i|board, yaw).
+ * 3 draw calls (2 without words).
  */
 export function signpost({ seed = 1, height = 2.7, arrows, tilt = 0.05 } = {}) {
   const rng = new Rng(`sign-${seed}`);
@@ -272,6 +277,8 @@ export function signpost({ seed = 1, height = 2.7, arrows, tilt = 0.05 } = {}) {
   const g = new THREE.Group();
   g.add(mesh(L, materials.toy, 'post'));
   const live = new LiveMesh(materials.toy);
+  const words = new Map(); // atlas material -> LiveMesh of word decals following the arrows
+  const places = new Rng(`sign-places-${seed}`).shuffle(PLACES);
   const boards = [];
   arrows.forEach((a, i) => {
     const y = height - 0.3 - i * 0.36;
@@ -279,22 +286,33 @@ export function signpost({ seed = 1, height = 2.7, arrows, tilt = 0.05 } = {}) {
     piv.rotation.y = a.yaw ?? 0;
     const len = a.len ?? 0.95;
     const col = a.color || cols[i % cols.length];
-    const text = a.textColor || (col === P.sunflower ? P.ink : '#fff8ee');
-    const geo = merge([
-      part(slab(arrowShape(len, 0.27), 0.05, 0.014), col, { x: 0.07 }),
-      part(lettering(len * 0.62, 0.12, 1, text, {}, rng, 0.014), text, { x: 0.07 + len * 0.4, z: 0.047 }),
-      part(lettering(len * 0.62, 0.12, 1, text, {}, rng, 0.014), text, { x: 0.07 + len * 0.4, z: -0.047 }),
-    ]);
-    live.addPiece(piv, geo);
+    const ink = a.textColor || (col === P.sunflower ? P.ink : '#fff8ee');
+    live.addPiece(piv, part(slab(arrowShape(len, 0.27), 0.05, 0.014), col, { x: 0.07 }));
+    const txt = a.text ?? places[i % places.length];
+    if (txt) {
+      const x0 = 0.1, x1 = 0.07 + len - 0.17, w = x1 - x0;
+      const face = wordSign(txt, w, 0.2, { paper: col, ink, keyline: 0, bounce: 0.6, pad: 0.04, px: 320, round: 0 });
+      const back = face.geometry.clone().rotateY(Math.PI).translate((x0 + x1) / 2, 0, -0.042);
+      face.geometry.translate((x0 + x1) / 2, 0, 0.042);
+      if (!words.has(face.material)) words.set(face.material, new LiveMesh(face.material));
+      const wl = words.get(face.material);
+      wl.addPiece(piv, face.geometry);
+      wl.addPiece(piv, back);
+    }
     piv.add(boxCollider(len + 0.1, 0.36, 0.16, { x: 0.07 + len / 2 }));
     g.add(piv);
     boards.push(piv);
   });
   g.add(live);
+  for (const wl of words.values()) { wl.castShadow = false; wl.name = 'words'; g.add(wl); }
   lean(g, rng, tilt);
   live.build();
+  for (const wl of words.values()) wl.build();
   const anims = new Anims();
-  finish(g, { name: 'signpost', parts: { arrows: boards }, surface: 'wood', anims, tick: (dt, t) => live.sync(t) });
+  finish(g, {
+    name: 'signpost', parts: { arrows: boards }, surface: 'wood', anims,
+    tick: (dt, t) => { live.sync(t); for (const wl of words.values()) wl.sync(t); },
+  });
   const get = (b) => (typeof b === 'number' ? boards[b] : b);
   g.userData.spinArrow = (b, turns = 1) => {
     const p = get(b);
@@ -313,7 +331,37 @@ export function signpost({ seed = 1, height = 2.7, arrows, tilt = 0.05 } = {}) {
 
 const PAPER = ['#fff4d6', '#ffe590', '#c2e4ff', '#ffc8d6', '#c9f0d6', '#f4e8ff'];
 
-/** noticeBoard({ seed }) — roofed village notice board with pinned notes and a LOST CAT poster. */
+/** Painted LOST CAT poster (canvas). */
+function drawLostCat(ctx, w, h) {
+  ctx.fillStyle = '#fff8ee';
+  ctx.fillRect(0, 0, w, h);
+  const words = (t, y, size) => fitWords(ctx, t, w / 2, y, w * 0.9, size, { fill: P.tomato, bounce: 0.8, twoLines: false });
+  words('LOST', h * 0.15, h * 0.24);
+  words('CAT', h * 0.87, h * 0.2);
+  const x = w / 2, y = h * 0.5, r = w * 0.27;
+  ctx.lineWidth = r * 0.09;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = SIGN_INK;
+  ctx.fillStyle = P.tangerine;
+  for (const s of [-1, 1]) { // ears
+    ctx.beginPath();
+    ctx.moveTo(x + s * r * 0.95, y - r * 0.2);
+    ctx.lineTo(x + s * r * 0.8, y - r * 1.15);
+    ctx.lineTo(x + s * r * 0.2, y - r * 0.8);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = SIGN_INK;
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(x + s * r * 0.36, y - r * 0.1, r * 0.1, r * 0.16, 0, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = '#ff7eb6';
+  ctx.beginPath(); ctx.moveTo(x - r * 0.12, y + r * 0.18); ctx.lineTo(x + r * 0.12, y + r * 0.18); ctx.lineTo(x, y + r * 0.32); ctx.closePath(); ctx.fill();
+  ctx.lineWidth = r * 0.05;
+  for (const s of [-1, 1]) for (const k of [-1, 1]) { // whiskers
+    ctx.beginPath(); ctx.moveTo(x + s * r * 0.3, y + r * 0.32); ctx.lineTo(x + s * r * 1.05, y + r * (0.25 + k * 0.14)); ctx.stroke();
+  }
+}
+
+/** noticeBoard({ seed }) — roofed village notice board with pinned notes and a painted LOST CAT poster. 2 draw calls. */
 export function noticeBoard({ seed = 1, tilt = 0.025 } = {}) {
   const rng = new Rng(`notice-${seed}`);
   const frame = rng.pick([P.woodDark, '#2f6e5c', '#34466e']);
@@ -327,7 +375,7 @@ export function noticeBoard({ seed = 1, tilt = 0.025 } = {}) {
   for (const s of [-1, 1]) L.push(part(bev(1.12, 0.07, 0.5, 0.03), P.roofTerracotta, { x: s * 0.5, y: 2.32, z: 0.02, rz: s * -0.45 }));
   L.push(part(bev(0.12, 0.1, 0.52, 0.04), shade(P.roofTerracotta, -0.2), { y: 2.56, z: 0.02 }));
   const notes = [
-    [-0.55, 1.68, 0.3, 0.36], [-0.18, 1.72, 0.28, 0.3], [0.52, 1.62, 0.34, 0.44], [-0.5, 1.26, 0.34, 0.28], [0.08, 1.3, 0.3, 0.4],
+    [-0.62, 1.7, 0.28, 0.34], [-0.3, 1.74, 0.26, 0.28], [0.02, 1.7, 0.3, 0.36], [-0.5, 1.28, 0.34, 0.3], [-0.1, 1.3, 0.28, 0.36],
   ];
   notes.forEach(([x, y, w, h], i) => {
     const rz = rng.range(-0.14, 0.14);
@@ -335,16 +383,17 @@ export function noticeBoard({ seed = 1, tilt = 0.025 } = {}) {
     L.push(part(lettering(w * 0.7, h * 0.55, 3, '#6b6f86', {}, rng, 0.008), '#6b6f86', { x, y: y - h * 0.08, z: 0.1, rz }));
     L.push(part(ball(0.022, 0), [P.tomato, P.cobalt, P.sunflower][i % 3], { x: x - Math.sin(rz) * h * 0.42, y: y + h * 0.42, z: 0.104 }));
   });
-  // LOST CAT poster: orange cat face on white
-  const cx = 0.56, cy = 1.28;
-  L.push(part(bev(0.34, 0.3, 0.016, 0.004), '#fff8ee', { x: cx, y: cy, z: 0.09, rz: 0.06 }));
-  L.push(part(ball(0.085, 1), P.tangerine, { x: cx, y: cy + 0.03, z: 0.108, sz: 0.4 }));
-  L.push(part(new THREE.ConeGeometry(0.035, 0.07, 3), P.tangerine, { x: cx - 0.055, y: cy + 0.11, z: 0.108, rz: 0.4 }));
-  L.push(part(new THREE.ConeGeometry(0.035, 0.07, 3), P.tangerine, { x: cx + 0.055, y: cy + 0.11, z: 0.108, rz: -0.4 }));
-  L.push(part(lettering(0.24, 0.05, 1, P.tomato, {}, rng, 0.008), P.tomato, { x: cx, y: cy - 0.1, z: 0.1 }));
+  // LOST CAT poster (painted on the sign atlas): big red LOST, an orange cat face, CAT
+  const cx = 0.5, cy = 1.46, pr = 0.05;
+  L.push(part(bev(0.54, 0.7, 0.016, 0.004), '#fff8ee', { x: cx, y: cy, z: 0.09, rz: pr }));
+  L.push(part(ball(0.022, 0), P.tomato, { x: cx - Math.sin(pr) * 0.32, y: cy + 0.32, z: 0.104 }));
   const g = new THREE.Group();
   const m = mesh(L, materials.toy, 'board');
   g.add(m);
+  const poster = signDecal('poster|lost-cat', 0.5, 0.66, drawLostCat, { px: 300, bleed: '#fff8ee' });
+  poster.position.set(cx, cy, 0.1);
+  poster.rotation.z = pr;
+  g.add(poster);
   lean(g, rng, tilt);
   return finish(g, { name: 'noticeBoard', parts: { board: m }, surface: 'wood' });
 }

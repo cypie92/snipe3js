@@ -15,7 +15,8 @@ import { part, merge, xform } from '../world/geo.js';
 import { materials } from '../gfx/materials.js';
 import { P } from '../gfx/palette.js';
 import { bev, puck, boxCollider } from '../world/kit/props/lib.js';
-import { ROOM, buildRoom, buildOutside } from './room.js';
+import { ROOM, buildRoom } from './room.js';
+import { buildOutside } from './outside.js';
 import { birdseedBag, crate } from '../world/kit/props/index.js';
 import * as F from './props.js';
 import { buildBoard, boardEntries, buildTrophyShelf, BOARD } from './board.js';
@@ -25,8 +26,40 @@ import { THEMES, themeFor } from './textures.js';
 
 export const ORIGIN = new THREE.Vector3(0, 0, 4000);
 const SUN_OFFSET = -0.5; // the sun comes in over the camera's left shoulder
-const CAM = { pos: new THREE.Vector3(0, 4.75, 12.9), target: new THREE.Vector3(-0.15, 1.9, -1.0), fov: 31 };
+// Long lens from further back: the back wall (the corkboard) reads ~30% bigger than a close wide
+// camera would allow while the whole doll's house still fits, and the diorama shows over the walls.
+const CAM = { pos: new THREE.Vector3(0, 4.4, 20), target: new THREE.Vector3(-0.15, 1.8, -1.0), fov: 17.25 };
+// First entry: a beat on the establishing shot (HQ, lane, van, village), then a push-in to CAM.
+const WIDE = { pos: new THREE.Vector3(-5.5, 13.5, 38), target: new THREE.Vector3(-3.5, 1.4, -18), fov: 26 };
+// Later entries (back from a shift): a short settle from a little further out.
+const BACK = { pos: new THREE.Vector3(0.6, 5.6, 25), target: new THREE.Vector3(-0.15, 1.8, -1.0), fov: 18.5 };
+const INTRO_FIRST = 1.05;
+const INTRO_AGAIN = 0.55;
+const PARALLAX = { x: 1.1, y: 0.5, tx: 0.25, ty: 0.12 };
+// The unscoped miniature DOF is tuned for the level perch; here it would blur Puddleby and the windmill.
+// The room stays sharp anyway (the camera is ~20 m out), only the far hills go soft.
+const OFFICE_GRADE = { tilt: { near: [0.3, 1.0], far: [420, 1100], bokeh: 1.2 } };
+const RANK = { D: 1, C: 2, B: 3, A: 4, S: 5 };
+const BOARD_X = -0.355;
 const POPS = ['THWOCK!', 'SPLOCK!', 'THOCK!', 'PLOOP!'];
+const smoother = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+const bump = (t, a, b) => (t <= a || t >= b ? 0 : Math.sin(((t - a) / (b - a)) * Math.PI));
+// hover glow: shared materials are swapped for a warm-emissive clone (same program, no recompile)
+const HOT = new Map();
+function hotMaterial(m) {
+  if (!m || !m.isMeshStandardMaterial || m.emissiveMap || (m.emissive && m.emissive.getHex() !== 0)) return null;
+  let h = HOT.get(m);
+  if (!h) {
+    h = m.clone();
+    h.onBeforeCompile = m.onBeforeCompile;
+    h.customProgramCacheKey = m.customProgramCacheKey;
+    h.emissive.set('#ffcf73');
+    h.emissiveIntensity = 0;
+    h.name = `${m.name}-hot`;
+    HOT.set(m, h);
+  }
+  return h;
+}
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 const _v = new THREE.Vector3();
@@ -67,7 +100,9 @@ export class Office {
     this.anims = [];
     this.frame = 0;
     this.focus = { k: 0, goal: 0, point: new THREE.Vector3(), hold: 0 };
-    this.intro = 1;
+    this.intro = { t: 1, dur: INTRO_FIRST, from: WIDE, frames: 0, wall: null, speed: 1 };
+    this.enterCount = 0;
+    this.hotT = 0;
     this.aimPoint = new THREE.Vector3();
     this.raycaster = new THREE.Raycaster();
     this.hud = typeof document !== 'undefined' ? new HubHud(ui || document.body) : null;
@@ -79,7 +114,7 @@ export class Office {
       move: (e) => this.onPointerMove(e),
       down: (e) => this.onPointerDown(e),
       leave: () => { this.pointer.inside = false; this.pointer.dirty = true; },
-      enter: () => { this.pointer.inside = true; },
+      enter: () => { this.pointer.inside = this.pointer.x >= 0; }, // no real position yet: don't hover the screen centre
     };
   }
 
@@ -156,7 +191,7 @@ export class Office {
     const plant2 = this.add(F.pottedPlant({ seed: 9, size: 0.8, pot: P.cobalt }), 4.12, 0, 2.02);
     // clutter: birdseed sack under Pidge's window (he has noticed), apple crate by the bench
     const seed = this.add(birdseedBag({ seed: 3 }), (W.x0 + W.x1) / 2 + 0.72, 0, R.z0 + 0.42, -0.35);
-    const apples = this.add(crate({ seed: 5, size: 0.62, contents: 'apples' }), 1.25, 0, R.z0 + 0.5, 0.25);
+    const apples = this.add(crate({ seed: 5, size: 0.62, contents: 'apples' }), 1.45, 0, R.z0 + 0.5, 0.25);
     this.pick(seed, apples);
     this.pick(plant1, plant2);
 
@@ -164,7 +199,7 @@ export class Office {
     const t = this.targets;
     // corkboard (flyers are registered in refresh)
     this.board = buildBoard();
-    this.add(this.board.group, -0.32, 0.9 + BOARD.h / 2, R.z0 + 0.004);
+    this.add(this.board.group, BOARD_X, 1.2 + BOARD.h / 2, R.z0 + 0.004);
     this.pickables.push(...this.board.pickables);
     // trophy shelf
     this.shelf = buildTrophyShelf();
@@ -188,7 +223,7 @@ export class Office {
     this.ticks.push((dt) => clock.userData.tick(dt));
     // workbench = WORKSHOP
     const bench = F.workbench();
-    this.add(bench, 3.0, 0, R.z0 + 0.43, 0);
+    this.add(bench, 3.12, 0, R.z0 + 0.43, 0);
     bench.add(F.hitBox(2.3, 3.0, 1.0, { y: 1.5, z: -0.05 }));
     this.pick(bench);
     this.addTarget('workshop', bench, {
@@ -273,14 +308,17 @@ export class Office {
     pidgeG.add(this.pidge.root);
     this.add(pidgeG, (W.x0 + W.x1) / 2 + 0.22, W.y0 + 0.02, R.z0 + 0.13, 0.3);
     pidgeG.add(boxCollider(0.65, 1.05, 0.6, { y: 0.48 }));
+    this.pidgeG = pidgeG;
     this.addTarget('pidge', pidgeG, {
       collider: pidgeG.children.at(-1), lift: [0, 0.03, 0], anchor: [0, 0.5, 0.1], bounce: true,
       tip: () => ({ title: 'Inspector Pidge', sub: 'Grades your work. Do NOT shoot the inspector.', color: '#9aa7c7' }),
-      shoot: () => { this.pidge.react({}); this.sfx('pigeonFlap'); this.later(0.2, () => this.sfx('coo')); this.popAt(pidgeG, 'OI!', P.tomato); return null; },
+      shoot: () => { this.pidgeHit(); return null; },
     });
+    this.pfx = { t: 99, dur: 1, k: 0, hit: false, look: new THREE.Vector3(), lookT: 0, capY: 0, capVY: 0, capR: 0, capVR: 0, capSpin: 0 };
     this.ticks.push((dt, tt) => {
-      this.pidge.lookAt(this.aimPoint);
+      this.pidge.lookAt(this.pfx.lookT > 0 ? this.pfx.look : this.aimPoint);
       this.pidge.update(dt, tt);
+      this.animatePidge(dt);
     });
     // Biscuit the cat, asleep on a cushion (she is the LOST CAT on the corkboard...)
     const catG = new THREE.Group();
@@ -314,7 +352,7 @@ export class Office {
     this.ticks.push((dt, tt) => this.cat.update(dt, tt));
   }
 
-  /** Navy peaked cap on the head bone + clipboard under the wing. */
+  /** Navy peaked cap on the head bone (its own pivot: it pops and gets straightened) + clipboard under the wing. */
   dressPidge(pidge) {
     const B = pidge.bones;
     const cap = new THREE.Mesh(merge([
@@ -324,9 +362,17 @@ export class Office {
       part(new THREE.CylinderGeometry(0.05, 0.05, 0.008, 16, 1, false, -Math.PI * 0.4, Math.PI * 0.8), '#1c2340', { y: 0.03, z: 0.028, sz: 1.3, rx: 0.18 }),
       part(puck(0.013, 0.006, 0.002, 12), P.sunflower, { y: 0.058, z: 0.056, rx: Math.PI / 2 - 0.15 }),
     ]), materials.toy);
-    cap.rotation.x = -0.12;
     cap.castShadow = true;
-    B.head.add(cap);
+    const capPivot = new THREE.Group();
+    capPivot.name = 'pidgeCap';
+    capPivot.position.set(0, 0.035, -0.01);
+    capPivot.rotation.x = -0.12;
+    capPivot.scale.setScalar(1.25);
+    cap.position.y = -0.035;
+    capPivot.add(cap);
+    B.head.add(capPivot);
+    this.pidgeCap = capPivot;
+    this.pidgeCapRest = { pos: capPivot.position.clone(), rot: capPivot.rotation.clone() };
     const board = new THREE.Mesh(merge([
       part(bev(0.11, 0.15, 0.008, 0.004), '#c98a4b'),
       part(bev(0.09, 0.12, 0.004, 0.002), '#fff8ee', { y: -0.008, z: 0.005 }),
@@ -371,13 +417,59 @@ export class Office {
     const flyers = this.board.setLevels(boardEntries(this.levels || [], this.progress));
     for (const f of flyers) {
       const tg = this.addTarget(`flyer:${f.def.id}`, f.pivot, {
-        collider: f.collider, lift: [0, 0.03, 0.14], anchor: [0, -f.size[1] * 0.45, 0.02], data: f,
+        collider: f.collider, lift: [0, 0.05, 0.22], anchor: [0, f.lockY, 0.03], data: f, wobAmt: 0.8, // anchor = the doodle, never the name
         tip: () => this.flyerTip(f), shoot: () => this.flyerShot(f),
       });
       tg.kind = 'flyer';
     }
     this.shelf.update(this.levels || [], this.progress);
     this.hud?.setChips(this.progress?.coins ?? 0, this.progress?.stars ?? 0);
+    // a new or better grade since last time: celebrate it on the next entry
+    const grades = new Map((this.levels || []).map((l) => [l.id, this.progress?.level?.(l.id)?.grade || null]));
+    if (this.lastGrades) {
+      for (const [id, g] of grades) {
+        const old = this.lastGrades.get(id);
+        if (g && (!old || (RANK[g] || 0) > (RANK[old] || 0))) this.newTrophy = { id, grade: g };
+      }
+    }
+    this.lastGrades = grades;
+  }
+
+  /** The "new trophy" beat: the cup pops onto the shelf, the flyer gets its stamp, Pidge approves. */
+  celebrateTrophy() {
+    const nt = this.newTrophy;
+    this.newTrophy = null;
+    if (!nt || !this.entered) return;
+    const shelf = this.target('trophies');
+    const cup = this.shelf.byId.get(nt.id);
+    if (cup) {
+      const base = cup.scale.clone(), ry = cup.rotation.y;
+      let t = 0;
+      this.anims.push((dt) => {
+        t += dt;
+        const k = Math.min(1, t / 0.7);
+        const s = k < 0.35 ? (k / 0.35) * 1.35 : 1 + 0.35 * Math.cos(((k - 0.35) / 0.65) * Math.PI * 2.5) * (1 - k);
+        cup.scale.copy(base).multiplyScalar(Math.max(0.01, s));
+        cup.rotation.y = ry + Math.PI * 2 * (1 - (1 - k) ** 3); // one full showy spin, ends facing front
+        return k < 1;
+      });
+    }
+    if (shelf) {
+      shelf.wv += 10;
+      this.popAt(shelf.pivot, 'NEW TROPHY!', '#ffc93c');
+      this.focusOn(shelf.pivot, 0.16);
+    }
+    this.sfx('collect');
+    this.later(0.45, () => {
+      const f = this.target(`flyer:${nt.id}`);
+      if (f) {
+        f.qv += 16;
+        f.wv += 8;
+        this.popAt(f.pivot, `${nt.grade}!`, '#ff5a4e');
+      }
+      this.sfx('stamp');
+    });
+    this.later(0.7, () => { this.pidge.celebrate?.(); this.sfx('coo', { pitch: 1.2 }); });
   }
 
   flyerTip(f) {
@@ -399,9 +491,10 @@ export class Office {
     const { def, locked, teaser } = f.entry;
     if (teaser) { this.popAt(f.pivot, 'SOON!', P.cobalt); return null; }
     if (locked) {
-      if (f.lock) f.lock.rotation.z += 0.3;
-      f.lockShake = 0.6;
+      const tg = f.pivot.userData.hubTarget;
+      if (tg) tg.rattle = 0.7;
       this.sfx('hitMetal');
+      this.later(0.12, () => this.sfx('hitMetal', { pitch: 1.3, volume: 0.6 }));
       this.popAt(f.pivot, 'LOCKED!', '#c9d2de');
       return null;
     }
@@ -437,9 +530,16 @@ export class Office {
       this.root.rotation.y = Math.atan2(s.x, s.z) - SUN_OFFSET;
       env.setShadowFocus(_v.set(0, 1, -0.5).applyAxisAngle(UP, this.root.rotation.y).add(ORIGIN), 14);
     }
+    if (this.scene) {
+      this.prevGrade = this.scene.userData.grade;
+      this.scene.userData.grade = { ...(this.prevGrade || {}), ...OFFICE_GRADE };
+    }
     this.root.updateMatrixWorld(true);
     this.darts.attachGun(true);
-    this.intro = 0;
+    // first entry: establishing shot + push-in; later entries: a short settle
+    const first = this.enterCount++ === 0;
+    Object.assign(this.intro, { t: 0, dur: first ? INTRO_FIRST : INTRO_AGAIN, from: first ? WIDE : BACK, frames: 0, wall: null, speed: 1 });
+    if (this.newTrophy) this.later((first ? INTRO_FIRST : INTRO_AGAIN) + 0.25, () => this.celebrateTrophy());
     this.busy = 0;
     this.focus.goal = 0;
     this.focus.k = 0;
@@ -471,9 +571,14 @@ export class Office {
       c.style.cursor = '';
     }
     this.hud?.show(false);
+    if (this.hover) this.setHot(this.hover, false);
     this.hover = null;
     this.hud?.setHover(null);
     this.pending.length = 0;
+    if (this.scene && this.prevGrade !== undefined) {
+      this.scene.userData.grade = this.prevGrade;
+      this.prevGrade = undefined;
+    }
     const env = this.env;
     if (env && this.prevEnv) {
       if (this.prevEnv.preset && env.preset !== this.prevEnv.preset) env.apply(this.prevEnv.preset);
@@ -487,6 +592,7 @@ export class Office {
     if (this.canvas) this.canvas.style.cursor = on && this.entered ? 'none' : '';
     this.hud?.el.classList.toggle('passive', !on);
     if (!on) {
+      if (this.hover) this.setHot(this.hover, false);
       this.hover = null;
       this.hud?.setHover(null);
       this.hud?.setPointer(-200, -200, false);
@@ -498,7 +604,8 @@ export class Office {
     this.radioOn = !!on;
     const u = this.radio.userData;
     u.dialMat.emissiveIntensity = this.radioOn ? 1.4 : 0;
-    if (!this.radioOn) for (const n of u.notes) n.visible = false;
+    if (!this.radioOn) for (const n of u.notes) u.setNote(n.id, false);
+    u.noteMesh.visible = this.radioOn; // no notes, no draw call
     if (!silent) this.sfx('tick');
   }
 
@@ -549,6 +656,7 @@ export class Office {
     if (!this.entered || !this.interactive || this.busy > 0) return;
     if (this.fireCool > 0) return;
     this.fireCool = 0.22;
+    this.intro.speed = 2.5; // a shot during the push-in hurries the camera along
     this.sound.unlock?.();
     this.hud?.hideHint();
     this.hud?.kick();
@@ -592,6 +700,7 @@ export class Office {
   onDartHit(tg, point) {
     this.sfx('spring', { volume: 0.9 });
     const sp = this.toScreen(point);
+    if (tg?.name !== 'pidge') this.pidgeFlinch(point);
     if (!tg) {
       if (sp) this.hud?.pop(sp.x, sp.y, POPS[(Math.random() * POPS.length) | 0]);
       return;
@@ -685,6 +794,88 @@ export class Office {
     this.sfx('whoosh', { volume: 0.4 });
   }
 
+  // ------------------------------------------------------------------ Inspector Pidge
+  /** A dart landed somewhere: Pidge flinches (squash + ruffle), squawks, glares at it, then fixes his cap. */
+  pidgeFlinch(point) {
+    const f = this.pfx;
+    if (f.t < 0.5) return; // still mid-flinch
+    this.pidgeG.getWorldPosition(_v);
+    const k = THREE.MathUtils.clamp(1.25 - (point ? point.distanceTo(_v) : 5) / 7, 0.4, 1);
+    const again = f.t < 1.7;
+    Object.assign(f, { t: 0, dur: 1.5, k: again ? k * 0.75 : k, hit: false, lookT: 1.25, crook: (Math.random() < 0.5 ? -1 : 1) * (0.3 + 0.15 * k) });
+    if (point) f.look.copy(point);
+    f.capVY += 0.55 * f.k;
+    this.sfx('pigeonFlap', { volume: 0.4 * f.k });
+    if (!again) this.later(0.04, () => this.sfx('gull', { pitch: 1.22, volume: 0.28 + 0.28 * k }));
+  }
+
+  /** Shot directly: big startle, the cap flies off and lands crooked, an indignant OI!, then a huffy straighten. */
+  pidgeHit() {
+    const f = this.pfx;
+    this.pidge.react({});
+    Object.assign(f, { t: 0, dur: 2.1, k: 1, hit: true, lookT: 1.9, crook: 0.55 });
+    f.look.copy(this.camera.position);
+    f.capVY += 1.7;
+    f.capSpin = 1;
+    this.sfx('pigeonFlap');
+    this.later(0.07, () => this.sfx('oi', { voice: 'posh', pitch: 1.45 }));
+    this.later(1.05, () => this.sfx('coo', { pitch: 0.82, volume: 0.9 }));
+    this.popAt(this.pidgeG, 'OI!', P.tomato);
+  }
+
+  animatePidge(dt) {
+    const f = this.pfx, B = this.pidge.bones, cap = this.pidgeCap, rest = this.pidgeCapRest;
+    if (!cap) return;
+    f.t += dt;
+    f.lookT -= dt;
+    const t = f.t, k = f.k;
+    const adjustAt = f.hit ? 1.12 : 0.58;
+    const adjust = bump(t, adjustAt, adjustAt + 0.66);
+    // cap: hops (ballistic, lands back on the head), sits crooked until the wing straightens it
+    if (f.capY > 0 || f.capVY !== 0) {
+      f.capVY -= 9 * dt;
+      f.capY += f.capVY * dt;
+      // one little bounce on a real landing; small impacts settle (the threshold scales with the frame
+      // step so a slow frame's gravity kick can't keep a resting cap micro-bouncing, and spinning, forever)
+      if (f.capY <= 0) { f.capY = 0; f.capVY = f.capVY < -Math.max(0.4, 18 * dt) ? -f.capVY * 0.3 : 0; }
+    }
+    const crook = t < adjustAt + 0.3 ? (f.crook || 0) * Math.min(1, t / 0.08) : 0;
+    f.capVR += ((crook - f.capR) * 150 - f.capVR * (t > adjustAt ? 14 : 8)) * dt;
+    f.capR += f.capVR * dt;
+    // spins while airborne; once it lands it settles to the nearest whole turn
+    if (f.capY === 0 && f.capVY === 0) f.capSpin = 0;
+    f.capAng = (f.capAng || 0) + f.capSpin * 14 * dt;
+    if (!f.capSpin) f.capAng += (Math.round(f.capAng / (Math.PI * 2)) * Math.PI * 2 - f.capAng) * (1 - Math.exp(-dt * 12));
+    cap.position.set(rest.pos.x, rest.pos.y + f.capY, rest.pos.z);
+    cap.rotation.set(rest.rot.x - Math.abs(f.capR) * 0.3, rest.rot.y + f.capAng, rest.rot.z + f.capR);
+    if (t > f.dur + 0.2) return;
+    // flinch: squash down, puff up, wings flare, head ducks (skipped when shot: react() does the startle)
+    if (!f.hit) {
+      const sq = bump(t, 0, 0.14) * 0.36 * k - bump(t, 0.12, 0.4) * 0.14 * k;
+      B.base.scale.y *= 1 - sq;
+      B.base.scale.x *= 1 + sq * 0.5;
+      B.base.scale.z *= 1 + sq * 0.5;
+      B.base.position.y += bump(t, 0.06, 0.34) * 0.05 * k; // a startled little hop
+      if (B.head) B.head.rotation.x += bump(t, 0, 0.32) * 0.5 * k;
+      const flare = bump(t, 0, 0.36) * 1.1 * k * (0.75 + 0.25 * Math.sin(t * 46));
+      if (B.wingL) B.wingL.rotation.z += flare;
+      if (B.wingR) B.wingR.rotation.z -= flare;
+      if (B.body) B.body.scale.setScalar(1 + bump(t, 0.02, 0.34) * 0.12 * k);
+    }
+    // adjust the cap: the right wing (folded back along the body) pitches up and forward to the cap,
+    // gives it a couple of taps, and the head tilts into it
+    if (adjust > 0 && B.wingR) {
+      const reach = Math.min(1, adjust * 1.35);
+      B.wingR.rotation.x += 1.9 * reach; // tip swings up to cap height
+      B.wingR.rotation.y += 0.3 * reach; // ...and in over the head
+      B.wingR.rotation.z -= 0.2 * reach + Math.sin(t * 34) * 0.16 * reach;
+      if (B.head) {
+        B.head.rotation.z += 0.3 * adjust;
+        B.head.rotation.x -= 0.1 * adjust;
+      }
+    }
+  }
+
   tickRadio(dt, t) {
     const u = this.radio.userData;
     const grille = u.grille;
@@ -693,22 +884,20 @@ export class Office {
     grille.scale.set(1 + beat * 0.03, 1 + beat * 0.03, 1 + beat * 0.3);
     u.dialMat.emissiveIntensity = 1.2 + beat * 0.6;
     for (const n of u.notes) {
-      n.userData.t += dt;
-      const k = n.userData.t / 2.2;
-      if (k < 0) { n.visible = false; continue; }
-      if (k >= 1) { n.userData.t = -Math.random() * 0.6; n.visible = false; continue; }
-      n.visible = true;
-      n.position.set(Math.sin(k * 7 + n.id) * 0.1 + 0.05, 0.45 + k * 0.7, 0.1 + k * 0.05);
-      n.rotation.set(0, 0, Math.sin(k * 5 + n.id) * 0.4);
-      n.scale.setScalar(Math.sin(Math.min(1, k * 4) * Math.PI / 2) * (1 - k * 0.3) * 1.3);
-      n.material.opacity = 1 - Math.max(0, (k - 0.7) / 0.3);
+      n.t += dt;
+      const k = n.t / 2.2;
+      if (k < 0) { u.setNote(n.id, false); continue; }
+      if (k >= 1) { n.t = -Math.random() * 0.6; u.setNote(n.id, false); continue; }
+      // pop in, drift up, shrink away at the top (one instanced mesh: fade = scale)
+      const s = Math.sin(Math.min(1, k * 4) * Math.PI / 2) * (1 - k * 0.3) * 1.3 * (1 - Math.max(0, (k - 0.7) / 0.3));
+      u.setNote(n.id, true, Math.sin(k * 7 + n.id) * 0.1 + 0.05, 0.45 + k * 0.7, 0.1 + k * 0.05, Math.sin(k * 5 + n.id) * 0.4, s);
     }
   }
 
   // ------------------------------------------------------------------ frame
   update(dt, t) {
     if (!this.entered) return;
-    dt = Math.min(dt, 0.05);
+    dt = Math.min(Math.max(dt || 0, 0), 0.05); // (a first-frame rAF timestamp can predate the last one)
     this.time += dt;
     t = t ?? this.time;
     this.fireCool = Math.max(0, (this.fireCool || 0) - dt);
@@ -719,17 +908,33 @@ export class Office {
       if (p.t <= 0) { this.pending.splice(i, 1); p.fn(); }
     }
     this.anims = this.anims.filter((fn) => fn(dt));
+    this.tickIntro(dt);
     this.updateCamera(dt);
     this.updateHover(dt);
     for (const fn of this.ticks) fn(dt, t);
     this.updateTargets(dt);
-    for (const f of this.board.flyers) {
-      if (f.lockShake > 0 && f.lock) {
-        f.lockShake -= dt;
-        f.lock.rotation.z = -0.12 + Math.sin(f.lockShake * 40) * 0.25 * f.lockShake;
-      }
-    }
     this.darts.update(dt);
+  }
+
+  /**
+   * Intro clock. The first frames after enter() compile the office's shaders, so the push-in waits for
+   * them; after that it advances by the real elapsed time (dt when frames are fast), so it lands in
+   * ~1 s even when frames are slow (software rendering). Fixed-step sims (sandbox) advance by dt.
+   */
+  tickIntro(dt) {
+    const I = this.intro;
+    if (I.t >= 1) return;
+    if (I.frames++ < 2) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : 0;
+    const wall = I.wall == null ? 0 : (now - I.wall) / 1000;
+    I.wall = now;
+    I.t = Math.min(1, I.t + (Math.max(dt, wall) * I.speed) / I.dur);
+  }
+
+  /** Skip the rest of the entry push-in (automation / accessibility). */
+  skipIntro() {
+    this.intro.t = 1;
+    this.updateCamera(0);
   }
 
   updateCamera(dt) {
@@ -739,19 +944,21 @@ export class Office {
     const ty = this.interactive && p.inside ? THREE.MathUtils.clamp(p.ny, -1, 1) : 0;
     this.par.x += (tx - this.par.x) * k;
     this.par.y += (ty - this.par.y) * k;
-    this.intro = Math.min(1, this.intro + dt / 1.4);
-    const e = 1 - Math.pow(1 - this.intro, 3);
+    const I = this.intro;
+    // hold the establishing frame for a beat, then glide in and settle (smootherstep)
+    const e = I.from === WIDE ? smoother(THREE.MathUtils.clamp((I.t - 0.1) / 0.9, 0, 1)) : smoother(I.t);
     const f = this.focus;
     f.hold -= dt;
     if (f.hold <= 0 && this.busy <= 0) f.goal = 0;
     f.k += (f.goal - f.k) * (1 - Math.exp(-dt * 3.2));
-    const pos = _v.copy(CAM.pos);
-    pos.x += this.par.x * 0.55;
-    pos.y += this.par.y * 0.3 + (1 - e) * 2.4;
-    pos.z += (1 - e) * 4.5;
-    const tgt = _v2.copy(CAM.target);
-    tgt.x += this.par.x * 0.18;
-    tgt.y += this.par.y * 0.12;
+    const pos = _v.lerpVectors(I.from.pos, CAM.pos, e);
+    const tgt = _v2.lerpVectors(I.from.target, CAM.target, e);
+    // swoop: the camera path bows upward a little on the way in
+    pos.y += Math.sin(e * Math.PI) * (I.from === WIDE ? 1.2 : 0.2);
+    pos.x += this.par.x * PARALLAX.x * e;
+    pos.y += this.par.y * PARALLAX.y * e;
+    tgt.x += this.par.x * PARALLAX.tx * e;
+    tgt.y += this.par.y * PARALLAX.ty * e;
     if (f.k > 1e-3) {
       pos.lerp(f.point, f.k);
       tgt.lerp(f.point, Math.min(1, f.k * 2.2));
@@ -761,8 +968,11 @@ export class Office {
     const wt = tgt.applyMatrix4(this.root.matrixWorld);
     _m.lookAt(wp, wt, UP);
     this.view.quaternion.setFromRotationMatrix(_m);
-    this.view.fov = CAM.fov - f.k * 6;
     const cam = this.camera;
+    // framed for 16:9; on narrower screens widen the vertical fov so the room's width still fits
+    const fit = Math.max(1, 16 / 9 / (cam.aspect || 16 / 9));
+    const fov = THREE.MathUtils.lerp(I.from.fov, CAM.fov, e) - f.k * 3.5;
+    this.view.fov = fit > 1 ? THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(fov) / 2) * fit)) : fov;
     cam.position.copy(this.view.position);
     cam.quaternion.copy(this.view.quaternion);
     if (Math.abs(cam.fov - this.view.fov) > 1e-3) {
@@ -770,18 +980,37 @@ export class Office {
       cam.updateProjectionMatrix();
     }
     cam.updateMatrixWorld();
+    this.darts.fitView(cam.fov, cam.aspect);
   }
 
   updateHover() {
     const p = this.pointer;
     // raycast when the pointer moved, otherwise every 4th frame (parallax keeps the camera drifting)
     this.frame++;
-    if (!p.dirty && this.frame % 4 && this._lastHit !== undefined) return this.applyHover(this._lastHit);
+    const moving = this.intro.t < 1;
+    if (!p.dirty && !moving && this.frame % 4 && this._lastHit !== undefined) return this.applyHover(this._lastHit);
     p.dirty = false;
     let hit = null;
     if (this.interactive && p.inside && this.busy <= 0) hit = this.pickAt(p.nx, p.ny);
     this._lastHit = hit;
     this.applyHover(hit);
+  }
+
+  /** Swap a target's meshes to (or back from) their warm hover-glow clones. */
+  setHot(tg, on) {
+    if (tg.kind === 'flyer') return; // flyers get the halo + lift instead (a glow would wash the ink out)
+    for (const m of tg.meshes) {
+      if (on) {
+        if (m.userData.coolMat) continue;
+        const h = hotMaterial(m.material);
+        if (!h) continue;
+        m.userData.coolMat = m.material;
+        m.material = h;
+      } else if (m.userData.coolMat) {
+        m.material = m.userData.coolMat;
+        m.userData.coolMat = null;
+      }
+    }
   }
 
   applyHover(hit) {
@@ -792,20 +1021,45 @@ export class Office {
     else {
       _ndc.set(p.nx, p.ny);
       this.raycaster.setFromCamera(_ndc, this.camera);
-      this.raycaster.ray.at(12, this.aimPoint);
+      this.raycaster.ray.at(20, this.aimPoint);
     }
     this.darts.aim(this.aimPoint);
     if (tg !== this.hover) {
+      if (this.hover) this.setHot(this.hover, false);
       this.hover = tg;
+      const halo = this.board.halo;
+      halo.visible = false;
       if (tg) {
-        tg.wv += 3 * tg.wobAmt;
-        this.sfx('uiHover');
+        this.setHot(tg, true);
+        this.hotT = 0;
+        tg.wv += 3.5 * tg.wobAmt;
+        tg.qv -= 5; // a little squash-and-pop as it comes to the cursor
+        this.sfx('uiHover', { pitch: tg.kind === 'flyer' ? 1.15 : 1 });
+        if (tg.kind === 'flyer') {
+          tg.pivot.add(halo);
+          halo.visible = true;
+          halo.scale.setScalar(0.85);
+        }
       }
     }
-    if (this.hud) this.hud.setHover(tg ? { key: tg.name, ...tg.tip() } : null);
+    if (!this.hud) return;
+    if (!tg) return this.hud.setHover(null);
+    const info = { key: tg.name, ...tg.tip() };
+    // flyer tooltips sit under the flyer so they never hide the board's names
+    if (tg.kind === 'flyer') {
+      const [, fh] = tg.data.size;
+      tg.pivot.updateWorldMatrix(true, false);
+      const sp = this.toScreen(_v.set(0, -fh + 0.02, 0.05).applyMatrix4(tg.pivot.matrixWorld));
+      if (sp) info.at = { x: sp.x, y: sp.y + 10 };
+    }
+    this.hud.setHover(info);
   }
 
   updateTargets(dt) {
+    this.hotT += dt;
+    const glow = 0.08 + 0.06 * (0.5 + 0.5 * Math.sin(this.hotT * 7)) + 0.2 * Math.exp(-this.hotT * 7);
+    for (const h of HOT.values()) h.emissiveIntensity = glow;
+    const halo = this.board.halo;
     for (const tg of this.targets) {
       const goal = tg === this.hover ? 1 : 0;
       tg.lv += ((goal - tg.l) * 170 - tg.lv * 20) * dt;
@@ -820,7 +1074,17 @@ export class Office {
       const w = tg.w * 0.05;
       if (tg.wobAxis === 'y') pv.rotation.y += w;
       else pv.rotation.z += w;
-      const s = 1 + tg.l * 0.035;
+      let s = 1 + tg.l * 0.035;
+      if (tg.kind === 'flyer') {
+        // hovered flyers straighten up on their pin and pop forward
+        pv.rotation.z -= r.rot.z * THREE.MathUtils.clamp(tg.l, 0, 1);
+        s = 1 + tg.l * 0.07;
+        if (tg.rattle > 0) {
+          tg.rattle = Math.max(0, tg.rattle - dt);
+          pv.rotation.z += Math.sin(tg.rattle * 70) * 0.09 * tg.rattle;
+        }
+        if (tg === this.hover && halo.parent === pv) halo.scale.setScalar(THREE.MathUtils.clamp(0.85 + tg.l * 0.15, 0.85, 1.04));
+      }
       const q = THREE.MathUtils.clamp(tg.q * 0.06, -0.25, 0.25);
       pv.scale.set(r.scale.x * s * (1 + q * 0.5), r.scale.y * s * (1 - q), r.scale.z * s * (1 + q * 0.5));
     }

@@ -6,7 +6,7 @@ import { P } from '../../../gfx/palette.js';
 import { Rng } from '../../../core/rng.js';
 import {
   bev, lathe, ball, rod, slab, latheBands, mesh, pivot, finish, paintFaces,
-  LiveMesh, Anims, ease, shade, ballCollider, noise3, paintedTexture, decalMaterial, fitWords, roundRect,
+  LiveMesh, Anims, ease, shade, ballCollider, noise3, wordSign, SIGN_INK,
 } from './lib.js';
 
 const sph = (r, w = 6, h = 4) => new THREE.SphereGeometry(r, w, h);
@@ -77,7 +77,7 @@ function fruitGoods(G, S, rng) {
       const items = [];
       for (let k = 0; k < 3; k++) {
         for (let b = 0; b < 2; b++) {
-          items.push({ geo: new THREE.CylinderGeometry(0.04, 0.032, 0.24, 5), color: b ? '#ffd84a' : '#ffe066', x: -0.2 + k * 0.2 + b * 0.04, y: 0.13 + b * 0.02, z: -0.02 + b * 0.05, rz: 1.25 - b * 0.3, rx: 0.2 });
+          items.push({ geo: new THREE.CylinderGeometry(0.04, 0.032, 0.24, 4), color: b ? '#ffd84a' : '#ffe066', x: -0.2 + k * 0.2 + b * 0.04, y: 0.13 + b * 0.02, z: -0.02 + b * 0.05, rz: 1.25 - b * 0.3, rx: 0.2 });
         }
       }
       mound(G, cr, '#ffe066', items);
@@ -191,73 +191,63 @@ const GOODS = { fruit: fruitGoods, veg: vegGoods, fish: fishGoods, flowers: flow
 
 // ---------------------------------------------------------------- painted stall signs
 
-/** Default sign wording per stall type (override with marketStall({ sign: 'TEXT' })). */
+/** Default sign words per stall type (override with marketStall({ sign: 'Your words' })). */
 export const STALL_SIGNS = { fruit: 'FRUIT & VEG', veg: 'GARDEN VEG', fish: 'FRESH FISH', flowers: 'FLOWERS', cakes: 'CAKES & BAKES' };
-const SIGN_INK = '#2b2b3a';
-const SIGN_ACCENT = { fruit: '#ff3b30', veg: '#ff8a1c', fish: '#3f8fd8', flowers: '#ff5fa2', cakes: '#ff7eb6' };
+const SIGN_ACCENT = { fruit: '#ff3b30', veg: '#ff8a1c', fish: '#3a6ee8', flowers: '#ff5fa2', cakes: '#ff5fa2' };
+// Board: a chunky frame in the awning colour; the painted panel covers its face. Sized so the words
+// read through a 4x scope at 50-80 m (cap height ~0.2 m for 11-13 letters, more for short words).
+const BOARD = { w: 2.46, h: 0.64, y: 2.8, z: 0.74, d: 0.09 };
 
-/** Chunky toy icon for a stall type, centred at (x, y), radius ~r. */
-function drawStallIcon(ctx, goods, x, y, r) {
-  ctx.lineWidth = r * 0.13;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = SIGN_INK;
-  const shape = (fill, path) => { ctx.beginPath(); path(); ctx.fillStyle = fill; ctx.fill(); ctx.stroke(); };
-  const dot = (px, py, pr, fill) => { ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); };
+/** Chunky 3D mascot of the goods sitting on the sign board (glossy goods mesh). (y, z) = board top centre. */
+function signTopper(G, goods, y, z) {
+  const T = (t) => ({ ...t, y: y + (t.y || 0), z: z + (t.z || 0) });
+  const at = (geo, color, t = {}) => G.push(part(geo, color, T(t)));
+  const raw = (geo, t = {}) => G.push(geo.applyMatrix4(xform(T(t)))); // pre-coloured
   if (goods === 'fish') {
-    shape('#8fc0e8', () => { ctx.moveTo(x - r * 0.5, y); ctx.lineTo(x - r * 1.02, y - r * 0.46); ctx.lineTo(x - r * 0.94, y); ctx.lineTo(x - r * 1.02, y + r * 0.46); ctx.closePath(); });
-    shape('#8fc0e8', () => ctx.ellipse(x + r * 0.12, y, r * 0.78, r * 0.46, 0, 0, Math.PI * 2));
-    ctx.beginPath(); ctx.moveTo(x - r * 0.1, y - r * 0.4); ctx.quadraticCurveTo(x + r * 0.05, y, x - r * 0.1, y + r * 0.4); ctx.stroke();
-    dot(x + r * 0.5, y - r * 0.1, r * 0.11, SIGN_INK);
+    at(ball(0.17, 0), '#8fc0e8', { y: 0.2, sx: 2.0, sz: 0.55, rz: 0.22 });
+    at(new THREE.ConeGeometry(0.15, 0.2, 3), '#6fa4d4', { x: -0.4, y: 0.1, rz: Math.PI / 2 + 0.5, sz: 0.3 });
+    at(new THREE.ConeGeometry(0.07, 0.12, 3), '#6fa4d4', { x: 0.02, y: 0.37, rz: -0.3, sz: 0.3 });
+    at(ball(0.035, 0), SIGN_INK, { x: 0.22, y: 0.3, z: 0.075 });
   } else if (goods === 'flowers') {
+    at(rod([0, 0, 0], [0.02, 0.2, 0], 0.025, 4), '#4f9a3c');
     for (let i = 0; i < 5; i++) {
-      const a = -Math.PI / 2 + (i * Math.PI * 2) / 5;
-      shape('#ff8cc6', () => ctx.arc(x + Math.cos(a) * r * 0.52, y + Math.sin(a) * r * 0.52, r * 0.4, 0, Math.PI * 2));
+      const a = (i / 5) * Math.PI * 2 + 0.3;
+      at(ball(0.1, 0), '#ff8cc6', { x: Math.cos(a) * 0.13, y: 0.34 + Math.sin(a) * 0.13, sz: 0.4 });
     }
-    shape('#ffc93c', () => ctx.arc(x, y, r * 0.34, 0, Math.PI * 2));
+    at(new THREE.CylinderGeometry(0.085, 0.085, 0.07, 8), P.sunflower, { y: 0.34, z: 0.03, rx: Math.PI / 2 });
+    at(new THREE.ConeGeometry(0.07, 0.16, 3), '#5cb83c', { x: 0.1, y: 0.1, rz: -0.9, sz: 0.3 });
   } else if (goods === 'cakes') {
-    shape('#6fc3e0', () => { ctx.moveTo(x - r * 0.62, y); ctx.lineTo(x + r * 0.62, y); ctx.lineTo(x + r * 0.44, y + r * 0.82); ctx.lineTo(x - r * 0.44, y + r * 0.82); ctx.closePath(); });
-    shape('#ffb3d1', () => { ctx.moveTo(x - r * 0.78, y + r * 0.04); ctx.quadraticCurveTo(x - r * 0.86, y - r * 0.62, x, y - r * 0.66); ctx.quadraticCurveTo(x + r * 0.86, y - r * 0.62, x + r * 0.78, y + r * 0.04); ctx.closePath(); });
-    shape('#ff3b30', () => ctx.arc(x, y - r * 0.78, r * 0.2, 0, Math.PI * 2));
+    raw(latheBands([[0, 0], [0.1, 0], [0.14, 0.15], [0, 0.15]], 8, (yy, i) => (i === 1 ? '#6fc3e0' : '#5aaed0')));
+    at(lathe([[0.15, 0], [0.16, 0.05], [0.11, 0.12], [0.12, 0.15], [0.06, 0.22], [0, 0.27]], 8), '#ffb3d1', { y: 0.14 });
+    at(ball(0.05, 0), '#ff3b30', { y: 0.44 });
   } else if (goods === 'veg') {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(-0.5);
-    for (const a of [-0.45, 0, 0.45]) shape('#5cb83c', () => ctx.ellipse(Math.sin(a) * r * 0.3, -r * 0.72, r * 0.14, r * 0.34, a, 0, Math.PI * 2));
-    shape('#ff8a1c', () => { ctx.moveTo(-r * 0.36, -r * 0.46); ctx.quadraticCurveTo(0, -r * 0.62, r * 0.36, -r * 0.46); ctx.lineTo(0, r * 0.98); ctx.closePath(); });
-    for (const k of [0, 1, 2]) { ctx.beginPath(); ctx.moveTo(-r * (0.22 - k * 0.05), -r * (0.2 - k * 0.34)); ctx.lineTo(-r * (0.02 - k * 0.02), -r * (0.16 - k * 0.34)); ctx.stroke(); }
-    ctx.restore();
+    at(new THREE.ConeGeometry(0.1, 0.46, 6), '#ff8a1c', { x: 0.02, y: 0.2, rz: Math.PI - 0.55 });
+    for (const a of [-0.5, 0, 0.5]) at(new THREE.ConeGeometry(0.04, 0.2, 3), '#5cb83c', { x: -0.14 + a * 0.06, y: 0.4, rz: 0.55 + a });
+    at(ball(0.11, 0), '#ff3b30', { x: 0.24, y: 0.1 });
   } else {
-    shape('#ff3b30', () => { ctx.moveTo(x, y - r * 0.42); ctx.bezierCurveTo(x + r * 0.9, y - r * 0.95, x + r * 1.05, y + r * 0.55, x, y + r * 0.8); ctx.bezierCurveTo(x - r * 1.05, y + r * 0.55, x - r * 0.9, y - r * 0.95, x, y - r * 0.42); ctx.closePath(); });
-    ctx.beginPath(); ctx.moveTo(x, y - r * 0.4); ctx.lineTo(x + r * 0.06, y - r * 0.82); ctx.stroke();
-    shape('#5cb83c', () => ctx.ellipse(x + r * 0.34, y - r * 0.72, r * 0.3, r * 0.14, -0.5, 0, Math.PI * 2));
-    dot(x - r * 0.38, y - r * 0.1, r * 0.13, '#ffffffb0');
+    at(lathe([[0, 0.02], [0.12, 0], [0.19, 0.12], [0.16, 0.28], [0.05, 0.33], [0, 0.29]], 8), '#ff3b30');
+    at(rod([0, 0.28, 0], [0.03, 0.42, 0], 0.018, 3), P.woodDark);
+    at(new THREE.ConeGeometry(0.06, 0.2, 3), '#5cb83c', { x: 0.1, y: 0.4, rz: -1.2, sz: 0.35 });
   }
 }
 
-/** Cream board texture: ink border, stall icon on the left, the words fitted big on the right. */
-function stallSignTexture(key, text, goods) {
-  return paintedTexture(key, 640, 176, (ctx, w, h) => {
-    ctx.fillStyle = '#fff4e0';
-    ctx.fillRect(0, 0, w, h);
-    ctx.lineWidth = 9;
-    ctx.strokeStyle = SIGN_INK;
-    roundRect(ctx, 11, 11, w - 22, h - 22, 24);
-    ctx.stroke();
-    const icon = goods in STALL_SIGNS;
-    if (icon) drawStallIcon(ctx, goods, 100, h / 2 + 2, 54);
-    const x0 = icon ? 176 : 34, x1 = w - 34;
-    fitWords(ctx, text, (x0 + x1) / 2, h / 2, x1 - x0, h - 58, { fill: SIGN_INK, shadow: `${SIGN_ACCENT[goods] || '#ffc93c'}99` });
-  });
+/** The painted sign panel for a stall (shared atlas slot per words + goods). */
+function stallSign(text, goods) {
+  const w = BOARD.w - 0.12, h = BOARD.h - 0.12;
+  const accent = SIGN_ACCENT[goods] || P.tangerine;
+  return wordSign(text, w, h, { accent, px: 500, round: 0.07, bounce: 1, pad: 0.12 });
 }
 
 /**
- * marketStall({ goods: 'fruit'|'veg'|'fish'|'flowers'|'cakes', awning: [c1, c2], seed, sign = true })
- * ~2.6 m wide, front (customer side) = +Z. `sign`: true = the stall type's words (STALL_SIGNS: FRUIT & VEG,
- * GARDEN VEG, FRESH FISH, FLOWERS, CAKES & BAKES), a string = your own words, false = no sign board.
- * The words are painted in the Fredoka toy font on a CanvasTexture (repainted once fonts load;
- * textures/materials are shared between stalls with the same words).
- * parts: { stall, goods (glossy mesh), sign (painted decal mesh or null) }. 3 draw calls (2 without a sign).
+ * marketStall({ goods: 'fruit'|'veg'|'fish'|'flowers'|'cakes', awning: [c1, c2], seed, sign = true, topper = true })
+ * ~2.6 m wide, ~3.5 m tall with its sign, front (customer side) = +Z.
+ * `sign`: true = the stall type's words (STALL_SIGNS: FRUIT & VEG, GARDEN VEG, FRESH FISH, FLOWERS,
+ * CAKES & BAKES), a string = your own words (case kept), false = no sign board. The words are painted
+ * big in Fredoka on the shared sign atlas (legible through a 4x scope at 50-80 m); `topper` puts a
+ * chunky goods mascot on the board. parts: { stall, goods (glossy mesh), sign (decal mesh or null) }.
+ * 3 draw calls (2 without a sign); all stall signs share one material, so they batch together.
  */
-export function marketStall({ goods = 'fruit', awning, seed = 1, sign = true } = {}) {
+export function marketStall({ goods = 'fruit', awning, seed = 1, sign = true, topper = true } = {}) {
   const rng = new Rng(`stall-${goods}-${seed}`);
   const [c1, c2] = awning || [P.tomato, '#fff8ee'];
   const W = 2.6;
@@ -296,15 +286,13 @@ export function marketStall({ goods = 'fruit', awning, seed = 1, sign = true } =
   }
   let signMesh = null;
   if (sign) {
-    const text = String(typeof sign === 'string' ? sign : STALL_SIGNS[goods] || goods).toUpperCase();
-    L.push(part(bev(1.5, 0.44, 0.07, 0.04), '#fff4e0', { y: 2.72, z: 0.74 }));
-    L.push(part(box(1.56, 0.07, 0.09), c1, { y: 2.96, z: 0.74 }));
-    for (const x of [-0.6, 0.6]) L.push(part(rod([x, 2.3, 0.72], [x, 2.52, 0.74], 0.03, 4), P.woodDark));
-    const key = `stall|${goods}|${text}`;
-    const plane = new THREE.PlaneGeometry(1.44, 0.396).translate(0, 2.72, 0.7765);
-    signMesh = new THREE.Mesh(plane, decalMaterial(key, stallSignTexture(key, text, goods)));
-    signMesh.name = 'sign';
-    signMesh.receiveShadow = true;
+    const text = typeof sign === 'string' ? sign : STALL_SIGNS[goods] || String(goods).toUpperCase();
+    const { w: bw, h: bh, y: by, z: bz, d: bd } = BOARD;
+    L.push(part(bev(bw, bh, bd, 0.045), c1, { y: by, z: bz }));
+    for (const x of [-0.78, 0.78]) L.push(part(rod([x, 2.28, bz - 0.02], [x, by - bh / 2 + 0.03, bz], 0.035, 4), P.woodDark));
+    if (topper) signTopper(G, goods, by + bh / 2 - 0.02, bz);
+    signMesh = stallSign(text, goods);
+    signMesh.position.set(0, by, bz + bd / 2 + 0.004);
   }
   const g = new THREE.Group();
   const stall = mesh(L, materials.toy, 'stall');

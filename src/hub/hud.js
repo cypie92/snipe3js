@@ -22,7 +22,7 @@ const CSS = `
 .hub-cross .ring { fill: none; stroke: #fff8ee; stroke-width: 9; }
 .hub-cross .ink { fill: none; stroke: #2b2b3a; stroke-width: 4.5; stroke-linecap: round; }
 .hub-cross .dot { fill: #ff5a4e; stroke: #2b2b3a; stroke-width: 2.5; }
-.hub-cross .lock { fill: none; stroke: #ffc93c; stroke-width: 6; opacity: 0; transition: opacity .15s; }
+.hub-cross .lock { fill: none; stroke: var(--lock, #ffc93c); stroke-width: 6; opacity: 0; transition: opacity .15s; }
 .hub-cross.hot .lock { opacity: 1; }
 .hub-cross.hot svg { animation: hubspin 2.4s linear infinite; }
 .hub-cross.hide { opacity: 0; }
@@ -97,11 +97,15 @@ export class HubHud {
     this.placeTip();
   }
 
-  /** info = { key, title, sub, cta, color, stars?: [n, max] } | null */
+  /** info = { key, title, sub, cta, color, stars?: [n, max], at?: { x, y } (pin the tip under this point) } | null */
   setHover(info) {
     this.cross.classList.toggle('hot', !!info);
+    this.anchor = info?.at || null;
     const key = info ? `${info.key}|${info.title}|${info.sub}|${info.cta}` : null;
-    if (key === this.tipKey) return;
+    if (key === this.tipKey) {
+      if (this.anchor) this.placeTip();
+      return;
+    }
     this.tipKey = key;
     if (!info) {
       this.tip.classList.remove('on');
@@ -127,6 +131,8 @@ export class HubHud {
     } else c?.remove();
     const rot = `rotate(${((info.key || '').length % 3) - 1.5}deg)`;
     this.tip.style.setProperty('--rot', rot);
+    this.tip.style.transformOrigin = this.anchor ? '50% 0' : '0 0';
+    this.cross.style.setProperty('--lock', info.color || '#ffc93c');
     this.tip.classList.remove('on');
     void this.tip.offsetWidth; // restart the pop animation
     this.tip.classList.add('on');
@@ -136,6 +142,18 @@ export class HubHud {
   placeTip() {
     if (!this.tipKey) return;
     const w = this.tip.offsetWidth || 220, h = this.tip.offsetHeight || 90;
+    if (this.anchor) {
+      // re-placed every frame: only touch the style when it actually moves (no per-frame layout churn)
+      const x = Math.round(Math.min(innerWidth - w - 8, Math.max(8, this.anchor.x - w / 2)));
+      const y = Math.round(Math.min(innerHeight - h - 8, Math.max(8, this.anchor.y)));
+      if (x === this.tipX && y === this.tipY) return;
+      this.tipX = x;
+      this.tipY = y;
+      this.tip.style.left = `${x}px`;
+      this.tip.style.top = `${y}px`;
+      return;
+    }
+    this.tipX = this.tipY = null;
     let x = this.x + 34, y = this.y + 26;
     if (x + w > innerWidth - 10) x = this.x - w - 30;
     if (y + h > innerHeight - 10) y = this.y - h - 24;

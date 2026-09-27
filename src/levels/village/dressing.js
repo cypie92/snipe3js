@@ -151,7 +151,7 @@ export function buildDressing(ctx, S, L) {
   const CA = [-19.4, 31.2], CAR = facePerch(-19.4, 31.2) * 0.6;
   add(castle, CA[0], CA[1], CAR, { surface: 'soft' });
   D.castle = { x: CA[0], z: CA[1], ry: CAR, deck: castle.userData.deck };
-  add(C.coconutShy({}), 15.8, 29.4, facePerch(15.8, 29.4), { surface: 'wood' });
+  // (the coconut shy is built by games.js: its coconuts are a combo job)
   add(C.tombola({}), -19.6, 25.4, facePerch(-19.6, 25.4), { surface: 'wood' });
   add(C.prizeTable({}), -4.8, 22.3, facePerch(-4.8, 22.3), { surface: 'wood' });
   D.prizeTable = { x: -4.8, z: 22.3 };
@@ -208,6 +208,26 @@ export function buildDressing(ctx, S, L) {
   D.crumbBench = { x: CB[0], z: CB[1], ry: CBR };
   // village sign by the lay-by
   add(C.villageSign(), -6.4, 39.6, 0.04, { surface: 'wood' });
+  // the near lawn right under the van (the bottom of the default view): a Punch & Judy show, a
+  // tug-of-war rope waiting for 3 o'clock, the lost-property table (and a dog nobody has claimed),
+  // a family picnic (dad asleep: life.js) and odd bits of fête litter
+  const pj = C.punchAndJudy();
+  add(pj, -6.2, 29.6, facePerch(-6.2, 29.6), { animate: true, batch: false, surface: 'soft' });
+  S.batch.addMeshes(pj, 'soft'); // the booth merges; the puppets' LiveMesh stays live
+  add(C.tugRope({ len: 6.4, seed: 2 }), -6.4, 33.4, 0.08, { surface: 'soft' });
+  add(C.aBoard('TUG OF WAR', { sub: '3pm · all welcome' }), -10.2, 32.6, facePerch(-10.2, 32.6), { surface: 'wood' });
+  add(C.lostProperty(), 5.9, 30.6, facePerch(5.9, 30.6), { surface: 'wood' });
+  D.lostProperty = { x: 5.9, z: 30.6 };
+  for (const [x, z, seed] of [[-2.9, 28.4, 1], [3.1, 27.3, 2], [12.8, 27.6, 3], [-13.4, 32.2, 4], [-7.4, 36.2, 5], [8.8, 35.6, 6]]) add(C.feteLitter({ seed, r: 1.3 }), x, z, seed, { surface: 'soft' });
+  D.picnic = { x: 10.9, z: 31.5, ry: -0.35 };
+  add(C.picnicBlanket({ color: P.tomato }), D.picnic.x, D.picnic.z, D.picnic.ry, { surface: 'soft' });
+  // ...and the square's bare corners: a hopscotch in the south-east, a florist's barrow and a pram
+  // in the south-west, an A-board pointing at the cakes (the juggler + queue are in life.js)
+  add(C.hopscotch({ seed: 1 }), 24.6, 13.6, 0.12, { surface: 'stone' });
+  add(C.flowerBarrow({ seed: 2 }), -25.6, 3.0, 1.45, { surface: 'wood' });
+  add(C.aBoard('CAKES', { sub: 'lovely & fresh 20p', bg: '#7a4a26' }), 25.2, 5.6, facePerch(25.2, 5.6), { surface: 'wood' });
+  D.pram = { x: -15.4, z: 3.4, ry: facePerch(-15.4, 3.4) + 0.45 };
+  add(C.pram({ color: P.teal }), D.pram.x, D.pram.z, D.pram.ry, { surface: 'soft' });
 
   // ------------------------------------------------------------ east flank: pub garden, tea tent, car-boot sale
   for (const [x, z, ry, c] of [[34.6, 13.6, -0.4, P.tomato], [39.4, 15.4, -0.2, P.cobalt], [36.6, 18.9, 0.3, P.sunflower]]) {
@@ -269,10 +289,11 @@ export function buildDressing(ctx, S, L) {
   root.add(paddock);
   S.batch.add(paddock, 'wood');
   D.paddock = { x0: -69, x1: -60, z0: 6, z1: 28 };
-  // duck pond at the green's east corner
-  const pond = C.pond({ r: 4.0, seed: 3 });
-  add(pond, 36.6, 41.2, 0.4, { surface: 'water' });
-  D.pond = { x: 36.6, z: 41.2, r: 4.0 };
+  // the pub pond, between the beer garden and the ring road: the cricket sixes land in it (games.js).
+  // Inside the perch's yaw limits so the whole six arc can be tracked and shot.
+  const pond = C.pond({ r: 3.4, seed: 3 });
+  add(pond, 46.0, 12.4, 0.2, { surface: 'water' });
+  D.pond = { x: 46.0, z: 12.4, r: 3.4, ry: 0.2, waterY: pond.userData.waterY };
   // fête car park on the west lawn
   const carPark = [
     [K.car({ style: 'beetle', color: P.cobalt, seed: 31 }), -38.6, 46.8, 1.35],
@@ -360,7 +381,7 @@ export function buildDressing(ctx, S, L) {
   root.add(daisies);
   for (const o of [meadow, tufts, daisies]) ctx.surface(o, 'grass');
   // bushes dotted about (merged via the batcher)
-  const bushes = [[-36.6, -16, null], [-35.8, 11.4, '#ff7eb6'], [-22.6, -35.6, null], [33.2, -26.6, '#fff4e6'], [45.6, 11.8, null], [44.4, -8.6, '#ffb8c2'],
+  const bushes = [[-36.6, -16, null], [-35.8, 11.4, '#ff7eb6'], [-22.6, -35.6, null], [33.2, -26.6, '#fff4e6'], [44.4, -8.6, '#ffb8c2'],
     [-52.4, 40.2, '#ffc93c'], [-14.6, -37.6, null], [13.8, -37.8, '#ff7eb6'], [-55.6, -26, null], [52.4, -31.6, null], [-49.8, -8.6, '#ffb8c2']];
   for (const [x, z, f] of bushes) {
     const bu = N.bush({ seed: x * z, size: rng.range(0.9, 1.3), flowers: f });
