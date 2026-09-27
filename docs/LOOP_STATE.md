@@ -63,6 +63,9 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
       https://claude.ai/artifact/R9tqJFmwUaAfwFVLnaJ7BL (v1 = commit 2c7be32). To republish:
       `npx vite build && node tools/artifact-page.mjs`, then Artifact publish `dist/artifact.html`
       with the `files` map from `dist/artifact.files.json` and `url` set to that link.
+      **Public build (Sep 27):** the repo is public and `main` is the default branch; every push to
+      `main` rebuilds and deploys https://cypie92.github.io/snipe3js/ via `.github/workflows/pages.yml`
+      (Pages source = GitHub Actions). Develop on the feature branch, fast-forward `main` to release.
       **Loop paused here at the user's request so they can play-test.** On resume: fold in their
       feedback first, then the open round-3 items above, Barnacle Bay, review 3.
 - Kit bugs to fix (found by the level designer, worked around in the level): buildings addCollider()
