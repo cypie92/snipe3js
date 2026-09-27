@@ -46,7 +46,13 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
       water, lens, 90→63 programs, NaN/AO fixes), characters (tell stickers, face shooter, voices,
       full harbour cast incl. seals/crabs/gulls/pelican), audio (babble, vocals, loops, hold-breath).
 - [x] Lead: nest eye raised (railing only when looking down), loading-card/intro/capture fixes.
-- [ ] Review 2 running (review/REVIEW-2.md). Harbour kit (buildings/props) + Barnacle Bay level next.
+- [x] Review 2 done: 7.2/10 (review/REVIEW-2.md). New blocker (office-path intro) fixed by the lead,
+      plus coach marks, bubble layout (max 3, on-screen), hit-stop, bullet-cam blur off, shift-end
+      stinger, office-path capture.
+- [ ] Round 3 running (fresh agents, 01:25 UTC Sep 27, after a session-limit cut): level (moving /
+      timing / combo jobs, bare lawn, backdrop, facing, hearts, Sarge), tech-art FX (readable toy FX,
+      near-lens blur, draw calls), props (stall-sign lettering, kit bugs, harbour props), hub (flyers,
+      outside diorama, entry push-in, Pidge reactions). Next: buildings harbour kit + Barnacle Bay.
 - Kit bugs to fix (found by the level designer, worked around in the level): buildings addCollider()
   doesn't flag colliders; church update overwrites weathervane rotation; bunting coil scale reset each
   frame; phone box glass opaque; birdseed spill point at bag origin.
