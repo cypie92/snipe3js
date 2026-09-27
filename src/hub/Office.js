@@ -294,7 +294,8 @@ export class Office {
       shoot: () => { this.hopCap(rack); return null; },
     });
     // plant (fun)
-    plant1.add(F.hitBox(1.2, 2.1, 1.2, { y: 1.0 }));
+    // (narrower, and nudged left: from the hub camera the old 1.2 m box covered the left half of Pidge on the sill)
+    plant1.add(F.hitBox(1.0, 2.1, 1.0, { x: -0.1, y: 1.0 }));
     this.addTarget('plant', plant1, {
       collider: plant1.children.at(-1), lift: [0, 0, 0], anchor: [0, 1.2, 0.3], wobAmt: 0.6,
       tip: () => ({ title: 'Gerald the plant', sub: 'Thrives on neglect.', color: '#5fae44' }),
@@ -531,8 +532,8 @@ export class Office {
       env.setShadowFocus(_v.set(0, 1, -0.5).applyAxisAngle(UP, this.root.rotation.y).add(ORIGIN), 14);
     }
     if (this.scene) {
-      this.prevGrade = this.scene.userData.grade;
-      this.scene.userData.grade = { ...(this.prevGrade || {}), ...OFFICE_GRADE };
+      this.prevGrade = { value: this.scene.userData.grade };
+      this.scene.userData.grade = { ...(this.scene.userData.grade || {}), ...OFFICE_GRADE };
     }
     this.root.updateMatrixWorld(true);
     this.darts.attachGun(true);
@@ -575,9 +576,11 @@ export class Office {
     this.hover = null;
     this.hud?.setHover(null);
     this.pending.length = 0;
-    if (this.scene && this.prevGrade !== undefined) {
-      this.scene.userData.grade = this.prevGrade;
-      this.prevGrade = undefined;
+    if (this.scene && this.prevGrade) {
+      // put back exactly what was there (even "nothing": the office tilt must not leak into a level)
+      if (this.prevGrade.value === undefined) delete this.scene.userData.grade;
+      else this.scene.userData.grade = this.prevGrade.value;
+      this.prevGrade = null;
     }
     const env = this.env;
     if (env && this.prevEnv) {
@@ -1107,6 +1110,8 @@ export class Office {
   }
 
   debugHover(name) {
+    // automation aims at the settled view (mid push-in, the camera would carry the target out from under the pointer)
+    if (this.intro.t < 1) this.skipIntro();
     const s = this.screenPos(name);
     if (!s) return false;
     const r = this.canvas.getBoundingClientRect();
