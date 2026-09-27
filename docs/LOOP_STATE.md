@@ -59,7 +59,12 @@ depth, game feel/juice, UI/UX, audio, performance, completeness) and the demo is
       Pidge reactions. Next: buildings harbour kit + Barnacle Bay, then review 3.
 - [x] **Checkpoint for user testing (07:00 UTC Sep 27):** build + full play-through verified headless
       (title → office dart → intro → briefing → every job by real shots → clock-off → results, 0
-      console errors, ~440 draw calls at play start). Playable build published as a private Artifact.
+      console errors, ~440 draw calls at play start). Playable build published as a private Artifact:
+      https://claude.ai/artifact/R9tqJFmwUaAfwFVLnaJ7BL (v1 = commit 2c7be32). To republish:
+      `npx vite build && node tools/artifact-page.mjs`, then Artifact publish `dist/artifact.html`
+      with the `files` map from `dist/artifact.files.json` and `url` set to that link.
+      **Loop paused here at the user's request so they can play-test.** On resume: fold in their
+      feedback first, then the open round-3 items above, Barnacle Bay, review 3.
 - Kit bugs to fix (found by the level designer, worked around in the level): buildings addCollider()
   doesn't flag colliders; church update overwrites weathervane rotation; bunting coil scale reset each
   frame; phone box glass opaque; birdseed spill point at bag origin.

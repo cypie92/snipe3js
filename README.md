@@ -57,3 +57,5 @@ tools/        headless capture / screenshot tooling (Playwright + SwiftShader)
 ## Automation
 `window.__game` exposes a small API (`startLevel`, `aimAt`, `shootJob`, `scope`, `completeAll`,
 `stats`, …) used by `npm run capture -- --level <id>` to take review screenshots headlessly.
+`node tools/artifact-page.mjs` (after a build) turns `dist/` into a single page plus a `files` map
+for publishing the game as a claude.ai Artifact.
